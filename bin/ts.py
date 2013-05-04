@@ -81,6 +81,12 @@ class Read(object):
         rdname = "!!ts-sep!!".join(["!!ts!!", refid, "+" if fw else "-", str(refoff), str(sc), trainingNm])
         return cls(rdname, seq, qual)
     
+    @classmethod
+    def toTab6(cls, rd1, rd2=None):
+        if rd2 is not None:
+            return "\t".join([rd1.name, rd1.seq, rd1.qual, rd2.name, rd2.seq, rd2.qual])
+        return "\t".join([rd1.name, rd1.seq, rd1.qual])
+    
     def __len__(self):
         """ Return number of nucleotides in read """
         return len(self.seq)
@@ -1048,7 +1054,7 @@ class Output(threading.Thread):
         a simulated read, its correctness will be checked and a tuple
         written """
     
-    def __init__(self, samIfh, samOfh, unalFh, training, dists):
+    def __init__(self, samIfh, samOfh, unalFh, training, dists, ival=1000):
         threading.Thread.__init__(self)
         self.samIfh = samIfh         # SAM records come from here
         self.samOfh = samOfh         # normal (non-simulated) SAM recs go here
@@ -1056,15 +1062,24 @@ class Output(threading.Thread):
         self.dists = dists           # distributions
         self.unalFh = unalFh         # write unaligned reads here
         self.scDiffs = {}            # histogram of expected-versus-observed score differences
+        self.ival = ival
     
     def run(self):
         lastAl = None
+        nal, nunp, npair = 0, 0, 0
         for ln in self.samIfh:
             if ln[0] == '@':
                 if self.samOfh is not None:
                     self.samOfh.write(ln) # header line
                 continue
             al = Alignment(ln)
+            nal += 1
+            if al.paired:
+                npair += 1
+            else:
+                nunp += 1
+            if (nal % self.ival) == 0:
+                print >> sys.stderr, "      # Bowtie 2 alignments parsed: %d (%d paired, %d unpaired)" % (nal, npair, nunp)
             nm, flags, refid, pos, _, _, _, _, _, seq, qual, _ = string.split(ln, '\t', 11)
             
             # If this is one mate from a concordantly-aligned pair,
@@ -1133,6 +1148,8 @@ class AsyncWriter(threading.Thread):
         self.q = q
     
     def run(self):
+        """ Write reads to the FIFO.  When None appears on the queue, we're
+            done receiving reads and we close the FIFO filehandle. """
         i = 0
         fh = open(self.fn, 'w')
         while True:
@@ -1140,14 +1157,12 @@ class AsyncWriter(threading.Thread):
             if item is None:
                 # None signals the final write
                 self.q.task_done()
-                fh.flush()
                 fh.close()
                 break
             fh.write(item)
-            fh.flush()
             self.q.task_done()
             i += 1
-        fh.close()
+        fh.close() # close FIFO filehandle
 
 def createInput():
     """ Return an Input object that reads all user-provided input reads """
@@ -1160,72 +1175,33 @@ class Bowtie2(object):
     
     """ Encapsulates a Bowtie 2 process """
     
-    def __makeFifos(self, unpaired, paired):
-        fifoArgs = ''
-        fifoFns = [None, None, None] # FIFO filenames
-        # Make temporary directory to store FIFOs
-        tmpdir = tempfile.mkdtemp()
-        # Make the appropriate FIFOs given the types of input we have
-        if unpaired:
-            fifoFns[0] = os.path.join(tmpdir, 'U.fifo')
-            os.mkfifo(fifoFns[0])
-            fifoArgs += (" -U " + fifoFns[0])
-        if paired:
-            fifoFns[1] = os.path.join(tmpdir, 'm1.fifo')
-            os.mkfifo(fifoFns[1])
-            fifoArgs += (" -1 " + fifoFns[1])
-            fifoFns[2] = os.path.join(tmpdir, 'm2.fifo')
-            os.mkfifo(fifoFns[2])
-            fifoArgs += (" -2 " + fifoFns[2])
-        return fifoArgs, fifoFns
-    
     def __init__(self, bt2_cmd, unpaired, paired):
-        self.Qs  = [None, None, None] # FIFO read queues
-        self.Ws  = [None, None, None] # FIFO worker threads
-        args, self.fns = self.__makeFifos(unpaired, paired)
-        bt2_cmd += args
-        
-        # Open the Bowtie 2 process, which is going to want to start reading from
-        # one or more of the FIFOs
+        tmpdir = tempfile.mkdtemp()
+        self.fn = os.path.join(tmpdir, 'fifo')
+        os.mkfifo(self.fn)
+        bt2_cmd += (" --tab6 " + self.fn)
+        print >> sys.stderr, "Bowtie 2 command: " + bt2_cmd
         self.pipe = subprocess.Popen(bt2_cmd, shell=True, stdout=subprocess.PIPE)
-        
-        # For each input type (unpaired, mate1, mate2), initialize a queue and a
-        # thread that takes reads from the queue and passes each along to the
-        # appropriate FIFO.  It's important to have a separate thread for each FIFO
-        # or we get deadlocks.
-        for i in xrange(0, 3):
-            if self.fns[i] is not None:
-                self.Qs[i] = Queue()
-                self.Ws[i] = AsyncWriter(self.fns[i], self.Qs[i])
-                self.Ws[i].start()
+        self.Q = Queue()
+        self.W = AsyncWriter(self.fn, self.Q)
+        self.W.start()
     
     def close(self):
-        # Write None to all the FIFOs to inform them we're done giving them reads
-        for i in xrange(0, 3):
-            if self.fns[i] is not None:
-                self.Qs[i].put(None)
-        # Join all the FIFOs and input handling threads, close and delete the FIFOs 
-        for i in xrange(0, 3):
-            if self.fns[i] is not None:
-                self.Qs[i].join()
-                if self.Ws[i] is not None:
-                    self.Ws[i].join()
-                    self.Ws[i] = None
-                os.unlink(self.fns[i])
+        """ Write None, indicating no more reads """
+        self.Q.put(None)
+    
+    def join(self, begin=0, end=3):
+        """ Join the AyncWriters """
+        self.Q.join()
+        self.W.join()
+        os.unlink(self.fn)
     
     def put(self, rd1, rd2=None):
         """ Put a read on the appropriate input queue """
-        if rd2 is not None:
-            # Write to -1/-2 filehandles
-            self.Qs[1].put(str(rd1))
-            self.Qs[2].put(str(rd2))
-        else:
-            # Write to -U filehandle
-            self.Qs[0].put(str(rd1))
+        self.Q.put(Read.toTab6(rd1, rd2) + "\n")
     
     def stdout(self):
-        """ Get standard-out filehandle associated with this Bowtie2
-            process """
+        """ Get standard-out filehandle for Bowtie 2 process """
         return self.pipe.stdout
 
 def go():
@@ -1309,6 +1285,7 @@ def go():
         print >> sys.stderr, "Finished reading real reads"
     
         bt2.close()
+        bt2.join()     # join the AsyncWriters
         othread.join() # join the thread that monitors aligner output
         print >> sys.stderr, "Finished closing data FIFOs and joining output-monitoring thread"
         
@@ -1324,7 +1301,7 @@ def go():
         # it simulated reads.
         #
         
-        print >> sys.stderr, "Opening new Bowtie 2"
+        print >> sys.stderr, "Opening Bowtie 2 process for simulated reads"
         
         # We're potentially going to send four different types of simulated
         # reads to Bowtie 2, depending on what type of training data the read
@@ -1337,6 +1314,7 @@ def go():
         
         # Create the thread that eavesdrops on output from bowtie2 with simulated
         # input
+        print >> sys.stderr, "  Opening output-parsing thread"
         othread = Output(\
             bt2.stdout(),    # SAM input filehandle
             None,            # SAM output filehandle
@@ -1346,6 +1324,7 @@ def go():
         othread.start()
         
         # Construct sequence and quality simulators
+        print >> sys.stderr, "  Creating sequence simulator"
         sim = SequenceSimulator(args.ref, args.pickle_ref, idx_fn=args.ref_idx)
         simw = SimulatorWrapper(\
             sim,           # sequence simulator
@@ -1354,25 +1333,34 @@ def go():
             dists)         # empirical distribution
         
         # Simulate concordant paired-end reads from empirical distributions
+        print >> sys.stderr, "  Simulating paired-end reads"
         if dists.hasPaired():
-            for i in xrange(0, args.num_reads):
+            for i in xrange(0, args.num_reads/2):
                 if (i+1 % 100) == 0:
-                    print >> sys.stderr, "Simulating paired-end read %d" % i
+                    print >> sys.stderr, "    Simulating paired-end read %d" % i
                 rdp1, rdp2, rdm1, rdm2 = simw.nextPair()
                 bt2.put(rdp1, rdp2)
                 bt2.put(rdm1); bt2.put(rdm2)
+            # Signal that we're done supplying paired-end reads
+            print >> sys.stderr, "  Closing paired-end filehandles"
         
         # Simulate unpaired reads from empirical distributions
+        print >> sys.stderr, "  Simulating unpaired reads"
         if dists.hasUnpaired():
             for i in xrange(0, args.num_reads):
                 if (i+1 % 100) == 0:
-                    print >> sys.stderr, "Simulating unpaired read %d" % i
+                    print >> sys.stderr, "    Simulating unpaired read %d" % i
                 bt2.put(simw.nextUnpaired())
         
-        print >> sys.stderr, "Finished simulating reads"
+        # Signal that we're done supplying unpaired reads
         bt2.close()
-        print >> sys.stderr, "Closed FIFOs"
+        bt2.join()
+        print >> sys.stderr, "  Closing unpaired filehandle"
+                
+        print >> sys.stderr, "Finished simulating reads"
+        print >> sys.stderr, "Joining output thread..."
         othread.join() # join the thread that monitors aligner output
+        print >> sys.stderr, "  ...joined"
         if unalFh is not None:
             unalFh.close()
         print >> sys.stderr, "Finished closing simulation FIFOs and joining output-monitoring thread"
@@ -1432,7 +1420,9 @@ def go():
             "qname", "flag", "rname", "pos", "mapq", "cigar", "rnext",
             "pnext", "tlen", "seq", "qual"] + list(exFields)))
         samTsvOfh.write("\n")
-        print >>sys.stderr, "Extra fields: " + str(exFields)
+        print >> sys.stderr, "Extra fields: " + str(exFields)
+    
+    print >> sys.stderr, "Assigning MAPQs"
     
     with open(args.S, 'w') as samOfh: # open output file
         
@@ -1459,30 +1449,36 @@ def go():
             return mapq - float(al.mapq)
         
         samIfh.seek(0)                # rewind temporary SAM file
-        concMap = {}
-        for samrec in samIfh:         # read each record
+        ival = 100
+        while True:
+            samrec = samIfh.readline()
+            if len(samrec) == 0:
+                break
             if samrec[0] == '@':      # pass headers straight through
                 samOfh.write(samrec)
                 continue
             al = Alignment(samrec)    # parse alignment
             nrecs += 1
+            if (nrecs % ival) == 0:
+                print >> sys.stderr, "  Assigned MAPQs to %d records (%d unpaired, %d paired)" % (nrecs, npair, nunp)
             if al.isAligned():
-                # Is this alignment part of a concordantly-aligned paired-end read?
+                # Part of a concordantly-aligned paired-end read?
                 probCorrect = None
                 if al.concordant:
-                    if al.name in concMap:
-                        al1, samrec1 = al, samrec
-                        al2, samrec2 = concMap[al.name]
-                        npair += 2
-                        del concMap[al.name]
-                        if al2.mate1:
-                            al1, al2 = al2, al1
-                            samrec1, samrec2 = samrec2, samrec1
-                        probCorrect1, probCorrect2 = training.probCorrect(al1, al2)
-                        mapqDiff += emitNewSam(samrec1.rstrip(), al1, probCorrect1)
-                        mapqDiff += emitNewSam(samrec2.rstrip(), al2, probCorrect2)
-                    else:
-                        concMap[al.name] = (al, samrec)
+                    # Get the other mate
+                    samrec2 = samIfh.readline()
+                    assert len(samrec2) > 0
+                    al2 = Alignment(samrec2)
+                    al1, samrec1 = al, samrec
+                    npair += 2
+                    if al2.mate1:
+                        al1, al2 = al2, al1
+                        samrec1, samrec2 = samrec2, samrec1
+                    assert al1.mate1 and not al1.mate2
+                    assert al2.mate2 and not al2.mate1
+                    probCorrect1, probCorrect2 = training.probCorrect(al1, al2)
+                    mapqDiff += emitNewSam(samrec1.rstrip(), al1, probCorrect1)
+                    mapqDiff += emitNewSam(samrec2.rstrip(), al2, probCorrect2)
                 else:
                     nunp += 1
                     probCorrect = training.probCorrect(al)
@@ -1496,7 +1492,6 @@ def go():
                         samTsvOfh.write("\t")
                         samTsvOfh.write(al.exFields[field] if field in al.exFields else "NA")
                     samTsvOfh.write("\n")
-        assert len(concMap) == 0
     
     if samTsvOfh: samTsvOfh.close()
     
