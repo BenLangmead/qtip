@@ -1090,8 +1090,6 @@ class Output(threading.Thread):
                     if refid == al.refid and fw == al.orientation():
                         # Check offset
                         correct = abs(refoff - al.pos) < args.wiggle
-                    if not correct:
-                        print >> sys.stderr, ln
                     if trainingNm == "Unp":
                         self.training.addUnp(al, correct)
                     elif trainingNm[0] == "M":
