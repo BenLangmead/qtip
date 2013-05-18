@@ -29,8 +29,16 @@ Things we learn from alignments
 - Fragment length distribution
 - Number and placement of mismatches and gaps
 
+SAM extra fields used
+=====================
+
+ Normal: AS:i, XS:i, MD:Z
+ 
+ Bowtie-specific: Xs:i, YT:Z, YS:i, Zp:i, YN:i, Yn:i
+ (and we potentially don't need YS:i or YT:Z?)
+
 TODO:
-- Test whether paired-end is doing a good job
+- Store some discordant-alignment fragment lengths in our fraglen distribution
 
 """
 
@@ -110,14 +118,16 @@ class Read(object):
 class Alignment(object):
     """ Encapsulates an alignment record for a single aligned read """
 
-    __asRe  = re.compile('AS:i:([-]?[0-9]+)')
-    __xsRe  = re.compile('XS:i:([-]?[0-9]+)')
-    __ytRe  = re.compile('YT:Z:([A-Z]+)')
-    __ysRe  = re.compile('YS:i:([-]?[0-9]+)')
-    __mdRe  = re.compile('MD:Z:([^\s]+)')
-    __xlsRe = re.compile('Xs:i:([-]?[0-9]+)')
-    __kNRe  = re.compile('YN:i:([-]?[0-9]+)')
-    __knRe  = re.compile('Yn:i:([-]?[0-9]+)')
+    __asRe  = re.compile('AS:i:([-]?[0-9]+)') # best score
+    __xsRe  = re.compile('XS:i:([-]?[0-9]+)') # second-best score
+    __ytRe  = re.compile('YT:Z:([A-Z]+)')     # alignment type
+    __ysRe  = re.compile('YS:i:([-]?[0-9]+)') # score of opposite
+    __mdRe  = re.compile('MD:Z:([^\s]+)')     # MD:Z string
+    __xlsRe = re.compile('Xs:i:([-]?[0-9]+)') # 3rd best
+    __zupRe = re.compile('ZP:i:([-]?[0-9]+)') # best concordant
+    __zlpRe = re.compile('Zp:i:([-]?[0-9]+)') # 2nd best concordant
+    __kNRe  = re.compile('YN:i:([-]?[0-9]+)') # min valid score
+    __knRe  = re.compile('Yn:i:([-]?[0-9]+)') # max valid score
     
     def __init__(self, ln):
         self.name, self.flags, self.refid, self.pos, self.mapq, self.cigar, \
@@ -142,22 +152,37 @@ class Alignment(object):
             idx2 = tok.find(':', idx1+2)
             assert idx2 != -1
             self.exFields[tok[:idx2]] = tok[idx2+1:].rstrip()
+        # Parse AS:i
         se = Alignment.__asRe.search(self.extra)
         self.bestScore = None
         if se is not None:
             self.bestScore = int(se.group(1))
+        # Parse XS:i
         se = Alignment.__xsRe.search(self.extra)
         self.secondBestScore = None
         if se is not None:
             self.secondBestScore = int(se.group(1))
+        # Parse Xs:i
         se = Alignment.__xlsRe.search(self.extra)
         self.thirdBestScore = None
         if se is not None:
             self.thirdBestScore = int(se.group(1))
+        # Parse ZP:i
+        se = Alignment.__zupRe.search(self.extra)
+        self.bestConcordantScore = None
+        if se is not None:
+            self.bestConcordantScore = int(se.group(1))
+        # Parse Zp:i
+        se = Alignment.__zlpRe.search(self.extra)
+        self.secondBestConcordantScore = None
+        if se is not None:
+            self.secondBestConcordantScore = int(se.group(1))
+        # Parse YT:Z
         se = Alignment.__ytRe.search(self.extra)
         self.alType = None
         if se is not None:
             self.alType = se.group(1)
+        # Parse YS:i
         se = Alignment.__ysRe.search(self.extra)
         self.mateBest = None
         if se is not None:
@@ -283,13 +308,16 @@ def cigarMdzToStacked(seq, cgp, mdp_orig):
         a pair of strings with gap characters inserted (possibly) and where
         characters at at the same offsets are opposite each other in the
         alignment.  Returns tuple of 2 parallel strings: read string, ref
-        string. """
+        string.
+        
+        TODO: Fix so it works in local mode. """
     mdp = mdp_orig[:]
     rds, rfs = "", ""
     mdo, rdoff = 0, 0
     for c in cgp:
-        assert mdo < len(mdp), "mdo=%d" % mdo
         op, run = c
+        skipping = (op == 4)
+        assert skipping or mdo < len(mdp), "%d, %d" % (mdo, len(mdp))
         if op == 0:   # M
             # Look for block matches and mismatches in MD:Z string
             mdrun = 0
@@ -592,6 +620,7 @@ class SimulatorWrapper(object):
         sc1Draw, sc2Draw = None, None
         while fl < rl1 or fl < rl2:
             fl = self.dists.fragDist.draw()
+            fl += (random.randint(0, 200) - 100)
             sc1Draw = self.dists.scDistM1.draw()
             sc2Draw = self.dists.scDistM2.draw()
             _, _, _, rfAln1, _ = sc1Draw
@@ -816,10 +845,11 @@ class Training(object):
     def addPaired(self, al1, al2, fraglen, correct1, correct2):
         """ Add a concordant paired-end alignment to our collection of
             training data. """
+        assert al1.concordant and al2.concordant
         rec1 = TrainingRecord.fromAlignment(al1)
         rec2 = TrainingRecord.fromAlignment(al2)
-        self.trainConc.append(rec1.toListV2() + rec2.toListV2() + [fraglen])
-        self.trainConc.append(rec2.toListV2() + rec1.toListV2() + [fraglen])
+        self.trainConc.append(rec1.toListV2() + [rec1.scConcDiff] + rec2.toListV2() + [fraglen])
+        self.trainConc.append(rec2.toListV2() + [rec2.scConcDiff] + rec1.toListV2() + [fraglen])
         self.labConc.extend([correct1, correct2])
     
     def addUnp(self, al, correct):
@@ -887,7 +917,7 @@ class Training(object):
         if len(self.trainConc) > 0:
             pairTrain, pairLab = [], []
             for i in xrange(0, len(self.trainConc)):
-                rdlenA, _, _, bestScA, scDiffA, \
+                rdlenA, _, _, bestScA, scDiffA, _, \
                 rdlenB, _, _, bestScB, scDiffB, fraglen = self.trainConc[i]
                 correctA = self.labConc[i]
                 bestScA *= scaleAs; scDiffA *= scaleDiff
@@ -934,7 +964,7 @@ class Training(object):
                     if i == len(tups)-1:
                         # Concordant alignment training tuples
                         writer.writerows([["lenA", "minValidA", "maxValidA",
-                                           "bestA", "diffA", "lenB",
+                                           "bestA", "diffA", "diffCA", "lenB",
                                            "minValidB", "maxValidB", "bestB",
                                            "diffB", "fraglen", "correctA"]])
                         writer.writerows([ list(x) + [int(y)] for x, y in zip(l, c) ])
@@ -963,16 +993,23 @@ class TrainingRecord(object):
         3. Alignment score of best alignment
         4. Difference in alignment score b/t best, second-best """
     def __init__(self, rdlen, minValid, maxValid, bestSc, secbestSc,
-                 scaleAs=1.0, scaleDiff=1.0):
+                 bestConcSc, secbestConcSc, scaleAs=1.0, scaleDiff=1.0):
         self.rdlen = rdlen
         self.minValid = minValid
         self.maxValid = maxValid
-        self.bestSc = float(bestSc) * scaleAs
+        self.bestSc = float(bestSc)
         self.secbestSc = secbestSc
         if secbestSc is not None:
-            self.scDiff = float(abs(self.bestSc - self.secbestSc))
+            self.scDiff = float(self.bestSc - self.secbestSc)
         else:
             self.scDiff = 999999.0
+        self.bestConcSc = bestConcSc
+        self.secbestConcSc = secbestConcSc
+        if secbestConcSc is not None:
+            self.scConcDiff = float(self.bestConcSc - self.secbestConcSc)
+        else:
+            self.scConcDiff = 999999.0
+        self.bestSc *= scaleAs
         self.scDiff *= scaleDiff
         assert self.repOk()
     
@@ -981,10 +1018,12 @@ class TrainingRecord(object):
         """ Initialize training record with respect to an alignment and a
             boolean indicating whether it is correct. """
         secbest = al.secondBestScore
-        if secbest is None or al.thirdBestScore > secbest:
+        if secbest is None: # or (al.thirdBestScore is not None and al.thirdBestScore > secbest):
             secbest = al.thirdBestScore
         return cls(len(al), al.minValid, al.maxValid, al.bestScore,
-                   secbest, scaleAs=scaleAs, scaleDiff=scaleDiff)
+                   secbest, al.bestConcordantScore,
+                   al.secondBestConcordantScore,
+                   scaleAs=scaleAs, scaleDiff=scaleDiff)
     
     @classmethod
     def v2tov1(cls, v2):
@@ -1251,7 +1290,10 @@ def go():
         # ##################################################
         
         bt2 = Bowtie2(bt2_cmd, args.U is not None, args.m1 is not None)
-        samIfh = tempfile.TemporaryFile()
+        if args.no_mapq:
+            samIfh = open(args.S, 'w')
+        else:
+            samIfh = tempfile.TemporaryFile()
         
         if args.verbose:
             print >> sys.stderr, "Real-data Bowtie 2 command: '%s'" % bt2_cmd
@@ -1389,119 +1431,118 @@ def go():
     
     if args.save_training_tsv: training.saveTsv(args.save_training_tsv + ".")
     
-    # Build KNN classifiers
-    st = time.clock()
-    training.fit(args.num_neighbors, scaleAs=args.as_scale, scaleDiff=args.diff_scale)
-    print >> sys.stderr, "Finished fitting KNN classifiers on %d training tuples" % len(training)
-    fitIval = time.clock() - st
-    st = time.clock()
-    
-    mapqDiff = 0.0
-    nrecs, npair, nunp = 0, 0, 0
-    samTsvOfh = None
-    
-    exFields = set(["XQ:f"])
-    if args.save_sam_tsv:
-        # Figure out what all possible extra fields are so that we can write a
-        # tsv version of the SAM output with a fixed number of columns per line 
-        samIfh.seek(0)
-        for samrec in samIfh:
-            if samrec[0] == '@':
-                continue
-            toks = string.split(samrec, '\t')
-            for tok in toks[11:]:
-                idx1 = tok.find(':')
-                assert idx1 != -1
-                idx2 = tok.find(':', idx1+2)
-                assert idx2 != -1
-                exFields.add(tok[:idx2])
-        samTsvOfh = open(args.save_sam_tsv, 'w')
-        samTsvOfh.write("\t".join([
-            "qname", "flag", "rname", "pos", "mapq", "cigar", "rnext",
-            "pnext", "tlen", "seq", "qual"] + list(exFields)))
-        samTsvOfh.write("\n")
-        print >> sys.stderr, "Extra fields: " + str(exFields)
-    
-    print >> sys.stderr, "Assigning MAPQs"
-    
-    with open(args.S, 'w') as samOfh: # open output file
+    if not args.no_mapq:
+        # Build KNN classifiers
+        st = time.clock()
+        training.fit(args.num_neighbors, scaleAs=args.as_scale, scaleDiff=args.diff_scale)
+        print >> sys.stderr, "Finished fitting KNN classifiers on %d training tuples" % len(training)
+        fitIval = time.clock() - st
+        st = time.clock()
         
-        def emitNewSam(samrec, al, probCorrect):
-            probIncorrect = 1.0 - probCorrect # convert to probability incorrect
-            mapq = args.max_mapq
-            if probIncorrect > 0.0:
-                mapq = min(-10.0 * math.log10(probIncorrect), args.max_mapq)
-            samrec = samrec.rstrip()
-            xqIdx = samrec.find("\tXQ:f:")
-            if xqIdx != -1:
-                samrec = samrec[:xqIdx]
-            samOfh.write("\t".join([samrec, "XQ:f:" + str(mapq)]) + "\n")
-            if samTsvOfh:
-                samToks = string.split(samrec, "\t")
-                samTsvOfh.write("\t".join(samToks[:11]))
-                for field in exFields:
-                    samTsvOfh.write("\t")
-                    if field == "XQ:f":
-                        samTsvOfh.write(str(mapq))
-                    else:
-                        samTsvOfh.write(al.exFields[field] if field in al.exFields else "NA")
-                samTsvOfh.write("\n")
-            return mapq - float(al.mapq)
+        mapqDiff = 0.0
+        nrecs, npair, nunp = 0, 0, 0
+        samTsvOfh = None
         
-        samIfh.seek(0)                # rewind temporary SAM file
-        ival = 100
-        while True:
-            samrec = samIfh.readline()
-            if len(samrec) == 0:
-                break
-            if samrec[0] == '@':      # pass headers straight through
-                samOfh.write(samrec)
-                continue
-            al = Alignment(samrec)    # parse alignment
-            nrecs += 1
-            if (nrecs % ival) == 0:
-                print >> sys.stderr, "  Assigned MAPQs to %d records (%d unpaired, %d paired)" % (nrecs, npair, nunp)
-            if al.isAligned():
-                # Part of a concordantly-aligned paired-end read?
-                probCorrect = None
-                if al.concordant:
-                    # Get the other mate
-                    samrec2 = samIfh.readline()
-                    assert len(samrec2) > 0
-                    al2 = Alignment(samrec2)
-                    al1, samrec1 = al, samrec
-                    npair += 2
-                    if al2.mate1:
-                        al1, al2 = al2, al1
-                        samrec1, samrec2 = samrec2, samrec1
-                    assert al1.mate1 and not al1.mate2
-                    assert al2.mate2 and not al2.mate1
-                    probCorrect1, probCorrect2 = training.probCorrect(al1, al2)
-                    mapqDiff += emitNewSam(samrec1.rstrip(), al1, probCorrect1)
-                    mapqDiff += emitNewSam(samrec2.rstrip(), al2, probCorrect2)
-                else:
-                    nunp += 1
-                    probCorrect = training.probCorrect(al)
-                    mapqDiff += emitNewSam(samrec.rstrip(), al, probCorrect)
-            else:
-                samOfh.write(samrec)
+        exFields = set(["XQ:f"])
+        if args.save_sam_tsv:
+            # Figure out what all possible extra fields are so that we can write a
+            # tsv version of the SAM output with a fixed number of columns per line 
+            samIfh.seek(0)
+            for samrec in samIfh:
+                if samrec[0] == '@':
+                    continue
+                toks = string.split(samrec, '\t')
+                for tok in toks[11:]:
+                    idx1 = tok.find(':')
+                    assert idx1 != -1
+                    idx2 = tok.find(':', idx1+2)
+                    assert idx2 != -1
+                    exFields.add(tok[:idx2])
+            samTsvOfh = open(args.save_sam_tsv, 'w')
+            samTsvOfh.write("\t".join([
+                "qname", "flag", "rname", "pos", "mapq", "cigar", "rnext",
+                "pnext", "tlen", "seq", "qual"] + list(exFields)))
+            samTsvOfh.write("\n")
+            print >> sys.stderr, "Extra fields: " + str(exFields)
+        
+        print >> sys.stderr, "Assigning MAPQs"
+        with open(args.S, 'w') as samOfh: # open output file
+            
+            def emitNewSam(samrec, al, probCorrect):
+                probIncorrect = 1.0 - probCorrect # convert to probability incorrect
+                mapq = args.max_mapq
+                if probIncorrect > 0.0:
+                    mapq = min(-10.0 * math.log10(probIncorrect), args.max_mapq)
+                samrec = samrec.rstrip()
+                xqIdx = samrec.find("\tXQ:f:")
+                if xqIdx != -1:
+                    samrec = samrec[:xqIdx]
+                samOfh.write("\t".join([samrec, "XQ:f:" + str(mapq)]) + "\n")
                 if samTsvOfh:
                     samToks = string.split(samrec, "\t")
                     samTsvOfh.write("\t".join(samToks[:11]))
                     for field in exFields:
                         samTsvOfh.write("\t")
-                        samTsvOfh.write(al.exFields[field] if field in al.exFields else "NA")
+                        if field == "XQ:f":
+                            samTsvOfh.write(str(mapq))
+                        else:
+                            samTsvOfh.write(al.exFields[field] if field in al.exFields else "NA")
                     samTsvOfh.write("\n")
-    
-    if samTsvOfh: samTsvOfh.close()
+                return mapq - float(al.mapq)
+            
+            samIfh.seek(0)                # rewind temporary SAM file
+            ival = 100
+            while True:
+                samrec = samIfh.readline()
+                if len(samrec) == 0:
+                    break
+                if samrec[0] == '@':      # pass headers straight through
+                    samOfh.write(samrec)
+                    continue
+                al = Alignment(samrec)    # parse alignment
+                nrecs += 1
+                if (nrecs % ival) == 0:
+                    print >> sys.stderr, "  Assigned MAPQs to %d records (%d unpaired, %d paired)" % (nrecs, npair, nunp)
+                if al.isAligned():
+                    # Part of a concordantly-aligned paired-end read?
+                    probCorrect = None
+                    if al.concordant:
+                        # Get the other mate
+                        samrec2 = samIfh.readline()
+                        assert len(samrec2) > 0
+                        al2 = Alignment(samrec2)
+                        al1, samrec1 = al, samrec
+                        npair += 2
+                        if al2.mate1:
+                            al1, al2 = al2, al1
+                            samrec1, samrec2 = samrec2, samrec1
+                        assert al1.mate1 and not al1.mate2
+                        assert al2.mate2 and not al2.mate1
+                        probCorrect1, probCorrect2 = training.probCorrect(al1, al2)
+                        mapqDiff += emitNewSam(samrec1.rstrip(), al1, probCorrect1)
+                        mapqDiff += emitNewSam(samrec2.rstrip(), al2, probCorrect2)
+                    else:
+                        nunp += 1
+                        probCorrect = training.probCorrect(al)
+                        mapqDiff += emitNewSam(samrec.rstrip(), al, probCorrect)
+                else:
+                    samOfh.write(samrec)
+                    if samTsvOfh:
+                        samToks = string.split(samrec, "\t")
+                        samTsvOfh.write("\t".join(samToks[:11]))
+                        for field in exFields:
+                            samTsvOfh.write("\t")
+                            samTsvOfh.write(al.exFields[field] if field in al.exFields else "NA")
+                        samTsvOfh.write("\n")
+        
+        if samTsvOfh: samTsvOfh.close()
+        print >> sys.stderr, "Finished writing final SAM output (%d records) to '%s'" % (nrecs, args.S)
+        print >> sys.stderr, "  concordant-pair SAM records: %d" % npair
+        print >> sys.stderr, "  non-concordant-pair SAM records: %d" % nunp
+        print >> sys.stderr, "  total mapping quality difference (new - old): %0.3f" % mapqDiff
+        print >> sys.stderr, "  total KNN hits=%d, misses=%d" % (training.hits(), training.misses()) 
     
     samIval = time.clock() - st
-    
-    print >> sys.stderr, "Finished writing final SAM output (%d records) to '%s'" % (nrecs, args.S)
-    print >> sys.stderr, "  concordant-pair SAM records: %d" % npair
-    print >> sys.stderr, "  non-concordant-pair SAM records: %d" % nunp
-    print >> sys.stderr, "  total mapping quality difference (new - old): %0.3f" % mapqDiff
-    print >> sys.stderr, "  total KNN hits=%d, misses=%d" % (training.hits(), training.misses()) 
     
     if setupIval is not None:
         print >> sys.stderr, "Setup running time: %0.3f secs" % setupIval 
@@ -1511,8 +1552,9 @@ def go():
         print >> sys.stderr, "Alignment (simulated reads): %0.3f secs" % al2Ival 
     if fitIval is not None:
         print >> sys.stderr, "Fitting: %0.3f secs" % fitIval
-    if samIval is not None:
-        print >> sys.stderr, "MAPQ calculation / SAM rewriting: %0.3f secs" % samIval
+    if args.S is not None:
+        if samIval is not None:
+            print >> sys.stderr, "MAPQ calculation / SAM rewriting: %0.3f secs" % samIval
     
     # Print timing results
     
@@ -1543,6 +1585,9 @@ if __name__ == "__main__":
         '--m1', metavar='path', type=str, nargs='+', help='Mate 1 files')
     parser.add_argument(\
         '--m2', metavar='path', type=str, nargs='+', help='Mate 2 files')
+    parser.add_argument(\
+        '--no-mapq', action='store_const', const=True, default=False,
+        help='Don\'t actually re-estimate MAPQs')
     parser.add_argument(\
         '--m1rc', action='store_const', const=True, default=False,
         help='Set if mate 1 is reverse-complemented w/r/t the fragment')
