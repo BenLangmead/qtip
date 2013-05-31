@@ -15,10 +15,12 @@ use Getopt::Long;
 
 my $format = "art"; # could be "art" or "wgsim"
 my $gap = 50;
+my $checkChimeras = 1;
 
 GetOptions (
 	"format=s" => \$format,
-	"gap=i" => \$gap
+	"gap=i" => \$gap,
+	"no-chi" => sub { $checkChimeras = 0; }
 ) || die "Bad option";
 
 $format eq "art" || $format eq "wgsim" || die "Bad format: '$format'";
@@ -93,10 +95,12 @@ while(defined($next_line)) {
 	my $rdname = $1;
 	defined($rdname) || die "Malformed line; no read name at the beginning:\n$cur_line";
 	my @lines = ($cur_line);
-	while(defined($next_line) && $next_line =~ /^$rdname/) {
-		print STDERR "Chimeric alignment in '$sam_fn'; two SAM records for '$rdname'\n";
-		push @lines, $next_line;
-		$next_line = readline $sam_fh;
+	if($checkChimeras) {
+		while(defined($next_line) && $next_line =~ /^$rdname/) {
+			print STDERR "Chimeric alignment in '$sam_fn'; two SAM records for '$rdname'\n";
+			push @lines, $next_line;
+			$next_line = readline $sam_fh;
+		}
 	}
 	if((++$nal % $nal_ival) == 0) {
 		print STDERR "Processed $nal alignments from '$sam_fn' ...\n";

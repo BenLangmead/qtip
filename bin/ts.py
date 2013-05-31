@@ -38,7 +38,7 @@ SAM extra fields used
  (and we potentially don't need YS:i or YT:Z?)
 
 TODO:
-- Store some discordant-alignment fragment lengths in our fraglen distribution
+- Handle large fragment lengths gracefully.  We have a 10K nt cutoff now.
 
 """
 
@@ -141,6 +141,7 @@ class Alignment(object):
         self.pos = int(self.pos)
         self.mapq = int(self.mapq)
         self.tlen = int(self.tlen)
+        self.pnext = int(self.pnext)
         self.fw = (self.flags & 16) == 0
         self.mate1 = (self.flags & 64) != 0
         self.mate2 = (self.flags & 128) != 0
@@ -218,6 +219,10 @@ class Alignment(object):
             return "-"
         else:
             return "+"
+    
+    def mateMapped(self):
+        """ Return true iff opposite mate aligned """
+        return (self.flags & 8) == 0
     
     def fragmentLength(self):
         """ Return fragment length """
@@ -431,6 +436,39 @@ class ScoreDist(object):
     def empty(self):
         return len(self) == 0
 
+class ScorePairDist(object):
+    """ Capture a list of tuple pairs, where each tuple pair represents the
+        following in an alignment of a paired-end reads where both ends
+        aligned: (a) orientation, (b) quality string, (c) read side of stacked
+        alignment, (d) ref side of stacked alignment, score. """
+    
+    def __init__(self, k=10000):
+        self.res = ReservoirSampler(k)
+    
+    def draw(self):
+        assert len(self.res) > 0
+        return self.res.draw()
+    
+    def add(self, al1, al2):
+        # Extract quality string
+        assert al1.cigar is not None and al1.mdz is not None
+        assert al2.cigar is not None and al2.mdz is not None
+        # Extract CIGAR, MD:Z
+        cigarList1, cigarList2 = cigarToList(al1.cigar), cigarToList(al2.cigar)
+        mdzList1, mdzList2 = mdzToList(al1.mdz), mdzToList(al2.mdz)
+        sc1, sc2 = al1.bestScore, al2.bestScore
+        # Get stacked alignment
+        rdAln1, rfAln1 = cigarMdzToStacked(al1.seq, cigarList1, mdzList1)
+        rdAln2, rfAln2 = cigarMdzToStacked(al2.seq, cigarList2, mdzList2)
+        self.res.add(((al1.fw, al1.qual, rdAln1, rfAln1, sc1),
+                      (al2.fw, al2.qual, rdAln2, rfAln2, sc2)))
+    
+    def __len__(self):
+        return len(self.res)
+    
+    def empty(self):
+        return len(self) == 0
+
 class Dist(object):
     """ Basically a histogram. """
     
@@ -620,9 +658,8 @@ class SimulatorWrapper(object):
         sc1Draw, sc2Draw = None, None
         while fl < rl1 or fl < rl2:
             fl = self.dists.fragDist.draw()
-            fl += (random.randint(0, 200) - 100)
-            sc1Draw = self.dists.scDistM1.draw()
-            sc2Draw = self.dists.scDistM2.draw()
+            #print >> sys.stderr, "Drew fraglen: %d" % fl
+            sc1Draw, sc2Draw = self.dists.scDistM12.draw()
             _, _, _, rfAln1, _ = sc1Draw
             _, _, _, rfAln2, _ = sc2Draw
             rl1 = len(rfAln1) - rfAln1.count('-')
@@ -822,7 +859,10 @@ class KNN:
 
 class Training(object):
     
-    """ Encapsulates all training data and classifiers. """
+    """ Encapsulates all training data and classifiers.
+    
+    TODO: save MAPQs reported by Bowtie 2 so we can compare estimated
+    MAPQ to old one. """
     
     def __init__(self):
         # Training data for individual reads and mates.  Training tuples are
@@ -1063,22 +1103,22 @@ class Dists(object):
     def __init__(self):
         self.fragDist  = Dist()      # fragment length distribution
         self.scDistUnp = ScoreDist() # qualities/edits for unpaired
-        self.scDistM1  = ScoreDist() # qualities/edits for mate #1s
-        self.scDistM2  = ScoreDist() # qualities/edits for mate #2s
+        self.scDistM12 = ScorePairDist() # qualities/edits for mate #1s
     
-    def addConcordantPair(self, mate1, mate2, fraglen):
-        self.fragDist.add(abs(mate1.tlen)) # remember fragment length
+    def addFraglen(self, fraglen):
+        if fraglen < 10000:
+            self.fragDist.add(fraglen) # remember fragment length
+    
+    def addPair(self, al1, al2):
+        self.scDistM12.add(al1, al2)
     
     def addRead(self, al):
-        # remember quality string and edit pattern
-        if   (al.flags &  64) != 0: self.scDistM1.add(al)
-        elif (al.flags & 128) != 0: self.scDistM2.add(al)
-        else:                       self.scDistUnp.add(al)
+        self.scDistUnp.add(al)
     
     def hasPaired(self):
         """ Return true iff at least one paired-end read has been added
             to our empirical distributions. """
-        return not self.scDistM1.empty()
+        return not self.scDistM12.empty()
     
     def hasUnpaired(self):
         """ Return true iff at least one unpaired read has been added
@@ -1162,9 +1202,16 @@ class Output(threading.Thread):
             else:
                 # Take alignment info into account
                 if al.isAligned():
+                    if al.rnext == "=" and al.mateMapped():
+                        # Can't easily get read length for opposite mate, so
+                        # just use length of this mate as a surrogate
+                        fraglen = abs(al.pnext - al.pos) + len(al.seq)
+                        #print >> sys.stderr, "%s: %d" % (al.alType, fraglen)
+                        self.dists.addFraglen(fraglen)
                     if mate1 is not None:
-                        self.dists.addConcordantPair(mate1, mate2, abs(mate1.tlen))
-                    self.dists.addRead(al)
+                        self.dists.addPair(mate1, mate2)
+                    else:
+                        self.dists.addRead(al)
                 # Send SAM to SAM output filehandle
                 if self.samOfh is not None:
                     self.samOfh.write(ln)

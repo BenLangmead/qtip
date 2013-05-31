@@ -62,6 +62,10 @@ roc_2plot <- function(x, mapq1, mapq2, colors=c("blue", "red"), sca=1, round_dig
 	legend("bottomright", c(mapq1_lab, mapq2_lab), col=colors, pch=c(1, 1), lty=c(1, 1))
 }
 
+compareToEmpiricalMap <- function(x) {
+	
+}
+
 args <- commandArgs()
 fn <- args[length(args)]
 tab <- openTabulatedSam(fn)
@@ -85,7 +89,7 @@ roc.old <- roc_table(tab, tab$mapq)
 roc.new <- roc_table(tab, round(tab$XQ.f))
 write.table(roc.old, rocFn, quote=F, sep="\t", row.names=F)
 write.table(roc.new, rocNewFn, quote=F, sep="\t", row.names=F)
-roc_2plot(tab, round(tab$XQ.f), tab$mapq, mapq1_lab="Tandem simulation (rounded)", mapq2_lab="Bowtie 2", main=paste(fn, ", ranking error (old-new) =", errDiff))
+roc_2plot(tab, round(tab$XQ.f), tab$mapq, mapq1_lab="Tandem simulation (rounded)", mapq2_lab="Bowtie 2", main=paste(fn, ", ranking error (old-new) =", errDiff, round_digits=0))
 dev.off()
 
 # Print ranking error info

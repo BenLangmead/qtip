@@ -35,8 +35,9 @@ while(<SAM>) {
 }
 close(SAM);
 open(SAM, $fn) || die;
-print join("\t", ("qname", "flag", "rname", "pos", "mapq", "cigar", "rnext",
-                  "pnext", "tlen", "seq", "qual"));
+#print join("\t", ("qname", "flag", "rname", "pos", "mapq", "cigar", "rnext",
+#                  "pnext", "tlen", "seq", "qual"));
+print join("\t", ("qname", "flag", "rname", "pos", "mapq", "cigar", "tlen", "len"));
 print "\t".join("\t", sort keys %flags)."\n";
 while(<SAM>) {
 	chomp;
@@ -58,7 +59,7 @@ while(<SAM>) {
 			$myflags{"$fl[0]:$fl[1]"} = join(":", @fl[2..$#fl]);
 		}
 	}
-	print join("\t", @ts[0..10]);
+	print join("\t", ($ts[0], $ts[1], $ts[2], $ts[3], $ts[4], $ts[5], $ts[8], length($ts[9])));
 	my @opts = ();
 	for my $k (sort keys %flags) {
 		push @opts, (defined($myflags{$k}) ? $myflags{$k} : "NA");
