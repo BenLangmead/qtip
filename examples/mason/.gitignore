@@ -1,0 +1,7 @@
+*.sat
+*.sam
+*.tsv
+*.fq
+pair.*
+unp.*
+
