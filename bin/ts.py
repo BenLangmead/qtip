@@ -52,6 +52,15 @@ SAM extra fields used
 TODO:
 - Handle large fragment lengths gracefully.  We have a 10K nt cutoff now.
 
+To load training and test data, copy samples.py to dir, then:
+import cPickle
+import gzip
+from samples import Dataset
+testData, trainingData = Dataset(), Dataset()
+testData.load('test.pickle.gz')
+trainingData.load('training.pickle.gz')
+testU, testM, testC = testData.toDataFrames()
+trainingU, trainingM, trainingC = trainingData.toDataFrames()
 '''
 
 __author__ = "Ben Langmead"
@@ -72,9 +81,11 @@ import traceback
 import cPickle
 import time
 import logging
+import itertools
 from collections import defaultdict
 from Queue import Queue
 from sam import cigarToList, mdzToList, cigarMdzToStacked
+from samples import UnpairedTuple, PairedTuple, Dataset
 
 def quit_handler(signum,frame):
     traceback.print_stack()
@@ -217,12 +228,12 @@ class Alignment(object):
         self.minValid = None
         se = Alignment.__kNRe.search(self.extra)
         if se is not None:
-            self.minValid = se.group(1)
+            self.minValid = int(se.group(1))
         # Parse Yn:i
         self.maxValid = None
         se = Alignment.__knRe.search(self.extra)
         if se is not None:
-            self.maxValid = se.group(1)
+            self.maxValid = int(se.group(1))
         self.concordant = self.alType == "CP"
         self.discordant = self.alType == "DP"
         self.unpPair = self.alType == "UP"
@@ -661,122 +672,6 @@ class Input(object):
                             if rd1 is not None: yield (rd1, rd2)
                             else: break # next pair of files
 
-class UnpairedTuple(object):
-    ''' Unpaired training/test tuple. '''
-    def __init__(self, rdlen, minv, maxv, bestsc, best2sc, mapq):
-        self.rdlen = rdlen              # read len
-        self.minv = minv                # min valid score
-        self.maxv = maxv                # max valid score
-        self.bestsc = bestsc            # best
-        self.best2sc = best2sc          # 2nd-best score
-        self.mapq = mapq                # original mapq
-    
-    @classmethod
-    def fromAlignment(cls, al):
-        ''' Create unpaired training/test tuple from Alignment object '''
-        secbest = al.secondBestScore or al.thirdBestScore
-        return cls(len(al), al.minValid, al.maxValid, al.bestScore, secbest, al.mapq)
-
-class PairedTuple(object):
-    ''' Concordant paired-end training/test tuple.  One per mate alignment. '''
-    def __init__(self, rdlen1, minv1, maxv1, bestsc1, best2sc1, mapq1,
-                 rdlen2, minv2, maxv2, bestsc2, best2sc2, mapq2,
-                 bestconcsc, best2concsc, fraglen):
-        self.rdlen1 = rdlen1            # read len
-        self.rdlen2 = rdlen2            # read len
-        self.minv1 = minv1              # min valid score
-        self.minv2 = minv2              # min valid score
-        self.maxv1 = maxv1              # max valid score
-        self.maxv2 = maxv2              # max valid score
-        self.bestsc1 = bestsc1          # best
-        self.bestsc2 = bestsc2          # best
-        self.best2sc1 = best2sc1        # 2nd-best score
-        self.best2sc2 = best2sc2        # 2nd-best score
-        self.mapq1 = mapq1              # original mapq
-        self.mapq2 = mapq2              # original mapq
-        self.bestconcsc = bestconcsc    # best concordant
-        self.best2concsc = best2concsc  # 2nd-best concordant
-        self.fraglen = fraglen          # fragment length
-    
-    @classmethod
-    def fromAlignments(cls, al1, al2, fraglen):
-        ''' Create unpaired training/test tuple from pair of Alignments '''
-        secbest1 = al1.secondBestScore or al1.thirdBestScore
-        secbest2 = al2.secondBestScore or al2.thirdBestScore
-        return cls(len(al1), al1.minValid, al1.maxValid, al1.bestScore,
-                   secbest1, al1.mapq,
-                   len(al2), al2.minValid, al2.maxValid, al2.bestScore,
-                   secbest2, al2.mapq,
-                   al1.bestConcordantScore,
-                   al1.secondBestConcordantScore, al1.fragmentLength())
-
-class Training(object):
-    
-    ''' Encapsulates all 'training data' and classifiers.  Training data =
-        alignments for simulated reads. '''
-    
-    def __init__(self):
-        # Training data for individual reads and mates.  Training tuples are
-        # (rdlen, minValid, maxValid, bestSc, scDiff)
-        self.trainUnp, self.labUnp = [], []
-        self.trainM,   self.labM   = [], []
-        # Training data for concordant pairs.  Training tuples are two tuples
-        # like the one described above, one for each mate, plus the fragment
-        # length.  Label says whether the first mate's alignment is correct.
-        self.trainConc, self.labConc = [], []
-    
-    def __len__(self):
-        ''' Return number of pieces of training data added so far '''
-        return len(self.trainUnp) + len(self.trainM) + len(self.trainConc)
-    
-    def addPaired(self, al1, al2, fraglen, correct1, correct2):
-        ''' Add a concordant paired-end alignment to our collection of
-            training data. '''
-        assert al1.concordant and al2.concordant
-        rec1 = PairedTuple.fromAlignments(al1, al2, fraglen)
-        rec2 = PairedTuple.fromAlignments(al2, al1, fraglen)
-        for rec in [rec1, rec2]: self.trainConc.append(rec)
-        self.labConc.extend([correct1, correct2])
-    
-    def addUnp(self, al, correct):
-        ''' Add an alignment for a simulated unpaired read to our collection of
-            training data. '''
-        self.trainUnp.append(UnpairedTuple.fromAlignment(al))
-        self.labUnp.append(correct)
-    
-    def addM(self, al, correct):
-        ''' Add an alignment for a simulated mate that has been aligned in an
-            unpaired fashion to our collection of training data. '''
-        self.trainM.append(UnpairedTuple.fromAlignment(al))
-        self.labM.append(correct)
-    
-    def save(self, fn, compress=True):
-        ''' Save training data to a (possibly) compressed pickle file. '''
-        import cPickle
-        save = (self.trainUnp,  self.labUnp,
-                self.trainM,    self.labM,
-                self.trainConc, self.labConc)
-        if compress:
-            import gzip
-            fh = gzip.open(fn, 'wb')
-        else:
-            fh = open(fn, 'wb')
-        cPickle.dump(save, fh, cPickle.HIGHEST_PROTOCOL)
-        fh.close()
-    
-    def load(self, fn, compress=True):
-        ''' Load training data from a (possibly) compressed pickle file. '''
-        import cPickle
-        if compress:
-            import gzip
-            fh = gzip.open(fn, 'rb')
-        else:
-            fh = open(fn, 'rb')
-        (self.trainUnp,  self.labUnp, \
-         self.trainM,    self.labM, \
-         self.trainConc, self.labConc) = cPickle.load(fh)
-        fh.close()
-
 class Dists(object):
     
     ''' Encapsulates all distributions that we train with real data.
@@ -819,11 +714,11 @@ class Output(threading.Thread):
         record corresponds to a simulated read, its correctness is checked and
         an output tuple written '''
     
-    def __init__(self, samIfh, samOfh, unalFh, training, dists, ival=1000):
+    def __init__(self, samIfh, samOfh, unalFh, dataset, dists, ival=1000):
         threading.Thread.__init__(self)
         self.samIfh = samIfh         # SAM records come from here
         self.samOfh = samOfh         # normal (non-simulated) SAM recs go here
-        self.training = training     # training data store
+        self.dataset = dataset       # dataset
         self.dists = dists           # distributions
         self.unalFh = unalFh         # write unaligned reads here
         self.scDiffs = {}            # histogram of expected-versus-observed score differences
@@ -855,11 +750,12 @@ class Output(threading.Thread):
                 if mate2.mate1:
                     mate1, mate2 = mate2, mate1
             
+            # Add the alignment to a Dataset data structure.  If it's an
+            # aligned training read, check whether alignment is correct. 
             correct = None
-            if al.name[0] == '!' and al.name.startswith('!!ts!!'):
-                # Simulated read
-                assert self.training is not None
-                if al.isAligned():
+            if self.dataset is not None:
+                isTraining = (al.name[0] == '!' and al.name.startswith('!!ts!!'))
+                if al.isAligned() and isTraining:
                     _, refid, fw, refoff, sc, trainingNm = string.split(al.name, '!!ts-sep!!')
                     sc, refoff = int(sc), int(refoff)
                     scDiff = sc - al.bestScore
@@ -871,19 +767,30 @@ class Output(threading.Thread):
                         correct = abs(refoff - al.pos) < args.wiggle
                     assert trainingNm in ['Unp', 'M1', 'M2', 'Conc']
                     if trainingNm == "Unp":
-                        self.training.addUnp(al, correct)
+                        self.dataset.addUnp(al, correct)
                     elif trainingNm[0] == "M":
-                        self.training.addM(al, correct)
+                        self.dataset.addM(al, correct)
                     if mate1 is not None:
                         assert trainingNm == "Conc"
                         correct1, correct2 = correct, lastCorrect
                         if (lastAl.flags & 64) != 0:
                             correct1, correct2 = correct2, correct1
-                        self.training.addPaired(mate1, mate2, abs(mate1.tlen), correct1, correct2)
+                        self.dataset.addPaired(mate1, mate2, abs(mate1.tlen), correct1, correct2)
+                elif al.isAligned():
+                    # Test data
+                    if mate1 is not None:
+                        assert al.alType == 'CP'
+                        self.dataset.addPaired(mate1, mate2, abs(mate1.tlen), None, None)
+                    elif al.alType == 'UU':
+                        self.dataset.addUnp(al, None)
+                    else:
+                        assert al.alType in ['UP', 'DP']
+                        self.dataset.addM(al, None)
                 elif self.unalFh is not None:
                     # Perhaps write unaligned simulated read to file
                     self.unalFh.write("@%s\n%s\n+\n%s\n" % (nm, seq, qual))
-            else:
+            
+            if self.dists is not None:
                 # Take alignment info into account
                 if al.isAligned():
                     if al.rnext == "=" and al.mateMapped():
@@ -895,6 +802,7 @@ class Output(threading.Thread):
                         self.dists.addPair(mate1, mate2)
                     else:
                         self.dists.addRead(al)
+            
             # Send SAM to SAM output filehandle
             if self.samOfh is not None:
                 self.samOfh.write(ln)
@@ -1017,6 +925,7 @@ def go(args, bowtieArgs):
     bt2 = Bowtie2(bt2_cmd, args.U is not None, args.m1 is not None)
     samFn = os.path.join(args.output_directory, 'input.sam')
     inputSamFh = open(samFn, 'w') if (args.write_input_sam or args.write_all) else None
+    testData = Dataset()
     dists = Dists()
     
     logging.info('Real-data Bowtie 2 command: "%s"' % bt2_cmd)
@@ -1026,7 +935,7 @@ def go(args, bowtieArgs):
         bt2.stdout(),    # SAM input filehandle
         inputSamFh,      # SAM output filehandle
         None,            # Write unaligned reads here
-        None,            # Training data
+        testData,        # Dataset to gather alignments into
         dists)           # empirical dists
     othread.start()
     
@@ -1053,6 +962,12 @@ def go(args, bowtieArgs):
     if inputSamFh is not None:
         logging.info('  Input read alignments written to "%s"' % samFn)
     
+    # Writing test dataset
+    if args.write_test_data or args.write_all:
+        testFn = os.path.join(args.output_directory, 'test.pickle.gz')
+        testData.save(testFn)
+        logging.info('Test data written to "%s"' % testFn)
+    
     # Stop timing interval for alignment phase 1
     al1Ival = time.clock() - st
     st = time.clock()
@@ -1071,7 +986,7 @@ def go(args, bowtieArgs):
     bt2 = Bowtie2(bt2_cmd, True, dists.hasPaired())
     samFn = os.path.join(args.output_directory, 'training.sam')
     trainingSamFh = open(samFn, 'w') if (args.write_training_sam or args.write_all) else None
-    training = Training()
+    trainingData = Dataset()
     
     # Create thread that eavesdrops on output from bowtie2 with simulated input
     logging.info('  Opening output-parsing thread')
@@ -1079,7 +994,7 @@ def go(args, bowtieArgs):
         bt2.stdout(),    # SAM input filehandle
         trainingSamFh,   # SAM output filehandle
         None,            # Write unaligned reads here
-        training,        # Training data
+        trainingData,    # Training data
         None)            # qualities/edits for unpaired
     othread.start()
     
@@ -1154,7 +1069,7 @@ def go(args, bowtieArgs):
     trainingFn = os.path.join(args.output_directory, 'training.pickle')
     if not trainingFn.endswith('.gz'):
         trainingFn += '.gz'
-    training.save(trainingFn)
+    trainingData.save(trainingFn)
     logging.info('Training data written to "%s"' % trainingFn)
     
     if setupIval is not None:
@@ -1238,6 +1153,9 @@ if __name__ == "__main__":
     parser.add_argument(\
         '--write-training-reads', action='store_const', const=True,
         default=False, help='Write FASTQ for the training reads to "training.fastq" in output directory')
+    parser.add_argument(\
+        '--write-test-data', action='store_const', const=True,
+        default=False, help='Write Dataset object for testdata.  "Correct" column set to all None\'s.')
     parser.add_argument(\
         '--write-training-sam', action='store_const', const=True,
         default=False, help='Write SAM alignments for the training reads to "training.sam" in output directory')
