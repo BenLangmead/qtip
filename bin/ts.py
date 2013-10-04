@@ -84,6 +84,9 @@ import logging
 import itertools
 from collections import defaultdict
 from Queue import Queue
+
+# Modules that are part of the tandem simulator
+import simulators
 from sam import cigarToList, mdzToList, cigarMdzToStacked
 from samples import UnpairedTuple, PairedTuple, Dataset
 
@@ -706,6 +709,17 @@ class Dists(object):
         ''' Return true iff at least one unpaired read was added. '''
         return not self.scDistUnp.empty()
 
+def isCorrect(al):
+    ''' Return true if the given alignment is both simulated and "correct" --
+        i.e. in or very near it's true point of origin '''
+    if args.input_from_mason:
+        return simulators.alignmentCorrectMason(al, args.wiggle)
+    elif args.input_from_grinder:
+        return simulators.alignmentCorrectGrinder(al, args.wiggle)
+    elif args.input_from_wgsim:
+        return simulators.alignmentCorrectWgsim(al, args.wiggle)
+    else: return None
+
 class Output(threading.Thread):
     
     ''' Aligner output reader.  Reads SAM output from aligner, updates
@@ -777,15 +791,17 @@ class Output(threading.Thread):
                             correct1, correct2 = correct2, correct1
                         self.dataset.addPaired(mate1, mate2, abs(mate1.tlen), correct1, correct2)
                 elif al.isAligned():
-                    # Test data
+                    # Test data.  Is it simulated test data?  I.e. did the
+                    # user specify an option like --input-from-mason?
                     if mate1 is not None:
                         assert al.alType == 'CP'
-                        self.dataset.addPaired(mate1, mate2, abs(mate1.tlen), None, None)
+                        correct1, correct2 = isCorrect(mate1), isCorrect(mate2)
+                        self.dataset.addPaired(mate1, mate2, abs(mate1.tlen), correct1, correct2)
                     elif al.alType == 'UU':
-                        self.dataset.addUnp(al, None)
+                        self.dataset.addUnp(al, isCorrect(al))
                     else:
                         assert al.alType in ['UP', 'DP']
-                        self.dataset.addM(al, None)
+                        self.dataset.addM(al, isCorrect(al))
                 elif self.unalFh is not None:
                     # Perhaps write unaligned simulated read to file
                     self.unalFh.write("@%s\n%s\n+\n%s\n" % (nm, seq, qual))
@@ -895,9 +911,10 @@ def go(args, bowtieArgs):
     random.seed(args.seed)
     
     # Set up logger
-    logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s',
-                        datefmt='%m/%d/%y-%H:%M:%S',
-                        level=logging.DEBUG if args.verbose else logging.INFO)
+    logging.basicConfig(\
+        format='%(asctime)s:%(levelname)s:%(message)s',
+        datefmt='%m/%d/%y-%H:%M:%S',
+        level=logging.DEBUG if args.verbose else logging.INFO)
     
     # Create output directory if needed
     if not os.path.isdir(args.output_directory):
@@ -964,8 +981,8 @@ def go(args, bowtieArgs):
     
     # Writing test dataset
     if args.write_test_data or args.write_all:
-        testFn = os.path.join(args.output_directory, 'test.pickle.gz')
-        testData.save(testFn)
+        testFn = os.path.join(args.output_directory, 'test.pickle' + ('.gz' if args.compress_output else ''))
+        testData.save(testFn, compress=args.compress_output)
         logging.info('Test data written to "%s"' % testFn)
     
     # Stop timing interval for alignment phase 1
@@ -1066,10 +1083,9 @@ def go(args, bowtieArgs):
         logging.info('  %d: %d' % (k, v))
     
     # Writing training data
-    trainingFn = os.path.join(args.output_directory, 'training.pickle')
-    if not trainingFn.endswith('.gz'):
-        trainingFn += '.gz'
-    trainingData.save(trainingFn)
+    trainingFn = os.path.join(args.output_directory, 'training.pickle' + ('.gz' if args.compress_output else ''))
+    testData.save(testFn, compress=args.compress_output)
+    trainingData.save(trainingFn, compress=args.compress_output)
     logging.info('Training data written to "%s"' % trainingFn)
     
     if setupIval is not None:
@@ -1133,6 +1149,7 @@ if __name__ == "__main__":
     parser.add_argument(\
         '--bt2-exe', metavar='path', dest='bt2_exe', type=str, help='Path to Bowtie 2 exe')
     
+    # Some basic flags
     parser.add_argument(\
         '--sanity', action='store_const', const=True, default=False, help='Do various sanity checks')
     parser.add_argument(\
@@ -1143,6 +1160,15 @@ if __name__ == "__main__":
         '--verbose', action='store_const', const=True, default=False, help='Be talkative')
     parser.add_argument(\
         '--version', action='store_const', const=True, default=False, help='Print version and quit')
+    
+    # For when input is itself simulated, so we can output a Dataset with the
+    # 'correct' column filled in properly 
+    parser.add_argument(\
+        '--input-from-mason', action='store_const', const=True, default=False, help='Input reads were simulated from Mason')
+    parser.add_argument(\
+        '--input-from-wgsim', action='store_const', const=True, default=False, help='Input reads were simulated from wgsim')
+    parser.add_argument(\
+        '--input-from-grinder', action='store_const', const=True, default=False, help='Input reads were simulated from Grinder')
     
     # Output file-related arguments
     parser.add_argument(\

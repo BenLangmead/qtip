@@ -188,10 +188,10 @@ class Dataset(object):
         cPickle.dump(save, fh, cPickle.HIGHEST_PROTOCOL)
         fh.close()
     
-    def load(self, fn, compress=True):
+    def load(self, fn):
         ''' Load dataset from a (possibly) compressed pickle file. '''
         import cPickle
-        if compress:
+        if fn.endswith('.gz'):
             import gzip
             fh = gzip.open(fn, 'rb')
         else:

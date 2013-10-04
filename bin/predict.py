@@ -1,312 +1,157 @@
+import os
+import logging
+import math
+import random
 import abc
+import itertools
 import pandas as pd
 import statsmodels.formula.api as sm
+import numpy as np
+import contextlib
+from scipy.optimize import minimize, optimize
+from sklearn.cross_validation import StratifiedKFold
+
+# Modules that are part of the tandem simulator
 from samples import UnpairedTuple, PairedTuple, Dataset
-import logging
+
+@contextlib.contextmanager
+def noOutput():
+    savestdout = sys.stdout
+    savestderr = sys.stderr
+    class Devnull(object):
+        def write(self, _): pass
+    sys.stdout = Devnull()
+    sys.stderr = Devnull()
+    yield
+    sys.stdout = savestdout
+    sys.stderr = savestderr
 
 class Result(object):
     ''' Result of a set of predictions where correctness is known '''
     
-    def __init__(self, pcors, cors):
-        self.items = zip(pcors, cors)
-        self.items.sort()
+    def __init__(self, pcors, cors, mapqize=False, pcorize=False, round=False, noise=True):
+        if pcorize:
+            # Caller gave us MAPQs, but we want pcors
+            pcors = [ 1 - 10.0 ** (-0.1 * x) for x in pcors ]
+        if mapqize:
+            # Caller gave us pcors, but we want MAPQs
+            pcors = [ 100.0 if p == 1.0 else -10 * math.log10(1.0 - p) for p in pcors ]
+        if round:
+            # Round pcors to nearest integer (only sensible if they're MAPQs)
+            pcors = [ int(x) for x in pcors ]
+        self.cors = cors
+        self.pcors = pcors
+        if noise:
+            mn, mx = min(pcors), max(pcors)
+            self.noisyPcors = np.minimum(mx, np.maximum(mn, np.add(np.random.uniform(0, 1e-10, len(pcors)), pcors)))
+            self.items = zip(self.noisyPcors, cors)
+        else:
+            self.items = zip(self.pcors, cors)
+        self.items.sort(key=lambda x: (x[0], -x[1]))
     
     def __iter__(self):
         return iter(self.items)
-
-class Objective(object):
-    __metaclass__ = abc.ABCMeta
     
-    @abc.abstractmethod
-    def score(self, result):
-        return 0.0
+    #
+    # Useful plots
+    #
+    
+    def mapqBinPlot(self):
+        pass
 
-class RankingErrorObjective(Objective):
+class RankingErrorObjective(object):
     ''' Return ranking error associated with result '''
     def score(self, result):
-        i, tot = 0, 0
+        i, tot = 1, 0
         for _, cor in iter(result):
             if not cor:
                 tot += i
             i += 1
         return tot
 
-class SmoothFitObjective(Objective):
-    ''' Return error calculated by drawing a smooth curve through the cor data
-        (sorted by pcor) and summing squared differences between the pcors and
-        the curve. '''
-    def __init__(self, smoothParam):
-        self.smoothParam = smoothParam
+class SmoothedOutcomeObjective(object):
+    ''' An objective that decreases as the pcor predictions line up better
+        with "actual" probabilities of being correct.  The "actual"
+        probabilities are calculated by sorting the cor vector according to
+        ascending pcor (with noise), then smoothing using running mean. '''
+    
+    def __init__(self, window=50):
+        self.window = window # running mean window
+    
+    @classmethod
+    def scoreHelper(cls, pcor, cor, window):
+        smoothcor = pd.rolling_mean(np.array(cor, dtype=np.float32), window)
+        ssd = np.sum((cor - np.mean(cor))**2)
+        return sum([(0 if math.isnan(sc) else (pc-sc)**2) for pc, sc in itertools.izip(pcor, smoothcor)]) / ssd
     
     def score(self, result):
-        pass
+        ''' Compute and return a score equal to sum of squared differences
+            between pcors and smoothed cor values. '''
+        pcor, cor = zip(*result.items)
+        return self.scoreHelper(pcor, cor, self.window)
+    
+    def plot(self, result, pdf):
+        pcor, cor = zip(*result.items)
+        smoothcor = self.smoothCor(cor)
+        plt.figure(figsize=(7, 7))
+        plt.title('Smooth outcome objective plot (score=%0.2f)' % self.score(result))
+        ran = range(len(smoothcor))
+        plt.plot(ran, pcor, 'bo', ran, smoothcor, 'g-', ran, cor, 'ko')
+        plt.savefig(pdf, format='pdf')
+        plt.close()
 
 class DiffScale(object):
     def __init__(self, scalefact = 1.5):
         self.scalefact = scalefact
     
     def rescale(self, ds):
-        ds['diff'] = (ds['best1'] - ds['best2']).fillna(self.scalefact)
+        ds['diff'] = np.minimum(self.scalefact, (ds['best1'] - ds['best2']).fillna(self.scalefact))
 
 class LogitPredictor(object):
     ''' Use logistic regression model with two '''
     
-    def __init__(self, dscale=DiffScale(1.5), ladd=0.1):
+    def __init__(self,
+                 dscale=DiffScale(4.0),
+                 logB=False,
+                 logD=False,
+                 ladd=0.5):
         self.dscale = dscale
         self.ladd = ladd
+        self.res = None
+        self.logB, self.logD = logB, logD
     
-    def train(self, trainingData):
+    def train(self, trainingData, objective, cv_fold=5):
         td = trainingData.copy()
         for col in [ 'correct', 'best1', 'best2' ]:
             assert col in td
         self.dscale.rescale(td)
         logging.info('Fitting logit model')
-        #print td['correct']
-        #print td['best1']
-        res = sm.logit(formula='correct ~ best1 * diff', data=td).fit()
+        bestStr, diffStr = 'best1', 'diff'
+        if self.logB: bestStr = 'np.log(%f + best1)' % self.ladd
+        if self.logD: diffStr = 'np.log(%f + diff)' % self.ladd
+        form = 'correct ~ %s * %s' % (bestStr, diffStr)
+        self.res = sm.logit(formula=form, data=td).fit()
+        
+        logging.debug('Doing stratified %d-fold cross validation' % cv_fold)
+        skf = StratifiedKFold(td['correct'], cv_fold)
+        foldErrs = []
+        for traini, testi in skf:
+            trainTd, testTd = td.ix[traini], td.ix[testi]
+            try:
+                mod = sm.logit(formula=form, data=trainTd).fit()
+                res = Result(mod.predict(testTd), testTd['correct'])
+                foldErrs.append(objective.score(res))
+            except np.linalg.LinAlgError:
+                logging.warning('Linear algebra error when fitting logit model!!!')
+        return foldErrs
     
     def predict(self, testData):
-        pass
-
-class StratifiedPredictor(object):
-    ''' Wrap another predictor and make it 'stratified' by read length. '''
-    def __init__(self):
-        pass
-
-class KNN:
-    
-    def __init__(self, k=1000, leafSz=20, cacheSz=4096):
-        self.leafSz = leafSz
-        self.k = k
-        self.kdt = None
-        self.tups = []
-        self.tupMap = {}
-        self.hits, self.misses = 0, 0
-        self.ncor, self.ntot = 0, 0
-        
-        # Very simple initial cache: remember last query and answer
-        self.prevTup, self.prevProb = None, None
-        
-        # Cache is a doubly-linked list
-        # Link layout:     [PREV, NEXT, KEY, RESULT]
-        self.root = root = [None, None, None, None]
-        self.cache = cache = {}
-        last = root
-        for i in range(cacheSz):
-            key = object()
-            cache[key] = last[1] = last = [last, root, key, None]
-        root[0] = last
-    
-    def fit(self, tups, corrects):
-        """ Add a collection of training tuples, each with associated
-            boolean indicating whether tuple corresponds to a correct
-            or incorrect alignment. """
-        self.ntot = len(tups)
-        for tup, correct in zip(tups, corrects):
-            correcti = 1 if correct else 0
-            self.ncor += correcti
-            if tup in self.tupMap:
-                self.tupMap[tup][0] += correcti # update # correct
-                self.tupMap[tup][1] += 1        # update total
-            else:
-                self.tups.append(tup)
-                self.tupMap[tup] = [correcti, 1]
-        assert self.ntot > 0
-        self.finalize()
-    
-    def finalize(self):
-        """ Called when all training data tuples have been added. """
-        assert self.kdt is None
-        self.kdt = KDTree(self.tups, leafsize=self.leafSz)
-    
-    def __probCorrect(self, tup):
-        """ Query k nearest neighbors of test tuple (tup); that is, the
-            k training tuples most "like" the test tuple.  Return the
-            fraction of the neighbors that are correct. """
-        
-        # Fast path: test point is on top of a stack of training points
-        # that is already >= k points tall
-        if tup in self.tupMap and self.tupMap[tup][1] >= self.k:
-            ncor, ntot =  self.tupMap[tup]
-            return float(ncor) / ntot
-        
-        radius = 50
-        bestEst = None
-        ntot = 0
-        wtups = [] # weighted neighbor tuples
-        maxDist, minDist = 0.0, 0.0
-        while radius < 1000:
-            neighbors = self.kdt.query_ball_point([tup], radius, p=2.0)
-            for idx in neighbors[0]:
-                ntup = self.tups[idx]
-                assert ntup in self.tupMap
-                ntot += self.tupMap[ntup][1]
-                # Calculate distance 
-                dist = numpy.linalg.norm(numpy.subtract(ntup, tup))
-                # Calculate a weight that decreases with increasing distance
-                maxDist = max(maxDist, dist)
-                minDist = min(minDist, dist)
-                wtups.append((self.tupMap[ntup][0], self.tupMap[ntup][1], dist))
-            if ntot >= self.k:
-                break
-            radius *= 2.0
-        if ntot == 0:
-            print >> sys.stderr, "Tuple not within 1000 units of any other tuple: %s" % str(tup)
-            return float(self.ncor) / self.ntot
-        ncor = sum(map(lambda x: x[0] * (maxDist - x[2]) / (maxDist - minDist), wtups))
-        ntot = sum(map(lambda x: x[1] * (maxDist - x[2]) / (maxDist - minDist), wtups))
-        return float(ncor) / ntot
-    
-    def probCorrect(self, tup):
-        """ Cacheing wrapper for self.__probCorrect. """
-        assert self.kdt is not None
-        assert isinstance(tup, collections.Hashable)
-        if tup == self.prevTup:
-            return self.prevProb
-        self.prevTup = tup
-        cache = self.cache
-        root = self.root
-        link = cache.get(tup)
-        if link is not None:
-            # Cache hit!
-            link_prev, link_next, _, result = link
-            link_prev[1] = link_next
-            link_next[0] = link_prev
-            last = root[0]
-            last[1] = root[0] = link
-            link[0] = last
-            link[1] = root
-            self.hits += 1
-            self.prevProb = result
-            return result
-        # Cache miss
-        result = self.__probCorrect(tup)
-        root[2] = tup
-        root[3] = result
-        oldroot = root
-        root = self.root = root[1]
-        root[2], oldkey = None, root[2]
-        root[3], oldvalue = None, root[3]
-        del cache[oldkey]
-        cache[tup] = oldroot
-        self.misses += 1
-        self.prevProb = result
-        return result
-
-def go(args):
-    if not args.no_mapq:
-        # Build KNN classifiers
-        st = time.clock()
-        training.fit(args.num_neighbors, scaleAs=args.as_scale, scaleDiff=args.diff_scale)
-        print >> sys.stderr, "Finished fitting KNN classifiers on %d training tuples" % len(training)
-        fitIval = time.clock() - st
-        st = time.clock()
-        
-        mapqDiff = 0.0
-        nrecs, npair, nunp = 0, 0, 0
-        samTsvOfh = None
-        
-        exFields = set(["XQ:f"])
-        if args.save_sam_tsv:
-            # Figure out what all possible extra fields are so that we can write a
-            # tsv version of the SAM output with a fixed number of columns per line 
-            samIfh.seek(0)
-            for samrec in samIfh:
-                if samrec[0] == '@':
-                    continue
-                toks = string.split(samrec, '\t')
-                for tok in toks[11:]:
-                    idx1 = tok.find(':')
-                    assert idx1 != -1
-                    idx2 = tok.find(':', idx1+2)
-                    assert idx2 != -1
-                    exFields.add(tok[:idx2])
-            samTsvOfh = open(args.save_sam_tsv, 'w')
-            samTsvOfh.write("\t".join([
-                "qname", "flag", "rname", "pos", "mapq", "cigar", "rnext",
-                "pnext", "tlen", "seq", "qual"] + list(exFields)))
-            samTsvOfh.write("\n")
-            print >> sys.stderr, "Extra fields: " + str(exFields)
-        
-        print >> sys.stderr, "Assigning MAPQs"
-        with open(args.S, 'w') as samOfh: # open output file
-            
-            def emitNewSam(samrec, al, probCorrect):
-                probIncorrect = 1.0 - probCorrect # convert to probability incorrect
-                mapq = args.max_mapq
-                if probIncorrect > 0.0:
-                    mapq = min(-10.0 * math.log10(probIncorrect), args.max_mapq)
-                samrec = samrec.rstrip()
-                xqIdx = samrec.find("\tXQ:f:")
-                if xqIdx != -1:
-                    samrec = samrec[:xqIdx]
-                samOfh.write("\t".join([samrec, "XQ:f:" + str(mapq)]) + "\n")
-                if samTsvOfh:
-                    samToks = string.split(samrec, "\t")
-                    samTsvOfh.write("\t".join(samToks[:11]))
-                    for field in exFields:
-                        samTsvOfh.write("\t")
-                        if field == "XQ:f":
-                            samTsvOfh.write(str(mapq))
-                        else:
-                            samTsvOfh.write(al.exFields[field] if field in al.exFields else "NA")
-                    samTsvOfh.write("\n")
-                return mapq - float(al.mapq)
-            
-            samIfh.seek(0)                # rewind temporary SAM file
-            ival = 100
-            while True:
-                samrec = samIfh.readline()
-                if len(samrec) == 0:
-                    break
-                if samrec[0] == '@':      # pass headers straight through
-                    samOfh.write(samrec)
-                    continue
-                al = Alignment(samrec)    # parse alignment
-                nrecs += 1
-                if (nrecs % ival) == 0:
-                    print >> sys.stderr, "  Assigned MAPQs to %d records (%d unpaired, %d paired)" % (nrecs, npair, nunp)
-                if al.isAligned():
-                    # Part of a concordantly-aligned paired-end read?
-                    probCorrect = None
-                    if al.concordant:
-                        # Get the other mate
-                        samrec2 = samIfh.readline()
-                        assert len(samrec2) > 0
-                        al2 = Alignment(samrec2)
-                        al1, samrec1 = al, samrec
-                        npair += 2
-                        if al2.mate1:
-                            al1, al2 = al2, al1
-                            samrec1, samrec2 = samrec2, samrec1
-                        assert al1.mate1 and not al1.mate2
-                        assert al2.mate2 and not al2.mate1
-                        probCorrect1, probCorrect2 = training.probCorrect(al1, al2)
-                        mapqDiff += emitNewSam(samrec1.rstrip(), al1, probCorrect1)
-                        mapqDiff += emitNewSam(samrec2.rstrip(), al2, probCorrect2)
-                    else:
-                        nunp += 1
-                        probCorrect = training.probCorrect(al)
-                        mapqDiff += emitNewSam(samrec.rstrip(), al, probCorrect)
-                else:
-                    samOfh.write(samrec)
-                    if samTsvOfh:
-                        samToks = string.split(samrec, "\t")
-                        samTsvOfh.write("\t".join(samToks[:11]))
-                        for field in exFields:
-                            samTsvOfh.write("\t")
-                            samTsvOfh.write(al.exFields[field] if field in al.exFields else "NA")
-                        samTsvOfh.write("\n")
-        
-        if samTsvOfh: samTsvOfh.close()
-        print >> sys.stderr, "Finished writing final SAM output (%d records) to '%s'" % (nrecs, args.S)
-        print >> sys.stderr, "  concordant-pair SAM records: %d" % npair
-        print >> sys.stderr, "  non-concordant-pair SAM records: %d" % nunp
-        print >> sys.stderr, "  total mapping quality difference (new - old): %0.3f" % mapqDiff
-        print >> sys.stderr, "  total KNN hits=%d, misses=%d" % (training.hits(), training.misses()) 
-
-def makePredictor(args):
-    return LogitPredictor()
+        td = testData.copy()
+        self.dscale.rescale(td)
+        # Predict.  No need to apply log transformation to data -
+        # self.res remembers that
+        logging.info('Predicting with logit model')
+        return self.res.predict(td, transform=True)
 
 if __name__ == "__main__":
     import sys
@@ -316,6 +161,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(\
         description='Fit model, make predictions.')
     
+    # Output-related options
+    parser.add_argument(\
+        '--output-directory', metavar='path', type=str, required=True, help='Write outputs to this directory')
+    parser.add_argument(\
+        '--write-training-predictions', action='store_const', const=True,
+        default=False, help='Write predictions + correctness info for training data to a csv file')
+    parser.add_argument(\
+        '--write-input-predictions', action='store_const', const=True,
+        default=False, help='Write predictions + correctness info (if available) for input (test) data to a csv file')
+    parser.add_argument(\
+        '--write-all', action='store_const', const=True,
+        default=False, help='Same as specifying all --write-* options')
+    
+    parser.add_argument(\
+        '--seed', metavar='int', type=int, default=6277, help='Pseudo-random seed')
     parser.add_argument(\
         '--training', metavar='path', type=str, required=True, help='Input training data')
     parser.add_argument(\
@@ -330,50 +190,87 @@ if __name__ == "__main__":
                         datefmt='%m/%d/%y-%H:%M:%S',
                         level=logging.DEBUG if args.verbose else logging.INFO)
     
+    # Create output directory if needed
+    outdir = args.output_directory
+    if not os.path.isdir(outdir):
+        try: os.makedirs(outdir)
+        except OSError as exception:
+            if exception.errno != errno.EEXIST: raise
+    
     logging.info('Loading training data')
     trainingData = Dataset()
     trainingData.load(args.training)
-    trainUnp, trainM, trainPair = trainingData.toDataFrames()
+    train = {}
+    train['U'], train['M'], train['P'] = trainingData.toDataFrames()
     
-    print 'Training:'
-    print 'Unp:'
-    print trainUnp.head()
-    print 'M:'
-    print trainM.head()
-    print 'Pair:'
-    print trainPair.head()
+    rankingObj = RankingErrorObjective()
+    smoothObj = SmoothedOutcomeObjective()
     
     logging.info('Creating and fitting models')
-    if not trainUnp.empty:
-        logging.info('  unpaired model')
-        pred = makePredictor(args)
-        pred.train(trainUnp)
-    if not trainM.empty:
-        logging.info('  non-concordant paired-end model')
-        pred = makePredictor(args)
-        pred.train(trainM)
-    if not trainPair.empty:
-        logging.info('  concordant paired-end model')
-        pred = makePredictor(args)
-        pred.train(trainPair)
+    pred = {}
+    for type in 'UMP':
+        if not train[type].empty:
+            logging.info('  "%s" model' % type)
+            cv_fold = 2
+            
+            # Pick parameters based on an optimization
+            def objf(x):
+                random.seed(args.seed)
+                np.random.seed(args.seed)
+                pred = LogitPredictor(dscale=DiffScale(x))
+                sc = np.mean(pred.train(train[type], smoothObj, cv_fold=cv_fold))
+                logging.debug('  tried x=%0.6f, got mean cv=%0.6f' % (x, sc))
+                return sc
+            
+            #minresult = minimize(objf, 4.0, method='Nelder-Mead', options={'maxiter':15})
+            diffScale = optimize.brute(objf, ((1.0, 21.0, 2.0),), finish=None)
+            logging.info('Best diffScale=%0.6f' % diffScale)
+            random.seed(args.seed)
+            np.random.seed(args.seed)
+            pred[type] = LogitPredictor(dscale=DiffScale(diffScale))
+            pred[type].train(train[type], smoothObj)
+            assert pred[type] is not None
+            train[type]['pcor'] = pred[type].predict(train[type])
+            res = Result(train[type]['pcor'], train[type]['correct'])
+            alignerRes = Result(train[type]['mapq'], train[type]['correct'], pcorize=True)
+            myRank = rankingObj.score(res)
+            alignerRank = rankingObj.score(alignerRes)
+            logging.info('Score on training: ranking ratio=%0.4f, smooth=%0.4f' % (float(myRank)/alignerRank, smoothObj.score(res)))
+            
+            if args.write_all or args.write_training_predictions:
+                train[type].to_csv(os.path.join(outdir, 'training_predictions_%s.csv' % type), index=False)
     
     logging.info('Loading test data')
     testData = Dataset()
     testData.load(args.test)
-    testUnp, testM, testPair = testData.toDataFrames()
+    test = {}
+    test['U'], test['M'], test['P'] = testData.toDataFrames()
     
-    print 'Test:'
-    print 'Unp:'
-    print testUnp.head()
-    print 'M:'
-    print testM.head()
-    print 'Pair:'
-    print testPair.head()
+    logging.info('Predicting using models')
+    for type in 'UMP':
+        if not test[type].empty:
+            assert not train[type].empty
+            logging.info('  "%s" model' % type)
+            assert 'pcor' not in test[type]
+            # Predict pcor for all the input reads!
+            test[type]['pcor'] = pred[type].predict(test[type])
+            if any(map(lambda x: x is not None, test[type]['correct'])):
+                logging.info('Input test data also has correctness information')
+                res = Result(test[type]['pcor'], test[type]['correct'])
+                alignerRes = Result(test[type]['mapq'], test[type]['correct'], pcorize=True)
+                myRank = rankingObj.score(res)
+                alignerRank = rankingObj.score(alignerRes)
+                logging.info('Score on training: ranking ratio=%0.6f, smooth=%0.6f' % (float(myRank)/alignerRank, smoothObj.score(res)))
+            
+            if args.write_all or args.write_input_predictions:
+                test[type].to_csv(os.path.join(outdir, 'input_predictions_%s.csv' % type), index=False)
+    
+    logging.info('DONE')
     
     class Test(unittest.TestCase):
         def test_rankingError(self):
-            result = Result([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8], [True, False, False, True, False, True, True, False])
+            result = Result([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8], [True, False, False, True, False, True, True, False], noise=False)
             r = RankingErrorObjective()
-            self.assertEqual(1 + 2 + 4 + 7, r.score(result))
+            self.assertEqual(2 + 3 + 5 + 8, r.score(result))
 
     unittest.main(argv=[sys.argv[0]])
