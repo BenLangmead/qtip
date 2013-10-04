@@ -1,5 +1,6 @@
-- Try paired-end data
-- Try data of different lengths
-- See if there's a better way of keeping and presenting alignment info,
-  including # alignments at the best scores, 3rd best score, incl.
-  scores that are below minimum threshold
+- Try a range of read lengths and sensitivity settings (fix simulator)
+- Try a range of simulators (fix read length and sensitivity)
+- Try a real-world dataset (e.g. flow-sorted)
+  + Maybe just make a ROC, since we don't know enough to make a good
+    predicted/actual plot
+- Try a dataset where reads are of various lengths

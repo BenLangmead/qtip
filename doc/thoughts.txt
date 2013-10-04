@@ -13,3 +13,10 @@ Some directions:
   schemes?
 - What changes (w/r/t both Bayesian and learning approaches) when we're
   looking at different assays? 
+- Use Python scipy.interpolate.bisplrep or scipy.interpolate.interp2d
+
+Ideas for validation:
+- Use a dataset that enriches for a subset of the genome, like a single
+  chromosome.  Treat alignments to that chromosome as correct.
+- Use a dataset with a short, non-repetitive spike-in like PhiX or lambda.
+  Treat alignments to lambda/PhiX as correct.

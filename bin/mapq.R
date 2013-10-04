@@ -58,7 +58,7 @@ selectConcordant <- function(x) { return(x$YT.Z == "CP") }
 # cumulative number of incorrect alignments.
 roc_table <- function(correct, mapq) {
 	xord <- order(mapq)
-	correct <- factor(correct[xord], levels=c(0, 1))
+	correct <- factor(correct[xord], levels=c(F, T))
 	tab <- table(mapq[xord], correct)
 	tab <- data.frame(mapq=as.numeric(rownames(tab)), cor=tab[,2], incor=tab[,1])
 	tab <- tab[order(tab$mapq, decreasing=T),]
@@ -110,8 +110,8 @@ roc_2plot <- function(
 		mapq1 <- round(mapq1, digits=round_digits)
 		mapq2 <- round(mapq2, digits=round_digits)
 	}
-	xroc <- roc_table(correct, mapq1, correct=correct)
-	xroc2 <- roc_table(correct, mapq2, correct=correct)
+	xroc <- roc_table(correct, mapq1)
+	xroc2 <- roc_table(correct, mapq2)
 	mx_x <- max(max(cumsum(xroc$incor)), max(cumsum(xroc2$incor)))
 	mn_x <- min(min(cumsum(xroc$incor)), min(cumsum(xroc2$incor)))
 	mx_y <- max(max(cumsum(xroc$cor)), max(cumsum(xroc2$cor)))
@@ -124,8 +124,8 @@ roc_2plot <- function(
 	}
 	roc_plot(correct, mapq1, color=colors[1], first=T, xlim=xlim, ylim=ylim, main=main)
 	roc_plot(correct, mapq2, color=colors[2], first=F)
-	err1 <- rankingError(correct, mapq1, correct=correct)
-	err2 <- rankingError(correct, mapq2, correct=correct)
+	err1 <- rankingError(correct, mapq1)
+	err2 <- rankingError(correct, mapq2)
 	mapq1_lab <- paste0(mapq1_lab, " (err=", err1 / err1, ")")
 	mapq2_lab <- paste0(mapq2_lab, " (err=", err2 / err1, ")")
 	legend("bottomright", c(mapq1_lab, mapq2_lab), col=colors, pch=c(1, 1), lty=c(1, 1))
@@ -133,98 +133,159 @@ roc_2plot <- function(
 
 # Penalty is sum of ranks of all incorrectly aligned reads.  Rank is lower for
 # reads with lower MAPQ.
-rankingError <- function(correct, mapq, correct=NULL) {
+rankingError <- function(correct, mapq) {
 	ordr <- order(mapq)
-	return(sum(as.numeric(which(correct[ordr] == 0))))
+	return(sum(as.numeric(which(!correct[ordr]))))
 }
 
-quantileError <- function(correct, mapq, nquantile=10) {
-	mxmapq <- max(mapq)
-	xeq = x[x$predMapq == mxmapq,]
-	xlt = x[x$predMapq < mxmapq,]
-	ord <- order(xlt$predPcor)
-	xlt <- xlt[ord,]
-	ct <- cut(xlt$predPcor, nquantile, labels=F)
-	pcorOld <- 1 - (10 ^ (-0.1 * xlt$mapq[ord]))
+quantileError <- function(
+	correct,
+	pcor,
+	nquantile=15,
+	separate.max=F,
+	main="")
+{
+	# Order the vectors by MAPQ
+	ord <- sort.list(pcor)
+	correct <- correct[ord]
+	pcor <- pcor[ord]
+	
+	# Generate the quantile cut
+	ct <- cut(pcor, nquantile, labels=F)
+	
 	pred <- c()
 	actual <- c()
-	predOld <- c()
-	actualOld <- c()
 	mnPcor <- c()
 	mxPcor <- c()
 	mnMapq <- c()
 	mxMapq <- c()
 	for(i in 1:nquantile) {
 		n <- sum(ct == i)
-		predOld <- append(predOld, sum(pcorOld[ct == i] / n))
-		pred <- append(pred, sum(xlt$predPcor[ct == i]) / n)
-		actual <- append(actual, sum(xlt$ZC.i[ct == i]) / n)
-		mnMapq <- append(mnMapq, -10.0 * log10(1.0 - min(xlt$predPcor[ct == i])))
-		mxMapq <- append(mxMapq, -10.0 * log10(1.0 - max(xlt$predPcor[ct == i])))
-		mnPcor <- append(mnPcor, min(xlt$predPcor[ct == i]))
-		mxPcor <- append(mxPcor, max(xlt$predPcor[ct == i]))
+		pred <- append(pred, sum(pcor[ct == i]) / n)
+		actual <- append(actual, sum(correct[ct == i]) / n)
+		mnMapq <- append(mnMapq, -10.0 * log10(1.0 - min(pcor[ct == i])))
+		mxMapq <- append(mxMapq, -10.0 * log10(1.0 - max(pcor[ct == i])))
+		mnPcor <- append(mnPcor, min(pcor[ct == i]))
+		mxPcor <- append(mxPcor, max(pcor[ct == i]))
 	}
-	n <- sum(x$predMapq == mxmapq)
-	predOld <- append(predOld, sum( 1 - (10 ^ (-0.1 * x$mapq[x$predMapq == mxmapq])) ) / n)
-	pred <- append(pred, sum(xeq$predPcor) / n)
-	actual <- append(actual, sum(xeq$ZC.i) / n)
-	mnMapq <- append(mnMapq, mxmapq)
-	mxMapq <- append(mxMapq, mxmapq)
-	mnPcor <- append(mnPcor, max(xlt$predPcor))
-	mxPcor <- append(mxPcor, max(xlt$predPcor))
 	predPhred <- pmin(-10 * log10(1.0 - pred), 99.9, na.rm=T)
-	predOldPhred <- pmin(-10 * log10(1.0 - predOld), 99.9, na.rm=T)
 	actualPhred <- pmin(-10 * log10(1.0 - actual), 99.9, na.rm=T)
-	mx <- max(max(predPhred[is.finite(predPhred)]), max(actualPhred[is.finite(actualPhred)]))
-	if(T) {
-		{
-			quartz(width=6, height=6)
-			ymn <- min(min(pred), min(predOld), min(actual))
-			ymx <- max(max(pred), max(predOld), max(actual))
-			plot(seq(1, nquantile+1), pred, type="o", col="red", ylim=c(ymn, ymx), xlab="", ylab="Fraction correct", main="Fraction predicted/acutally correct by decile", xaxt='n')
-			axis(1, at=seq(1, nquantile+1), labels=paste0("[", sprintf("%0.2f", mnPcor), ", ", sprintf("%0.2f", mxPcor), "]"), las=2, cex.axis=0.75)
-			points(seq(1, nquantile+1), predOld, type="o", col="blue")
-			points(seq(1, nquantile+1), actual, type="o", col="green")
-			legend("bottomright", lty=c(1, 1, 1), col=c("red", "blue", "green"), pch=c(1, 1, 1), legend=c("SimQ predicted", "Bowtie 2 predicted", "Actual"))
-		}
-		{
-			quartz(width=6, height=6)
-			ymn <- min(min(predPhred), min(predOldPhred), min(actualPhred))
-			ymx <- max(max(predPhred), max(predOldPhred), max(actualPhred))
-			plot(seq(1, nquantile+1), predPhred, type="o", col="red", ylim=c(ymn, ymx), xlab="", ylab="MAPQ", main="MAPQ predicted/acutal by decile", xaxt='n')
-			axis(1, at=seq(1, nquantile+1), labels=paste0("[", sprintf("%0.2f", mnMapq), ", ", sprintf("%0.2f", mxMapq), "]"), las=2, cex.axis=0.75)
-			points(seq(1, nquantile+1), predOldPhred, type="o", col="blue")
-			points(seq(1, nquantile+1), actualPhred, type="o", col="green")
-			legend("topleft", lty=c(1, 1, 1), col=c("red", "blue", "green"), pch=c(1, 1, 1), legend=c("SimQ predicted", "Bowtie 2 predicted", "Actual"))
-		}
-	} else {
-		{
-			quartz(width=6, height=6)
-			ymn <- min(min(pred), min(actual))
-			ymx <- max(max(pred), max(actual))
-			plot(seq(1, nquantile+1), pred, type="o", col="red", ylim=c(ymn, ymx), xlab="", ylab="Fraction correct", main="Fraction predicted/acutally correct by decile", xaxt='n')
-			axis(1, at=seq(1, nquantile+1), labels=paste0("[", sprintf("%0.2f", mnPcor), ", ", sprintf("%0.2f", mxPcor), "]"), las=2, cex.axis=0.75)
-			points(seq(1, nquantile+1), actual, type="o", col="blue")
-			legend("bottomright", lty=c(1, 1), col=c("red", "blue"), pch=c(1, 1), legend=c("SimQ predicted", "Actual"))
-		}
-		{
-			quartz(width=6, height=6)
-			ymn <- min(min(predPhred), min(actualPhred))
-			ymx <- max(max(predPhred), max(actualPhred))
-			plot(seq(1, nquantile+1), predPhred, type="o", col="red", ylim=c(ymn, ymx), xlab="", ylab="MAPQ", main="MAPQ predicted/acutal by decile", xaxt='n')
-			axis(1, at=seq(1, nquantile+1), labels=paste0("[", sprintf("%0.2f", mnMapq), ", ", sprintf("%0.2f", mxMapq), "]"), las=2, cex.axis=0.75)
-			points(seq(1, nquantile+1), actualPhred, type="o", col="blue")
-			legend("topleft", lty=c(1, 1), col=c("red", "blue"), pch=c(1, 1), legend=c("SimQ predicted", "Actual"))
-		}
-	}
+	mx <- max(max(  predPhred[is.finite(  predPhred)]),
+	          max(actualPhred[is.finite(actualPhred)]))
+	quartz(width=6, height=6)
+	ymn <- min(min(pred), min(actual))
+	ymx <- max(max(pred), max(actual))
+	plot(seq(1, nquantile), pred, col="red", ylim=c(ymn, ymx), xlab="", ylab="Fraction correct", main=paste("Fraction predicted/acutally correct by decile", main), xaxt='n')
+	axis(1, at=seq(1, nquantile), labels=paste0("[", sprintf("%0.2f", mnPcor), ", ", sprintf("%0.2f", mxPcor), "]"), las=2, cex.axis=0.75)
+	points(seq(1, nquantile), actual, col="blue")
+	legend("bottomright", lty=c(1, 1), col=c("red", "blue"), pch=c(1, 1), legend=c("Tandem-simulation predicted", "Actual"))
 }
 
-bucketError <- function(correct, mapq) {
-	tab <- roc_table(correct, round(mapq))
+quantileError3 <- function(
+	correct,
+	pcor,
+	pcor2,
+	nquantile=15,
+	separate.max=F,
+	main="")
+{
+	# Order the vectors by MAPQ
+	ord <- sort.list(pcor)
+	correct <- correct[ord]
+	pcor <- pcor[ord]
+	pcor2 <- pcor2[ord]
+	
+	# Generate the quantile cut
+	ct <- cut(pcor, nquantile, labels=F)
+	
+	pred <- c()
+	pred2 <- c()
+	actual <- c()
+	mnPcor <- c()
+	mxPcor <- c()
+	mnMapq <- c()
+	mxMapq <- c()
+	for(i in 1:nquantile) {
+		n <- sum(ct == i)
+		pred <- append(pred, sum(pcor[ct == i]) / n)
+		pred2 <- append(pred2, sum(pcor2[ct == i]) / n)
+		actual <- append(actual, sum(correct[ct == i]) / n)
+		mnMapq <- append(mnMapq, -10.0 * log10(1.0 - min(pcor[ct == i])))
+		mxMapq <- append(mxMapq, -10.0 * log10(1.0 - max(pcor[ct == i])))
+		mnPcor <- append(mnPcor, min(pcor[ct == i]))
+		mxPcor <- append(mxPcor, max(pcor[ct == i]))
+	}
+	predPhred <- pmin(-10 * log10(1.0 - pred), 99.9, na.rm=T)
+	pred2Phred <- pmin(-10 * log10(1.0 - pred2), 99.9, na.rm=T)
+	actualPhred <- pmin(-10 * log10(1.0 - actual), 99.9, na.rm=T)
+	mx <- max(max(  predPhred[is.finite(  predPhred)]),
+	          max( pred2Phred[is.finite( pred2Phred)]),
+	          max(actualPhred[is.finite(actualPhred)]))
+	quartz(width=6, height=6)
+	ymn <- min(min(pred), min(pred2), min(actual))
+	ymx <- max(max(pred), max(pred2), max(actual))
+	plot(seq(1, nquantile), pred, col="red", ylim=c(ymn, ymx), xlab="", ylab="Fraction correct", main=paste("Fraction predicted/acutally correct by decile", main), xaxt='n')
+	axis(1, at=seq(1, nquantile), labels=paste0("[", sprintf("%0.2f", mnPcor), ", ", sprintf("%0.2f", mxPcor), "]"), las=2, cex.axis=0.75)
+	points(seq(1, nquantile), pred2, col="blue")
+	points(seq(1, nquantile), actual, col="purple")
+	legend("bottomright", lty=c(1, 1, 1), col=c("red", "blue", "purple"), pch=c(1, 1, 1), legend=c("Tandem-simulation predicted", "Bowtie 2 predicted", "Actual"))
+}
+
+#
+# Make a plot that bins alignments by nearest MAPQ and plots predicted versus
+# actual MAPQ.
+#
+bucketError <- function(correct, mapq, col="red", binby=1, max_mapq=100, new_window=F, new_plot=T, main="") {
+	mapq <- round(pmin(mapq, max_mapq))
+	if(binby > 1) {
+		mapq <- trunc((mapq+1)/binby)*binby
+	}
+	tab <- roc_table(correct, mapq)
 	mapqEx <- -10 * log10(tab$incor / (tab$cor + tab$incor))
-	mx <- max(max(tab$mapq), mapqEx[is.finite(mapqEx)])
-	plot(tab$mapq, mapqEx, xlim=c(0, mx), ylim=c(0, mx))
-	points(seq(1, mx), seq(1, mx), col="red")
+	mapqEx <- round(pmin(mapqEx, max_mapq))
+	mx <- max(max(tab$mapq), max(mapqEx))
+	
+	if(new_window) {
+		quartz(width=6, height=6)
+	}
+	frac = ((tab$cor + tab$incor) / sum(tab$cor + tab$incor))
+	lfrac = log(frac)
+	lfrac <- lfrac - min(lfrac)
+	lfrac <- lfrac / max(lfrac)
+	if(new_plot) {
+		plot(tab$mapq, mapqEx, xlim=c(0, mx), ylim=c(0, mx),
+		     col=rgb(1.0, 0.0, 0.0, lfrac), pch=16,
+		     xlab="Predicted MAPQ", ylab="Actual MAPQ",
+		     main=paste("Predicted versus actual MAPQ", main))
+	} else {
+		points(tab$mapq, mapqEx, col=rgb(1.0, 0.0, 0.0, frac), pch=21)
+	}
+	points(tab$mapq, mapqEx, col="red", pch=1)
+	abline(0, 1)
+}
+
+bucketError3 <- function(correct, mapq, mapq2, max_mapq=100, main="", minus=F) {
+	mapq <- round(pmin(mapq, max_mapq))
+	mapq2 <- round(pmin(mapq2, max_mapq))
+	tab <- roc_table(correct, round(mapq))
+	tab2 <- roc_table(correct, round(mapq2))
+	mapqEx <- -10 * log10(tab$incor / (tab$cor + tab$incor))
+	mapqEx2 <- -10 * log10(tab2$incor / (tab2$cor + tab2$incor))
+	quartz(width=6, height=6)
+	if(minus) {
+		mapqEx <- pmin(mapqEx, 50.0)
+		mapqEx2 <- pmin(mapqEx2, 50.0)
+		mx <- max(max(mapqEx - tab$mapq), max(mapqEx2 - tab2$mapq))
+		plot(tab$mapq, mapqEx - tab$mapq, xlim=c(0, max_mapq), ylim=c(0, mx), col="red", xlab="Predicted MAPQ", ylab="Actual - Predicted MAPQ", main=paste("Predicted versus actual MAPQ", main))
+		points(tab2$mapq, mapqEx2 - tab2$mapq, col="blue")
+		points(seq(1, max_mapq), rep(0, max_mapq), col="black")
+	} else {
+		mx <- max(max(tab$mapq), max(tab2$mapq), mapqEx[is.finite(mapqEx)])
+		plot(tab$mapq, mapqEx, xlim=c(0, mx), ylim=c(0, mx), col="red", xlab="Predicted MAPQ", ylab="Actual MAPQ", main=paste("Predicted versus actual MAPQ", main))
+		points(tab2$mapq, mapqEx2, col="blue")
+		points(seq(1, mx), seq(1, mx), col="black")
+	}
+	legend("bottomright", lty=c(1, 1), col=c("red", "blue"), pch=c(1, 1), legend=c("Tandem-simulation predicted", "Bowtie 2 predicted"))
 }
 
 openTrainingAndSam <- function(x, merge123=T) {
@@ -408,6 +469,9 @@ fitUnpaired <- function(
 	trRep <- train[train$diff < 999999,]
 	trUni <- train[train$diff == 999999,]
 	
+	correct <- rep(F, nrow(train))
+	pcor <- rep(0.0, nrow(train))
+	
 	trRep$diffNorm <- trRep$diff / trRep$diffValid
 	
 	#
@@ -424,20 +488,27 @@ fitUnpaired <- function(
 	weights <- ifelse(rep(use.sqrt, nrow(summ)), sqrt(summ$n), summ$n)
 	if(model == "loess") {
 		fitRep <- loess(summ$mean ~ X * Y, span=span, degree=degree, weight=weights)
-		pcorRep <- predict(fitRep, newdata=data.frame(X))
 	} else if(model == "logit") {
 		fitRep <- glm(summ$mean ~ X * Y, family=binomial("logit"), weight=weights)
-		pcorRep <- predict(fitRep, newdata=data.frame(X), type="response")
 	}
-	pcorRep <- pmin(pmax(pcorRep, 0.0), 1.0)
-	mapqRep <- -10.0 * log10(1.0 - pcorRep)
+	
 	XorigRep <- trRep$bestNorm
 	YorigRep <- trRep$diffNorm
 	correctRep <- trRep$correct == 1
+	correct[train$diff < 999999] <- correctRep
 	if(!is.null(scaleXrep)) { XorigRep <- scaleXrep(XorigRep, mnxRep, mxxRep) }
 	if(!is.null(scaleYrep)) { YorigRep <- scaleYrep(YorigRep, mnyRep, mxyRep) }
 	
-	plotRep <- function(Xex=NULL, Yex=NULL, alpha=NULL) {
+	if(model == "loess") {
+		pcorRep <- predict(fitRep, newdata=data.frame(X=XorigRep, Y=YorigRep))
+	} else if(model == "logit") {
+		pcorRep <- predict(fitRep, newdata=data.frame(X=XorigRep, Y=YorigRep), type="response")
+	}
+	pcorRep <- pmin(pmax(pcorRep, 0.0), 1.0)
+	pcor[train$diff < 999999] <- pcorRep
+	mapqRep <- -10.0 * log10(1.0 - pcorRep)
+	
+	plotRep <- function(Xex=NULL, Yex=NULL, alpha=NULL, plot.fn=NULL) {
 		my.plot.fn <- plot.fn
 		if(!is.null(plot.fn)) {
 			my.plot.fn <- paste0(plot.fn, "unp.", stratum, ".fit.rep.pdf")
@@ -456,14 +527,13 @@ fitUnpaired <- function(
 			main="Unpaired case 1",
 			plot.fn=my.plot.fn)
 		if(!is.null(plot.fn)) {
-			pdf(file=paste0(plot.fn, "unp.", x, ".trainroc.rep.pdf"), width=6, height=6)
+			pdf(file=paste0(plot.fn, "unp.", stratum, ".trainroc.rep.pdf"), width=6, height=6)
 		} else {
 			quartz(width=6, height=6)
 		}
-		roc_plot(trRep$correct, mapqRep, main="Unpaired case 1 (rep) training-data ROC")
+		roc_plot(correctRep, mapqRep, main="Unpaired case 1 (rep) training-data ROC")
 		if(!is.null(plot.fn)) { dev.off() }
 	}
-	if(do.plot) { plotRep() }
 	
 	#
 	# Fit model for Case 2: unique
@@ -475,16 +545,22 @@ fitUnpaired <- function(
 	weights <- ifelse(rep(use.sqrt, nrow(summ)), sqrt(summ$n), summ$n)
 	if(model == "loess") {
 		fitUni <- loess(summ$mean ~ X, span=span, degree=degree, weight=weights)
-		pcorUni <- predict(fitUni, newdata=data.frame(X))
 	} else if(model == "logit") {
 		fitUni <- glm(summ$mean ~ X, family=binomial("logit"), weight=weights)
-		pcorUni <- predict(fitUni, newdata=data.frame(X), type="response")
 	}
-	pcorUni <- pmin(pmax(pcorUni, 0.0), 1.0)
-	mapqUni <- -10.0 * log10(1.0 - pcorUni)
 	XorigUni <- trUni$bestNorm
 	if(!is.null(scaleXuni)) { XorigUni <- scaleXuni(XorigUni, mnxUni, mxxUni) }
 	correctUni <- trUni$correct == 1
+	correct[train$diff == 999999] <- correctUni
+	if(model == "loess") {
+		pcorUni <- predict(fitUni, newdata=data.frame(X=XorigUni))
+	} else if(model == "logit") {
+		pcorUni <- predict(fitUni, newdata=data.frame(X=XorigUni), type="response")
+	}
+	pcorUni <- pmin(pmax(pcorUni, 0.0), 1.0)
+	pcor[train$diff == 999999] <- pcorUni
+	mapqUni <- -10.0 * log10(1.0 - pcorUni)
+	
 	plotUni <- function(Xex=NULL, alpha=NULL) {
 		my.plot.fn <- plot.fn
 		if(!is.null(plot.fn)) {
@@ -501,16 +577,17 @@ fitUnpaired <- function(
 			main="Unpaired case 2",
 			plot.fn=my.plot.fn)
 		if(!is.null(plot.fn)) {
-			pdf(file=paste0(plot.fn, "unp.", x, ".trainroc.uni.pdf"), width=6, height=6)
+			pdf(file=paste0(plot.fn, "unp.", stratum, ".trainroc.uni.pdf"), width=6, height=6)
 		} else {
 			quartz(width=6, height=6)
 		}
-		roc_plot(trUni$correct, mapqUni, main="Unpaired case 2 (uni) training-data ROC")
+		roc_plot(correctUni, mapqUni, main="Unpaired case 2 (uni) training-data ROC")
 		if(!is.null(plot.fn)) { dev.off() }
 	}
-	if(do.plot) { plotUni() }
 	
 	return(list(
+		correct=correct,
+		pcor=pcor,
 		rep=fitRep,
 		repBounds=c(mnxRep, mxxRep, mnyRep, mxyRep),
 		repX=XorigRep,
@@ -525,16 +602,133 @@ fitUnpaired <- function(
 		plotUni=plotUni))
 }
 
-fitUnpairedStrata <- function(
+fitUnpairedCombined <- function(
 	train,
+	stratum=1,
 	model="loess",
-	span=2.0,
-	scaleXrep=NULL,
-	scaleYrep=NULL,
-	scaleXuni=NULL,
-	use.sqrt=F,
+	diffScale=1.1,
+	span=1.0,            # loess span
+	degree=1.0,          # loess degree
+	scaleX=NULL,
+	scaleY=NULL,
+	weight.func=NULL,
 	do.plot=F,
 	plot.fn=NULL)
+{
+	train$diffValid <- train$maxValid - train$minValid
+	train$bestNorm <- (train$best - train$maxValid) / train$diffValid
+	
+	correct <- rep(F, nrow(train))
+	pcor <- rep(0.0, nrow(train))
+	
+	train$diffNorm <- train$diff / train$diffValid
+	mxdiff <- max(train$diffNorm[train$diff < 999999])
+	train$diffNorm[train$diff == 999999] <- mxdiff * diffScale
+	
+	#
+	# Fit model
+	#
+	summ <- ddply(train, .(bestNorm, diffNorm), summarise, mean=mean(correct), n=length(correct))
+	# Gather Xs (best scores) and Ys (differences)
+	X <- summ$bestNorm
+	mxx <- max(X); mnx <- min(X)
+	if(!is.null(scaleX)) { X <- scaleX(X, mnx, mxx) }
+	Y <- summ$diffNorm
+	mxy <- max(Y); mny <- min(Y)
+	if(!is.null(scaleY)) { Y <- scaleY(Y, mny, mxy) }
+	weights <- summ$n
+	if(!is.null(weight.func)) {
+		weights <- weight.func(summ$n)
+	}
+	if(model == "loess") {
+		fit <- loess(summ$mean ~ X * Y, span=span, degree=degree, weight=weights)
+	} else if(model == "logit") {
+		fit <- glm(summ$mean ~ X * Y, family=binomial("logit"), weight=weights)
+	}
+	
+	Xorig <- train$bestNorm
+	Yorig <- train$diffNorm
+	correct <- train$correct == 1
+	if(!is.null(scaleX)) { Xorig <- scaleX(Xorig, mnx, mxx) }
+	if(!is.null(scaleY)) { Yorig <- scaleY(Yorig, mny, mxy) }
+	
+	if(model == "loess") {
+		pcor <- predict(fit, newdata=data.frame(X=Xorig, Y=Yorig))
+	} else if(model == "logit") {
+		pcor <- predict(fit, newdata=data.frame(X=Xorig, Y=Yorig), type="response")
+	}
+	pcor <- pmin(pmax(pcor, 0.0), 1.0)
+	mapq <- -10.0 * log10(1.0 - pcor)
+	
+	plotMe <- function(Xex=NULL, Yex=NULL, alpha=NULL, plot.fn=plot.fn) {
+		my.plot.fn <- plot.fn
+		if(!is.null(plot.fn)) {
+			my.plot.fn <- paste0(plot.fn, "unp.", stratum, ".fit.pdf")
+		}
+		fit2DPlot(
+			fit,
+			model,
+			Xorig,
+			Yorig,
+			correct,
+			Xex=Xex,
+			Yex=Yex,
+			alpha=alpha,
+			xlab="Best aln score",
+			ylab="Absolute diff b/t best, 2nd best aln score",
+			main="Unpaired",
+			plot.fn=my.plot.fn)
+		
+		if(!is.null(plot.fn)) {
+			pdf(file=paste0(plot.fn, "unp.", stratum, ".trainroc.pdf"), width=6, height=6)
+		} else {
+			quartz(width=6, height=6)
+		}
+		roc_plot(correct, mapq, main="Unpaired training-data ROC")
+		if(!is.null(plot.fn)) { dev.off() }
+		
+		if(!is.null(plot.fn)) {
+			pdf(file=paste0(plot.fn, "unp.", stratum, ".bucketerr.pdf"), width=6, height=6)
+		} else {
+			quartz(width=6, height=6)
+		}
+		bucketError(correct, mapq, max_mapq=80, new_window=F, new_plot=T)
+		if(!is.null(plot.fn)) { dev.off() }
+	
+		if(!is.null(plot.fn)) {
+			pdf(file=paste0(plot.fn, "unp.", stratum, ".bucketerr.bin10.pdf"), width=6, height=6)
+		} else {
+			quartz(width=6, height=6)
+		}
+		bucketError(correct, mapq, max_mapq=80, new_window=F, new_plot=T, binby=10)
+		if(!is.null(plot.fn)) { dev.off() }
+	}
+	if(do.plot) {
+		plotMe(plot.fn=plot.fn)
+	}
+	return(list(
+		correct=correct,
+		pcor=pcor,
+		mapq=mapq,
+		fit=fit,
+		bounds=c(mnx, mxx),
+		X=Xorig,
+		Y=Yorig,
+		model=model,
+		plot=plotMe,
+		err=rankingError(correct, pcor)))
+}
+
+fitUnpairedStrata <- function(
+		train,
+		model="loess",
+		span=2.0,
+		scaleXrep=NULL,
+		scaleYrep=NULL,
+		scaleXuni=NULL,
+		use.sqrt=F,
+		do.plot=F,
+		plot.fn=NULL)
 {
 	return(lapply(unique(train$stratum), function(x) {
 		fitUnpaired(
@@ -546,6 +740,71 @@ fitUnpairedStrata <- function(
 			scaleYrep=scaleYrep,
 			scaleXuni=scaleXuni,
 			use.sqrt=use.sqrt,
+			do.plot=do.plot,
+			plot.fn=plot.fn)}))
+}
+
+fitUnpairedStrataCombined <- function(
+	train,
+	model="loess",
+	span=1.0,
+	degree=1.0,
+	optimize.diffScale=T,
+	scaleX=NULL,
+	scaleY=NULL,
+	weight.func=NULL,
+	do.plot=F,
+	plot.fn=NULL)
+{
+	return(lapply(unique(train$stratum), function(x) {
+		bestSca <- function() {
+			fn <- function(y) {
+				if(optimize.diffScale) {
+					ft <- fitUnpairedCombined(
+						train[train$stratum == x,],
+						stratum=1,
+						diffScale=y,
+						model=model,
+						span=span,
+						degree=degree,
+						scaleX=scaleX,
+						scaleY=scaleY,
+						weight.func=weight.func,
+						do.plot=F,
+						plot.fn=NULL)
+				} else {
+					ft <- fitUnpairedCombined(
+						train[train$stratum == x,],
+						stratum=1,
+						diffScale=2.0,
+						model=model,
+						span=span,
+						degree=degree,
+						scaleX=function(xx, mnx, mxx) { log2(-xx + mxx + y) },
+						scaleY=function(yy, mny, mxy) { log2( yy - mny + y) },
+						do.plot=F,
+						plot.fn=NULL)
+				}
+				print(paste("Returning", ft$err, "for scale", y))
+				return (ft$err)
+			}
+			if(optimize.diffScale) {
+				opt <- optimize(fn, c(1.0, 5.0), tol = 0.01)
+			} else {
+				opt <- optimize(fn, c(0.01, 0.3), tol = 0.01)
+			}
+			return(opt$minimum)
+		}
+		fitUnpairedCombined(
+			train[train$stratum == x,],
+			stratum=x,
+			diffScale=bestSca(),
+			model=model,
+			span=span,
+			degree=degree,
+			scaleX=scaleX,
+			scaleY=scaleY,
+			weight.func=weight.func,
 			do.plot=do.plot,
 			plot.fn=plot.fn)
 	}))
@@ -636,14 +895,14 @@ fitPaired <- function(
 			main="Paired-end case 1",
 			plot.fn=my.plot.fn)
 		if(!is.null(plot.fn)) {
-			pdf(file=paste0(plot.fn, "pair.", x, ".trainroc.crep.pdf"), width=6, height=6)
+			pdf(file=paste0(plot.fn, "pair.", stratum, ".trainroc.crep.pdf"), width=6, height=6)
 		} else {
 			quartz(width=6, height=6)
 		}
-		roc_plot(trCrep$correctA, mapqCrep, main="Paired case 1 (crep) training-data ROC")
+		roc_plot(correctCrep, mapqCrep, main="Paired case 1 (crep) training-data ROC")
 		if(!is.null(plot.fn)) { dev.off() }
 	}
-	if(do.plot) { plotCrep() }
+	#if(do.plot) { plotCrep() }
 	
 	#
 	# Fit model for Case 2: unique condordant, repetitive mate
@@ -684,14 +943,14 @@ fitPaired <- function(
 			main="Paired-end case 2",
 			plot.fn=my.plot.fn)
 		if(!is.null(plot.fn)) {
-			pdf(file=paste0(plot.fn, "pair.", x, ".trainroc.cuni.pdf"), width=6, height=6)
+			pdf(file=paste0(plot.fn, "pair.", stratum, ".trainroc.cuni.pdf"), width=6, height=6)
 		} else {
 			quartz(width=6, height=6)
 		}
-		roc_plot(trCuni$correctA, mapqCuni, main="Paired case 2 (cuni) training-data ROC")
+		roc_plot(correctCuni, mapqCuni, main="Paired case 2 (cuni) training-data ROC")
 		if(!is.null(plot.fn)) { dev.off() }
 	}
-	if(do.plot) { plotCuni() }
+	#if(do.plot) { plotCuni() }
 	
 	#
 	# Fit model for Case 3: unique
@@ -730,14 +989,14 @@ fitPaired <- function(
 			main="Paired-end case 3",
 			plot.fn=my.plot.fn)
 		if(!is.null(plot.fn)) {
-			pdf(file=paste0(plot.fn, "pair.", x, ".trainroc.uni.pdf"), width=6, height=6)
+			pdf(file=paste0(plot.fn, "pair.", stratum, ".trainroc.uni.pdf"), width=6, height=6)
 		} else {
 			quartz(width=6, height=6)
 		}
-		roc_plot(trUni$correctA, mapqUni, main="Paired case 3 (uni) training-data ROC")
+		roc_plot(correctUni, mapqUni, main="Paired case 3 (uni) training-data ROC")
 		if(!is.null(plot.fn)) { dev.off() }
 	}
-	if(do.plot) { plotUni() }
+	#if(do.plot) { plotUni() }
 	
 	return(list(
 		crep=fitCrep,
@@ -946,7 +1205,7 @@ predictPaired <- function(
 		if(any(is.na(pcorCrep))) {
 			stop("ERROR: NAs in pcorCrep")
 		}
-		if("ZC.i" %in% colnames(al_crep)) {
+		if(do.plot && "ZC.i" %in% colnames(al_crep)) {
 			#alpha <- pmin(pmax(mapqCrep - 5.0, 0.0) / 30.0, 1.0)
 			badidx <- al_crep$ZC.i == 0 & mapqCrep >= 5.0
 			if(any(badidx)) { fitP$plotCrep(X[badidx], Y[badidx]) }
@@ -990,7 +1249,7 @@ predictPaired <- function(
 		pcorCuni <- pmin(1.0, pmax(0.0, pcorCuni))
 		mapqCuni <- -10 * log10(1.0 - pcorCuni)
 		if(any(is.na(pcorCuni))) { stop("ERROR: NAs in pcorCuni") }
-		if("ZC.i" %in% colnames(al_cuni)) {
+		if(do.plot && "ZC.i" %in% colnames(al_cuni)) {
 			#alpha <- pmin(pmax(mapqCuni - 5.0, 0.0) / 30.0, 1.0)
 			badidx <- al_cuni$ZC.i == 0 & mapqCuni >= 5.0
 			if(any(badidx)) { fitP$plotCuni(X[badidx]) }
@@ -1021,7 +1280,7 @@ predictPaired <- function(
 		if(any(is.na(pcorUni))) {
 			stop("ERROR: NAs in pcorUni")
 		}
-		if("ZC.i" %in% colnames(al_uni)) {
+		if(do.plot && "ZC.i" %in% colnames(al_uni)) {
 			#alpha <- pmin(pmax(mapqUni - 5.0, 0.0) / 30.0, 1.0)
 			badidx <- al_uni$ZC.i == 0 & mapqUni >= 5.0
 			if(any(badidx)) { fitP$plotUni(X[badidx]) }
@@ -1083,7 +1342,7 @@ predictUnpairedStrata <- function(
 				quartz(width=6, height=6)
 			}
 			roc_2plot(
-				alst$ZC.i,
+				alst$ZC.i == 1,
 				alst$mapq,
 				pred$mapq,
 				mapq1_lab="Bowtie 2", mapq2_lab="SimQ",
@@ -1095,7 +1354,7 @@ predictUnpairedStrata <- function(
 				quartz(width=6, height=6)
 			}
 			roc_2plot(
-				alst[pred$repIdx,]$ZC.i,
+				alst[pred$repIdx,]$ZC.i == 1,
 				alst$mapq[pred$repIdx],
 				pred$mapq[pred$repIdx],
 				mapq1_lab="Bowtie 2", mapq2_lab="SimQ",
@@ -1107,7 +1366,7 @@ predictUnpairedStrata <- function(
 				quartz(width=6, height=6)
 			}
 			roc_2plot(
-				alst[pred$uniIdx,]$ZC.i,
+				alst[pred$uniIdx,]$ZC.i == 1,
 				alst$mapq[pred$uniIdx],
 				pred$mapq[pred$uniIdx],
 				mapq1_lab="Bowtie 2", mapq2_lab="SimQ",
@@ -1158,7 +1417,7 @@ predictPairedStrata <- function(
 				quartz(width=6, height=6)
 			}
 			roc_2plot(
-				alst$ZC.i,
+				alst$ZC.i == 1,
 				alst$mapq,
 				pred$mapq,
 				mapq1_lab="Bowtie 2", mapq2_lab="SimQ",
@@ -1170,7 +1429,7 @@ predictPairedStrata <- function(
 				quartz(width=6, height=6)
 			}
 			roc_2plot(
-				alst[pred$crepIdx,]$ZC.i,
+				alst[pred$crepIdx,]$ZC.i == 1,
 				alst$mapq[pred$crepIdx],
 				pred$mapq[pred$crepIdx],
 				mapq1_lab="Bowtie 2", mapq2_lab="SimQ",
@@ -1182,7 +1441,7 @@ predictPairedStrata <- function(
 				quartz(width=6, height=6)
 			}
 			roc_2plot(
-				alst[pred$cuniIdx,]$ZC.i,
+				alst[pred$cuniIdx,]$ZC.i == 1,
 				alst$mapq[pred$cuniIdx],
 				pred$mapq[pred$cuniIdx],
 				mapq1_lab="Bowtie 2", mapq2_lab="SimQ",
@@ -1194,7 +1453,7 @@ predictPairedStrata <- function(
 				quartz(width=6, height=6)
 			}
 			roc_2plot(
-				alst[pred$uniIdx,]$ZC.i,
+				alst[pred$uniIdx,]$ZC.i == 1,
 				alst$mapq[pred$uniIdx],
 				pred$mapq[pred$uniIdx],
 				mapq1_lab="Bowtie 2", mapq2_lab="SimQ",
@@ -1247,16 +1506,28 @@ loadResults <- function(
 		print(paste("  Stratifying training data (unpaired)", format(Sys.time(), "%X"), "..."))
 		strataU <- stratify(data$trainU, "len")
 		print(paste("  Fitting (unpaired)", format(Sys.time(), "%X"), "..."))
-		fitU <- fitUnpairedStrata(
-			strataU$data,
-			model=model,
-			span=span,
-			scaleXrep=scaleXrep_u,
-			scaleYrep=scaleYrep_u,
-			scaleXuni=scaleXuni_u,
-			do.plot=do.plot,
-			plot.fn=plot.fn,
-			use.sqrt=use.sqrt)
+		if(F) {
+			fitU <- fitUnpairedStrata(
+				strataU$data,
+				model=model,
+				span=span,
+				scaleXrep=scaleXrep_u,
+				scaleYrep=scaleYrep_u,
+				scaleXuni=scaleXuni_u,
+				do.plot=do.plot,
+				plot.fn=plot.fn,
+				use.sqrt=use.sqrt)
+		} else {
+			fitU <- fitUnpairedStrataCombined(
+				strataU$data,
+				model=model,
+				span=span,
+				scaleX=scaleXrep_u,
+				scaleY=scaleYrep_u,
+				do.plot=do.plot,
+				plot.fn=plot.fn,
+				use.sqrt=use.sqrt)
+		}
 		print(paste("  Stratifying real data (unpaired)", format(Sys.time(), "%X"), "..."))
 		resU <- stratify(data$alU, "len", strata=strataU$strata)
 		alU <- resU$data; alU$stratum <- pmax(alU$stratum, 1)
@@ -1272,8 +1543,9 @@ loadResults <- function(
 		predU$predMapq <- pmin(predU$predMapq, 99.0)
 		ret$predU <- predU
 		ret$mapqU <- predU$predMapq
-		ret$errU.old <- rankingError(predU, predU$mapq)
-		ret$errU <- rankingError(predU, predU$predMapq)
+		ret$errU.old <- rankingError(predU$ZC.i == 1, predU$mapq)
+		ret$errU <- rankingError(predU$ZC.i == 1, predU$predMapq)
+		ret$correctU <- ret$predU$ZC.i == 1
 	}
 	if(!is.null(data$trainM)) {
 		print(paste("  Stratifying training data (paired)", format(Sys.time(), "%X"), "..."))
@@ -1330,13 +1602,13 @@ loadResults <- function(
 		predC$predMapq <- pmin(predC$predMapq, 99.0)
 		ret$predM <- predM
 		ret$mapqM <- predM$predMapq
-		ret$errM.old <- rankingError(predM, predM$mapq)
-		ret$errM <- rankingError(predM, predM$predMapq)
+		ret$errM.old <- rankingError(predM$ZC.i == 1, predM$mapq)
+		ret$errM <- rankingError(predM$ZC.i == 1, predM$predMapq)
 		
 		ret$predC <- predC
 		ret$mapqC <- predC$predMapq
-		ret$errC.old <- rankingError(predC, predC$mapq)
-		ret$errC <- rankingError(predC, predC$predMapq)
+		ret$errC.old <- rankingError(predC$ZC.i == 1, predC$mapq)
+		ret$errC <- rankingError(predC$ZC.i == 1, predC$predMapq)
 	}
 	return(ret)
 }
@@ -1344,7 +1616,7 @@ loadResults <- function(
 if(FALSE) {
 	setwd("~/Documents/workspace/mapq/examples/mason/")
 	for(paired in c(F, T)) {
-		for(len in seq(50, 300, 25)) {
+		for(len in seq(50, 100, 200, 300)) {
 			for(sens in c("vf", "f", "s", "vs")) {
 				id <- paste(ifelse(paired, "pair", "unp"), len, sens, sep=".")
 				print(id)

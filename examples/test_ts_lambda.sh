@@ -7,14 +7,17 @@ IDX=$BT2_HOME/example/index/lambda_virus
 
 UNP_IN=$BT2_HOME/example/reads/reads_1.fq
 
-SAM_OUT=test_ts.sam
+SAM_OUT=test_ts_lambda.sam
+SAM_TSV_OUT=test_ts_lambda.sam.tsv
+TRAIN_TSV_OUT=test_ts_lambda
 
 python ../bin/ts.py \
 	--ref $REF \
 	--U $UNP_IN \
 	--S $SAM_OUT \
 	--fastq \
-	--scoring "1,2,6,1,5,3,5,3" \
 	--num-reads 1000 \
 	--bt2-exe $BT2_HOME/bowtie2 \
-	--bt2-args "-x $IDX"
+	--bt2-args "-x $IDX" \
+	--save-sam-tsv $SAM_TSV_OUT \
+	--save-training-tsv $TRAIN_TSV_OUT
