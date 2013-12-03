@@ -75,20 +75,26 @@ class SmoothedOutcomeObjective(object):
         probabilities are calculated by sorting the cor vector according to
         ascending pcor (with noise), then smoothing using running mean. '''
     
-    def __init__(self, window=50):
+    def __init__(self, window=50, log=False, scale=(1.0-1e-10)):
         self.window = window # running mean window
+        self.log = log
+        self.scale = scale
     
-    @classmethod
-    def scoreHelper(cls, pcor, cor, window):
-        smoothcor = pd.rolling_mean(np.array(cor, dtype=np.float32), window)
+    def scoreHelper(self, pcor, cor):
+        if self.log:
+            # Shrink toward 0 then convert to Phred scale
+            cor = -10.0 * np.log10(1.0 - np.multiply(cor, self.scale))
+            pcor = -10.0 * np.log10(1.0 - np.multiply(pcor, self.scale))
+            smoothcor = pd.rolling_mean(np.array(cor, dtype=np.float32), self.window)
         ssd = np.sum((cor - np.mean(cor))**2)
+        print (cor - np.mean(cor))**2
         return sum([(0 if math.isnan(sc) else (pc-sc)**2) for pc, sc in itertools.izip(pcor, smoothcor)]) / ssd
     
     def score(self, result):
         ''' Compute and return a score equal to sum of squared differences
             between pcors and smoothed cor values. '''
         pcor, cor = zip(*result.items)
-        return self.scoreHelper(pcor, cor, self.window)
+        return self.scoreHelper(pcor, cor)
     
     def plot(self, result, pdf):
         pcor, cor = zip(*result.items)
@@ -112,6 +118,7 @@ class LogitPredictor(object):
     
     def __init__(self,
                  dscale=DiffScale(4.0),
+                 corscale=1.0,
                  logB=False,
                  logD=False,
                  ladd=0.5):
@@ -126,10 +133,11 @@ class LogitPredictor(object):
             assert col in td
         self.dscale.rescale(td)
         logging.info('Fitting logit model')
-        bestStr, diffStr = 'best1', 'diff'
+        corStr, bestStr, diffStr = 'correct', 'best1', 'diff'
         if self.logB: bestStr = 'np.log(%f + best1)' % self.ladd
         if self.logD: diffStr = 'np.log(%f + diff)' % self.ladd
-        form = 'correct ~ %s * %s' % (bestStr, diffStr)
+        if self.corescale < 1.0: corStr = 'np.multiply(correct, %f)' % self.corscale
+        form = '%s ~ %s * %s' % (corStr, bestStr, diffStr)
         self.res = sm.logit(formula=form, data=td).fit()
         
         logging.debug('Doing stratified %d-fold cross validation' % cv_fold)
@@ -174,6 +182,15 @@ if __name__ == "__main__":
         '--write-all', action='store_const', const=True,
         default=False, help='Same as specifying all --write-* options')
     
+    # Model-related options
+    parser.add_argument(\
+        '--log-xform-diff', action='store_const', const=True, default=False,
+        help='Log transform the best - 2nd-best difference')
+    parser.add_argument(\
+        '--phred-objective', action='store_const', const=True, default=False,
+        help='Phred-transform the probabilities before calculating objective')
+    
+    # Other options
     parser.add_argument(\
         '--seed', metavar='int', type=int, default=6277, help='Pseudo-random seed')
     parser.add_argument(\
@@ -204,7 +221,7 @@ if __name__ == "__main__":
     train['U'], train['M'], train['P'] = trainingData.toDataFrames()
     
     rankingObj = RankingErrorObjective()
-    smoothObj = SmoothedOutcomeObjective()
+    smoothObj = SmoothedOutcomeObjective(log=args.phred_objective)
     
     logging.info('Creating and fitting models')
     pred = {}
@@ -217,7 +234,7 @@ if __name__ == "__main__":
             def objf(x):
                 random.seed(args.seed)
                 np.random.seed(args.seed)
-                pred = LogitPredictor(dscale=DiffScale(x))
+                pred = LogitPredictor(dscale=DiffScale(x), logD=args.log_xform_diff, corscale=)
                 sc = np.mean(pred.train(train[type], smoothObj, cv_fold=cv_fold))
                 logging.debug('  tried x=%0.6f, got mean cv=%0.6f' % (x, sc))
                 return sc
@@ -227,7 +244,7 @@ if __name__ == "__main__":
             logging.info('Best diffScale=%0.6f' % diffScale)
             random.seed(args.seed)
             np.random.seed(args.seed)
-            pred[type] = LogitPredictor(dscale=DiffScale(diffScale))
+            pred[type] = LogitPredictor(dscale=DiffScale(diffScale), logD=args.log_xform_diff)
             pred[type].train(train[type], smoothObj)
             assert pred[type] is not None
             train[type]['pcor'] = pred[type].predict(train[type])
