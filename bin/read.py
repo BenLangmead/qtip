@@ -1,5 +1,8 @@
+import re
 from sam import cigarToList, mdzToList, cigarMdzToStacked
 from abc import ABCMeta, abstractmethod
+from align import editDistance, boundEditDistance
+from reference import ReferenceOOB
 
 class Read(object):
     ''' A read, along with some helper functions for parsing and
@@ -73,6 +76,8 @@ class Alignment(object):
               = probability alignment is incorrect
         '''
     
+    __nonAcgt  = re.compile('[^ACGT]')
+    
     __metaclass__ = ABCMeta
     
     @abstractmethod
@@ -115,6 +120,7 @@ class Alignment(object):
         if alignSoftClipped:
             assert ref is not None
             nrd, nrf = 0, 0
+            skipEditDistance = False
             for i in xrange(len(rdAln)):
                 if rdAln[i] != '-': nrd += 1
                 if rfAln[i] != '-': nrf += 1
@@ -133,22 +139,23 @@ class Alignment(object):
                     else:
                         readl, readr = readLn - unalLn, readLn
                         refl, refr = posr_rf, posr_rf + unalLn
-                    if refl < 0:
-                        diff = -refl
-                        readl += diff
-                        refl += diff
-                    if refr > ref.length(self.refid):
-                        diff = refr - ref.length(self.refid)
-                        readr -= diff
-                        refr -= diff
+                    if refl < 0 or refr > ref.length(self.refid):
+                        raise ReferenceOOB('[%d, %d) fell outside bounds for "%s": [0, %d)' % (refl, refr, self.refid, ref.length(self.refid)))
                     # Align read to ref using reasonable scoring
                     # function
-                    rdstr = self.seq[readl:readr]
+                    rdstr = self.seq[readl:readr].upper()
+                    rdstr = re.sub(self.__nonAcgt, 'N', rdstr)
                     assert refr - refl <= unalLn + fudge
-                    refstr = ref.get(self.refid, refl, refr - refl)
-                    assert len(rdstr) == len(refstr), "\n%s\n%s\nrefl=%d,refr=%d,readl=%d,readr=%d" % (rdstr, refstr, refl, refr, readl, readr)
+                    refstr = ref.get(self.refid, refl, refr - refl).upper()
+                    refstr = re.sub(self.__nonAcgt, 'N', refstr)
+                    assert len(rdstr) == len(refstr)
                     # Add traceback to stacked alignment
-                    rdAlnNew, rfAlnNew = rdstr, refstr
+                    if skipEditDistance:
+                        rdAlnNew, rfAlnNew = rdstr, refstr
+                    else:
+                        eddist, stack = editDistance(rdstr, refstr, stacked=True)
+                        rdAlnNew, rfAlnNew = stack
+                    rdAlnNew, rfAlnNew = rdAlnNew.lower(), rfAlnNew.lower()
                     if i == 0:
                         rdAln.insert(0, rdAlnNew)
                         rfAln.insert(0, rfAlnNew)

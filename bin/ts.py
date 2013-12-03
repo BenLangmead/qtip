@@ -97,7 +97,7 @@ from randutil import ReservoirSampler, WeightedRandomGenerator
 from simplesim import SequenceSimulator, mutate
 from read import Read, Alignment
 from bowtie2 import AlignmentBowtie2, Bowtie2
-from reference import ReferenceIndexed, ReferencePicklable
+from reference import ReferenceIndexed, ReferencePicklable, ReferenceOOB
 
 def quit_handler(signum,frame): traceback.print_stack()
 signal.signal(signal.SIGQUIT,quit_handler)
@@ -483,10 +483,12 @@ class Output(threading.Thread):
                         # just use length of this mate as a surrogate
                         fraglen = abs(al.pnext - al.pos) + len(al.seq)
                         self.dists.addFraglen(fraglen)
-                    if mate1 is not None:
-                        self.dists.addPair(mate1, mate2, self.ref)
-                    else:
-                        self.dists.addRead(al, self.ref)
+                    try:
+                        if mate1 is not None:
+                            self.dists.addPair(mate1, mate2, self.ref)
+                        else:
+                            self.dists.addRead(al, self.ref)
+                    except ReferenceOOB: pass
             
             if mate1 is None:
                 lastAl = al

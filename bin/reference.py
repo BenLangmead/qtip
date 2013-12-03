@@ -1,6 +1,14 @@
 import os
 from abc import ABCMeta, abstractmethod
 
+class ReferenceOOB(Exception):
+    
+    def __init__(self, value):
+        self.value = value
+    
+    def __str__(self):
+        return repr(self.value)
+
 class Reference(object):
     ''' Abstract base class for concrete subclasses implementing
         different ways of getting at substrings in collections of
@@ -97,8 +105,8 @@ class ReferencePicklable(Reference):
     def get(self, refid, pos, ln):
         ''' Return the specified substring of the reference '''
         assert refid in self.refs
-        assert pos < self.lens[refid]
-        assert pos + ln <= self.lens[refid]
+        if pos + ln > self.lens[refid]:
+            raise ReferenceOOB('"%s" has length %d; tried to get [%d, %d)' % (refid, self.lens[refid], pos, pos+ln))
         return self.refs[refid][pos:pos+ln]
 
 class ReferenceIndexed(Reference):
@@ -111,7 +119,7 @@ class ReferenceIndexed(Reference):
         self.faidxs = {}
         self.chr2fh = {}
         self.offset = {}
-        self.len = {}
+        self.lens = {}
         self.charsPerLine = {}
         self.bytesPerLine = {}
         
@@ -127,7 +135,7 @@ class ReferenceIndexed(Reference):
                     chr, ln, offset, charsPerLine, bytesPerLine = toks
                     self.chr2fh[chr] = fh
                     self.offset[chr] = int(offset) # 0-based
-                    self.len[chr] = int(ln)
+                    self.lens[chr] = int(ln)
                     self.charsPerLine[chr] = int(charsPerLine)
                     self.bytesPerLine[chr] = int(bytesPerLine)
     
@@ -146,12 +154,13 @@ class ReferenceIndexed(Reference):
         return self.offset.iterkeys()
     
     def length(self, refid):
-        return self.len[refid]
+        return self.lens[refid]
     
     def get(self, refid, start, ln):
         ''' Return the specified substring of the reference. '''
         assert refid in self.offset
-        assert start + ln <= self.length(refid)
+        if start + ln > self.lens[refid]:
+            raise ReferenceOOB('"%s" has length %d; tried to get [%d, %d)' % (refid, self.lens[refid], start, start + ln))
         fh, offset, charsPerLine, bytesPerLine = \
             self.chr2fh[refid], self.offset[refid], \
             self.charsPerLine[refid], self.bytesPerLine[refid]
@@ -175,5 +184,5 @@ class ReferenceIndexed(Reference):
             fh.seek(bytesPerLine - charsPerLine, 1)
         assert ln == 0
         res = ''.join(buf)
-        assert len(res) == origLn, 'ln=%d, origLn=%d, len(buf)=%d' % (ln, origLn, len(buf))
+        assert len(res) == origLn
         return res
