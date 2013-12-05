@@ -1,7 +1,10 @@
 import os
+import re
 from abc import ABCMeta, abstractmethod
+from cPickle import load, dump
 
 class ReferenceOOB(Exception):
+    ''' Out of bounds exception for reference sequences '''
     
     def __init__(self, value):
         self.value = value
@@ -94,13 +97,11 @@ class ReferencePicklable(Reference):
         return self.lens[refid]
     
     def save(self, fn):
-        import cPickle
-        cPickle.dump((self.refs, self.lens),
-                     open(fn, 'wb'), cPickle.HIGHEST_PROTOCOL)
+        #dump((self.refs, self.lens), open(fn, 'wb'), cPickle.HIGHEST_PROTOCOL)
+        dump((self.refs, self.lens), open(fn, 'wb'), 2)
     
     def load(self, fn):
-        import cPickle
-        self.refs, self.lens = cPickle.load(open(fn, 'rb'))
+        self.refs, self.lens = load(open(fn, 'rb'))
     
     def get(self, refid, pos, ln):
         ''' Return the specified substring of the reference '''
@@ -113,6 +114,8 @@ class ReferenceIndexed(Reference):
     ''' Like Reference but uses .fai index files to avoid ever loading
         entire sequences into memory.  Use in Python 'with' block so
         that FASTA filehandles are closed appropriately. '''
+    
+    __removeWs = re.compile(r'\s+')
     
     def __init__(self, fafns):
         self.fafhs = {}
@@ -170,19 +173,14 @@ class ReferenceIndexed(Reference):
         into = start % charsPerLine
         byteOff += into
         fh.seek(byteOff)
-        buf = []
         left = charsPerLine - into
-        assert left > 0
-        origLn = ln
-        while ln > 0:
-            nread = min(left, ln)
-            assert nread > 0
-            buf.append(fh.read(nread))
-            assert len(buf[-1]) == nread
-            left = charsPerLine
-            ln -= nread
-            fh.seek(bytesPerLine - charsPerLine, 1)
-        assert ln == 0
-        res = ''.join(buf)
-        assert len(res) == origLn
+        # Count the number of line breaks interrupting the rest of the
+        # string we're trying to read
+        if ln < left:
+            return fh.read(ln)
+        else:
+            nbreaks = 1 + (ln - left) // charsPerLine
+            res = fh.read(ln + nbreaks * (bytesPerLine - charsPerLine))
+            res = re.sub(self.__removeWs, '', res)
+        assert len(res) == ln, 'len(%s) != %d' % (res, ln)
         return res

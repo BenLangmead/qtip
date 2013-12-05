@@ -1,5 +1,9 @@
-import pandas as pd
+try:
+    import numpypy as np
+except ImportError: pass
 import numpy as np
+from itertools import izip, chain
+from cPickle import dump, load
 
 class UnpairedTuple(object):
     ''' Unpaired training/test tuple. '''
@@ -22,6 +26,9 @@ class UnpairedTuple(object):
         if self.best2sc is not None:
             self.rbest2sc = float(self.best2sc - self.minv) / (self.maxv - self.minv)
     
+    def __iter__(self):
+        return iter([self.rbestsc, self.rbest2sc, self.rdlen, self.mapq])
+    
     @classmethod
     def fromAlignment(cls, al):
         ''' Create unpaired training/test tuple from Alignment object '''
@@ -31,13 +38,14 @@ class UnpairedTuple(object):
     @classmethod
     def toDataFrame(cls, ptups, cor=None):
         ''' Convert the paired-end tuples to a pandas DataFrame '''
+        from pandas import DataFrame
         rdlen, best1, best2, mapq = [], [], [], []
         for ptup in ptups:
             rdlen.append(ptup.rdlen)
             best1.append(ptup.rbestsc)
             best2.append(ptup.rbest2sc)
             mapq.append(ptup.mapq)
-        df = pd.DataFrame.from_items([\
+        df = DataFrame.from_items([\
             ('rdlen', rdlen),
             ('best1', best1),
             ('best2', best2),
@@ -75,14 +83,20 @@ class PairedTuple(object):
     def rescale(self):
         ''' Rescale scores to be in [0, 1] where min/max are minv/maxv.  Put
             results in fields starting with "r". '''
-        self.rbestsc1 = float(self.bestsc1 - self.minv) / (self.maxv - self.minv)
+        self.rbestsc1 = float(self.bestsc1 - self.minv1) / (self.maxv1 - self.minv1)
         self.rbest2sc1 = None
         if self.best2sc1 is not None:
-            self.rbest2sc1 = float(self.best2sc1 - self.minv) / (self.maxv - self.minv)
-        self.rbestsc2 = float(self.bestsc2 - self.minv) / (self.maxv - self.minv)
+            # second-best score for mate 1
+            self.rbest2sc1 = float(self.best2sc1 - self.minv1) / (self.maxv1 - self.minv1)
+        self.rbestsc2 = float(self.bestsc2 - self.minv2) / (self.maxv2 - self.minv2)
         self.rbest2sc2 = None
         if self.best2sc2 is not None:
-            self.rbest2sc2 = float(self.best2sc2 - self.minv) / (self.maxv - self.minv)
+            # second-best score for mate 2
+            self.rbest2sc2 = float(self.best2sc2 - self.minv2) / (self.maxv2 - self.minv2)
+    
+    def __iter__(self):
+        return iter([self.rbestsc1, self.rbest2sc1, self.rdlen1, self.mapq1,
+                     self.rbestsc2, self.rbest2sc2, self.rdlen2, self.mapq2])
     
     @classmethod
     def fromAlignments(cls, al1, al2, fraglen):
@@ -99,6 +113,7 @@ class PairedTuple(object):
     @classmethod
     def toDataFrame(cls, ptups, cor=None):
         ''' Convert the paired-end tuples to a pandas DataFrame '''
+        from pandas import DataFrame
         rdlen_1, rdlen_2 = [], []
         best1_1, best1_2 = [], []
         best2_1, best2_2 = [], []
@@ -117,7 +132,7 @@ class PairedTuple(object):
             best1conc.append(ptup.bestconcsc)
             best2conc.append(ptup.best2concsc)
             fraglen.append(ptup.fraglen)
-        df = pd.DataFrame.from_items([\
+        df = DataFrame.from_items([\
             ('rdlen_1', rdlen_1),
             ('rdlen_2', rdlen_2),
             ('best1_1', best1_1),
@@ -176,7 +191,6 @@ class Dataset(object):
     
     def save(self, fn, compress=True):
         ''' Save dataset to a (possibly) compressed pickle file. '''
-        import cPickle
         save = (self.dataUnp,  self.labUnp,
                 self.dataM,    self.labM,
                 self.dataConc, self.labConc)
@@ -185,12 +199,12 @@ class Dataset(object):
             fh = gzip.open(fn, 'wb')
         else:
             fh = open(fn, 'wb')
-        cPickle.dump(save, fh, cPickle.HIGHEST_PROTOCOL)
+        #dump(save, fh, cPickle.HIGHEST_PROTOCOL)
+        dump(save, fh, 2)
         fh.close()
     
     def load(self, fn):
         ''' Load dataset from a (possibly) compressed pickle file. '''
-        import cPickle
         if fn.endswith('.gz'):
             import gzip
             fh = gzip.open(fn, 'rb')
@@ -198,8 +212,39 @@ class Dataset(object):
             fh = open(fn, 'rb')
         (self.dataUnp,  self.labUnp, \
          self.dataM,    self.labM, \
-         self.dataConc, self.labConc) = cPickle.load(fh)
+         self.dataConc, self.labConc) = load(fh)
         fh.close()
+    
+    def saveCsvs(self, fnprefix, compress=True):
+        ''' Save a file that we can load from R using read.csv with
+            default arguments '''
+        fnmap = { '_unp'   : (self.dataUnp,  self.labUnp),
+                  '_mates' : (self.dataM,    self.labM),
+                  '_conc'  : (self.dataConc, self.labConc) }
+        for lab, p in fnmap.iteritems():
+            data, corrects = p
+            fn = fnprefix + lab + '.csv'
+            if compress:
+                import gzip
+                fn += '.gz'
+                fh = gzip.open(fn, 'w')
+            else:
+                fh = open(fn, 'w')
+            if lab == '_conc':
+                fh.write(','.join(['best1', 'secbest1', 'len1', 'mapq1',
+                                   'best2', 'secbest2', 'len2', 'mapq2',
+                                   'correct']) + '\n')
+            else:
+                fh.write(','.join(['best', 'secbest', 'len', 'mapq',
+                                   'correct']) + '\n')
+            for tup, correct in izip(data, corrects):
+                correctStr = 'NA'
+                if correct is not None:
+                    correctStr = 'T' if correct else 'F'
+                tup = map(lambda x: 'NA' if x is None else str(x), tup)
+                tup.append(correctStr)
+                fh.write(','.join(tup) + '\n')
+            fh.close()
     
     def toDataFrames(self):
         ''' Convert dataset to tuple of 3 pandas DataFrames. '''

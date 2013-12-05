@@ -4,6 +4,10 @@ align.py
 Functions for simple pairwise alignment tasks.
 '''
 
+try:
+    from numpypy import zeros
+except ImportError: pass
+
 from numpy import zeros
 
 def hammingDistance(x, y):

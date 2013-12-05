@@ -158,7 +158,7 @@ class ScorePairDist(object):
         assert len(self.res) > 0
         return self.res.draw()
     
-    def add(self, al1, al2):
+    def add(self, al1, al2, ref):
         ''' Convert given alignment pair to a tuple and add it to the
             reservoir sampler. '''
         # Extract quality string
@@ -208,9 +208,9 @@ class Dist(object):
         if len(self) == 0:
             raise RuntimeError("Attempt to draw from empty empirical distribution")
         if self.changed:
-            self.gen = WeightedRandomGenerator(self.hist.itervalues())
+            self.gen = WeightedRandomGenerator(self.hist)
             self.changed = False
-        return self.hist.keys()[self.gen.next()]
+        return self.gen.next()
     
     def add(self, key):
         ''' Add new element to the histogram '''
@@ -386,7 +386,7 @@ class Output(threading.Thread):
         record corresponds to a simulated read, its correctness is checked and
         an output tuple written '''
     
-    def __init__(self, samQ, dataset, dists, ref, samOfh=None, ival=1000):
+    def __init__(self, samQ, dataset, dists, ref, samOfh=None, ival=10000):
         threading.Thread.__init__(self)
         self.samQ = samQ             # SAM records come from here
         self.samOfh = samOfh         # normal (non-simulated) SAM recs go here
@@ -424,7 +424,7 @@ class Output(threading.Thread):
             if al.paired: npair += 1
             else: nunp += 1
             if (nal % self.ival) == 0:
-                logging.info('      # Bowtie 2 alignments parsed: %d (%d paired, %d unpaired)' % (nal, npair, nunp))
+                logging.info('      # alignments parsed: %d (%d paired, %d unpaired)' % (nal, npair, nunp))
             
             # If this is one mate from a concordantly-aligned pair,
             # match this mate up with its opposite (if we've seen it).
@@ -471,8 +471,7 @@ class Output(threading.Thread):
                         self.dataset.addPaired(mate1, mate2, abs(mate1.tlen), correct1, correct2)
                     elif al.alType == 'UU':
                         self.dataset.addUnp(al, isCorrect(al))
-                    else:
-                        assert al.alType in ['UP', 'DP']
+                    elif al.alType in ['UP', 'DP']:
                         self.dataset.addM(al, isCorrect(al))
             
             # Add to our input-read summaries
@@ -503,7 +502,7 @@ def createInput():
     return Input(format="fastq" if args.fastq else "fasta", unpFns=args.U,
                  m1Fns=args.m1, m2Fns=args.m2)
 
-def go(args, bowtieArgs):
+def go(args, alignerArgs):
     ''' Main driver for tandem simulator '''
     
     import tempfile
@@ -523,12 +522,25 @@ def go(args, bowtieArgs):
             if exception.errno != errno.EEXIST:
                 raise
     
-    # Construct command to invoke bowtie2
-    bt2_cmd = "bowtie2 "
-    if args.bt2_exe is not None:
-        bt2_cmd = args.bt2_exe + " "
-    bt2_cmd += ' '.join(bowtieArgs)
-    bt2_cmd += " --reorder --sam-no-qname-trunc --mapq-extra"
+    # Construct command to invoke aligner
+    if args.aligner == 'bowtie2':
+        align_cmd = 'bowtie2 '
+        if args.bt2_exe is not None:
+            align_cmd = args.bt2_exe + " "
+        align_cmd += ' '.join(alignerArgs)
+        align_cmd += ' --reorder --sam-no-qname-trunc --mapq-extra'
+    elif args.aligner == 'bwa-mem':
+        align_cmd = 'bwa mem '
+        if args.bwa_exe is not None:
+            align_cmd = args.bwa_exe + " "
+        align_cmd += ' '.join(alignerArgs)
+        align_cmd += ' --reorder --sam-no-qname-trunc --mapq-extra'
+    elif args.aligner == 'bwa-aln':
+        align_cmd = 'bwa aln '
+        if args.bwa_exe is not None:
+            align_cmd = args.bwa_exe + " "
+        align_cmd += ' '.join(alignerArgs)
+        align_cmd += ' --reorder --sam-no-qname-trunc --mapq-extra'
     
     # Timing measurements
     setupIval, al1Ival, al2Ival = None, None, None
@@ -536,19 +548,21 @@ def go(args, bowtieArgs):
     st = time.clock()
     
     logging.info('Loading reference data')
-    with ReferenceIndexed(args.ref) as ref:
+    indexed = True
+    refClass = ReferenceIndexed if indexed else ReferencePicklable
+    with refClass(args.ref) as ref:
     
         # ##################################################
         # ALIGN REAL DATA (or read in alignments from SAM)
         # ##################################################
         
-        bt2 = Bowtie2(bt2_cmd)
+        bt2 = Bowtie2(align_cmd)
         samFn = os.path.join(args.output_directory, 'input.sam')
         inputSamFh = open(samFn, 'w') if (args.write_input_sam or args.write_all) else None
         testData = Dataset()
         dists = Dists()
         
-        logging.info('Real-data Bowtie 2 command: "%s"' % bt2_cmd)
+        logging.info('Real-data Bowtie 2 command: "%s"' % align_cmd)
         
         # Create the thread that eavesdrops on output from bowtie2
         othread = Output(
@@ -589,9 +603,14 @@ def go(args, bowtieArgs):
         
         # Writing test dataset
         if args.write_test_data or args.write_all:
-            testFn = os.path.join(args.output_directory, 'test.pickle' + ('.gz' if args.compress_output else ''))
-            testData.save(testFn, compress=args.compress_output)
-            logging.info('Test data written to "%s"' % testFn)
+            if False:
+                testPickleFn = os.path.join(args.output_directory, 'test.pickle' + ('.gz' if args.compress_output else ''))
+                testData.save(testPickleFn, compress=args.compress_output)
+                logging.info('Test data written to "%s"' % testPickleFn)
+            
+            testCsvFnPrefix = os.path.join(args.output_directory, 'test')
+            testData.saveCsvs(testCsvFnPrefix, compress=args.compress_output)
+            logging.info('Test data (CSV format) written to "%s*"' % testCsvFnPrefix)
         
         # Stop timing interval for alignment phase 1
         al1Ival = time.clock() - st
@@ -608,7 +627,7 @@ def go(args, bowtieArgs):
         # We're potentially going to send four different types of simulated
         # reads to Bowtie 2, depending on what type of training data the read
         # pertains to.
-        bt2 = Bowtie2(bt2_cmd)
+        bt2 = Bowtie2(align_cmd)
         samFn = os.path.join(args.output_directory, 'training.sam')
         trainingSamFh = open(samFn, 'w') if (args.write_training_sam or args.write_all) else None
         trainingData = Dataset()
@@ -695,11 +714,17 @@ def go(args, bowtieArgs):
         for k, v in sorted(othread.scDiffs.iteritems()):
             logging.info('  %d: %d' % (k, v))
         
-        # Writing training data
-        trainingFn = os.path.join(args.output_directory, 'training.pickle' + ('.gz' if args.compress_output else ''))
-        testData.save(testFn, compress=args.compress_output)
-        trainingData.save(trainingFn, compress=args.compress_output)
-        logging.info('Training data written to "%s"' % trainingFn)
+        if args.write_training_data or args.write_all:
+            # Writing training data
+            if False:
+                trainingPickleFn = os.path.join(args.output_directory, 'training.pickle' + ('.gz' if args.compress_output else ''))
+                testData.save(testFn, compress=args.compress_output)
+                trainingData.save(trainingPickleFn, compress=args.compress_output)
+                logging.info('Training data written to "%s"' % trainingPickleFn)
+            
+            trainingCsvFnPrefix = os.path.join(args.output_directory, 'training')
+            trainingData.saveCsvs(trainingCsvFnPrefix, compress=args.compress_output)
+            logging.info('Training data (CSV format) written to "%s*"' % trainingCsvFnPrefix)
         
         if setupIval is not None:
             logging.info('Setup running time: %0.3f secs' % setupIval)
@@ -756,7 +781,9 @@ if __name__ == "__main__":
         '--sam-input', metavar='path', type=str,
         help='Input SAM file to apply training data to.  Use with --training-input.')
     parser.add_argument(\
-        '--bt2-exe', metavar='path', dest='bt2_exe', type=str, help='Path to Bowtie 2 exe')
+        '--bt2-exe', metavar='path', type=str, help='Path to Bowtie 2 exe')
+    parser.add_argument(\
+        '--aligner', metavar='name', default='bowtie2', type=str, help='bowtie2 or bwa-mem')
     
     # Some basic flags
     parser.add_argument(\
@@ -788,10 +815,13 @@ if __name__ == "__main__":
         default=False, help='Write FASTQ for the training reads to "training.fastq" in output directory')
     parser.add_argument(\
         '--write-test-data', action='store_const', const=True,
-        default=False, help='Write Dataset object for testdata.  "Correct" column set to all None\'s.')
+        default=False, help='Write Dataset object for training data.  "Correct" column set to all None\'s.')
     parser.add_argument(\
         '--write-training-sam', action='store_const', const=True,
         default=False, help='Write SAM alignments for the training reads to "training.sam" in output directory')
+    parser.add_argument(\
+        '--write-training-data', action='store_const', const=True,
+        default=False, help='Write Dataset object for training data.')
     parser.add_argument(\
         '--write-all', action='store_const', const=True,
         default=False, help='Same as specifying all --write-* options')
@@ -800,11 +830,11 @@ if __name__ == "__main__":
         default=False, help='gzip all output files')
     
     argv = sys.argv
-    bowtieArgs = []
+    alignerArgs = []
     in_args = False
     for i in xrange(1, len(sys.argv)):
         if in_args:
-            bowtieArgs.append(sys.argv[i])
+            alignerArgs.append(sys.argv[i])
         if sys.argv[i] == '--':
             argv = sys.argv[:i]
             in_args = True
@@ -827,6 +857,6 @@ if __name__ == "__main__":
         unittest.main(argv=[sys.argv[0]])
     elif args.profile:
         import cProfile
-        cProfile.run('go(args, bowtieArgs)')
+        cProfile.run('go(args, alignerArgs)')
     else:
-        go(args, bowtieArgs)
+        go(args, alignerArgs)
