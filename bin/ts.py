@@ -71,7 +71,6 @@ __email__ = "langmea@cs.jhu.edu"
 
 import os
 import sys
-import threading
 import math
 import string
 import random
@@ -88,6 +87,7 @@ try:
     from Queue import Queue, Empty, Full
 except ImportError:
     from queue import Queue, Empty, Full  # python 3.x
+from threading import Thread
 
 # Modules that are part of the tandem simulator
 import simulators
@@ -370,15 +370,14 @@ class Dists(object):
 def isCorrect(al):
     ''' Return true if the given alignment is both simulated and "correct" --
         i.e. in or very near it's true point of origin '''
-    if args.input_from_mason:
-        return simulators.alignmentCorrectMason(al, args.wiggle)
-    elif args.input_from_grinder:
-        return simulators.alignmentCorrectGrinder(al, args.wiggle)
-    elif args.input_from_wgsim:
-        return simulators.alignmentCorrectWgsim(al, args.wiggle)
+    print simulators.isExtendedWgsim(al.name)
+    if args.correct_chromosomes is not None:
+        return al.refid in args.correct_chromosomes
+    elif simulators.isExtendedWgsim(al.name):
+        return simulators.correctExtendedWgsim(al, args.wiggle)
     else: return None
 
-class Output(threading.Thread):
+class Output(Thread):
     
     ''' Aligner output reader.  Reads SAM output from aligner, updates
         empirical distributions (our "model" for what the input reads look
@@ -386,8 +385,8 @@ class Output(threading.Thread):
         record corresponds to a simulated read, its correctness is checked and
         an output tuple written '''
     
-    def __init__(self, samQ, dataset, dists, ref, samOfh=None, ival=10000):
-        threading.Thread.__init__(self)
+    def __init__(self, samQ, dataset, dists, ref, resultQ, samOfh=None, ival=10000):
+        Thread.__init__(self)
         self.samQ = samQ             # SAM records come from here
         self.samOfh = samOfh         # normal (non-simulated) SAM recs go here
         self.dataset = dataset       # dataset
@@ -395,106 +394,113 @@ class Output(threading.Thread):
         self.ref = ref               # reference sequences
         self.scDiffs = defaultdict(int) # histogram of expected-versus-observed score differences
         self.ival = ival
+        self.resultQ = resultQ
         self.deamon = True
     
     def run(self):
         ''' Collect SAM output '''
-        lastAl = None
-        nal, nunp, npair = 0, 0, 0
-        # Following loop involves maintaining 'lastAl' across
-        # iterations so that we can match up the two ends of a pair
-        while True:
-            try:
-                ln = self.samQ.get(block=True, timeout=0.5)
-                if ln is None: break
-            except Empty:
-                continue # keep trying
-            
-            # Send SAM to SAM output filehandle
-            if self.samOfh is not None:
-                self.samOfh.write(ln)
-            
-            # Headers are skipped
-            if ln[0] == '@': continue
-            
-            # Alignment parses the SAM line, but assumes that output is
-            # from Bowtie 2
-            al = AlignmentBowtie2(ln)
-            nal += 1
-            if al.paired: npair += 1
-            else: nunp += 1
-            if (nal % self.ival) == 0:
-                logging.info('      # alignments parsed: %d (%d paired, %d unpaired)' % (nal, npair, nunp))
-            
-            # If this is one mate from a concordantly-aligned pair,
-            # match this mate up with its opposite (if we've seen it).
-            # Note: Depends on Bowtie2-only 'YT:Z' flag
-            mate1, mate2 = None, None
-            if al.isAligned() and lastAl is not None and lastAl.alType == "CP":
-                mate1, mate2 = al, lastAl
-                assert mate1.mate1 != mate2.mate1
-                if mate2.mate1:
-                    mate1, mate2 = mate2, mate1
-            
-            # Add the alignment to a Dataset data structure.  If it's an
-            # aligned training read, check whether alignment is correct. 
-            correct = None
-            if self.dataset is not None:
-                isTraining = (al.name[0] == '!' and al.name.startswith('!!ts!!'))
-                if al.isAligned() and isTraining:
-                    _, refid, fw, refoff, sc, trainingNm = string.split(al.name, '!!ts-sep!!')
-                    sc, refoff = int(sc), int(refoff)
-                    scDiff = sc - al.bestScore
-                    self.scDiffs[scDiff] += 1
-                    correct = False
-                    # Check reference id, orientation
-                    if refid == al.refid and fw == al.orientation():
-                        # Check offset
-                        correct = abs(refoff - al.pos) < args.wiggle
-                    assert trainingNm in ['Unp', 'M1', 'M2', 'Conc']
-                    # Add to training dataset
-                    if trainingNm == "Unp":
-                        self.dataset.addUnp(al, correct)
-                    elif trainingNm[0] == "M":
-                        self.dataset.addM(al, correct)
-                    if mate1 is not None:
-                        assert trainingNm == "Conc"
-                        correct1, correct2 = correct, lastCorrect
-                        if (lastAl.flags & 64) != 0:
-                            correct1, correct2 = correct2, correct1
-                        self.dataset.addPaired(mate1, mate2, abs(mate1.tlen), correct1, correct2)
-                elif al.isAligned():
-                    # Test data
-                    if mate1 is not None:
-                        assert al.alType == 'CP'
-                        correct1, correct2 = isCorrect(mate1), isCorrect(mate2)
-                        self.dataset.addPaired(mate1, mate2, abs(mate1.tlen), correct1, correct2)
-                    elif al.alType == 'UU':
-                        self.dataset.addUnp(al, isCorrect(al))
-                    elif al.alType in ['UP', 'DP']:
-                        self.dataset.addM(al, isCorrect(al))
-            
-            # Add to our input-read summaries
-            if self.dists is not None:
-                if al.isAligned():
-                    if al.rnext == "=" and al.mateMapped():
-                        # Can't easily get read length for opposite mate, so
-                        # just use length of this mate as a surrogate
-                        fraglen = abs(al.pnext - al.pos) + len(al.seq)
-                        self.dists.addFraglen(fraglen)
-                    try:
+        try:
+            lastAl = None
+            nal, nunp, npair = 0, 0, 0
+            # Following loop involves maintaining 'lastAl' across
+            # iterations so that we can match up the two ends of a pair
+            while True:
+                try:
+                    ln = self.samQ.get(block=True, timeout=0.5)
+                    if ln is None: break
+                except Empty:
+                    continue # keep trying
+                
+                # Send SAM to SAM output filehandle
+                if self.samOfh is not None:
+                    self.samOfh.write(ln)
+                
+                # Headers are skipped
+                if ln[0] == '@': continue
+                
+                # Alignment parses the SAM line, but assumes that output is
+                # from Bowtie 2
+                al = AlignmentBowtie2(ln)
+                nal += 1
+                if al.paired: npair += 1
+                else: nunp += 1
+                if (nal % self.ival) == 0:
+                    logging.info('      # alignments parsed: %d (%d paired, %d unpaired)' % (nal, npair, nunp))
+                
+                # If this is one mate from a concordantly-aligned pair,
+                # match this mate up with its opposite (if we've seen it).
+                # Note: Depends on Bowtie2-only 'YT:Z' flag
+                mate1, mate2 = None, None
+                if al.isAligned() and lastAl is not None and lastAl.alType == "CP":
+                    mate1, mate2 = al, lastAl
+                    assert mate1.mate1 != mate2.mate1
+                    if mate2.mate1:
+                        mate1, mate2 = mate2, mate1
+                
+                # Add the alignment to a Dataset data structure.  If it's an
+                # aligned training read, check whether alignment is correct. 
+                correct = None
+                if self.dataset is not None:
+                    isTraining = (al.name[0] == '!' and al.name.startswith('!!ts!!'))
+                    if al.isAligned() and isTraining:
+                        _, refid, fw, refoff, sc, trainingNm = string.split(al.name, '!!ts-sep!!')
+                        sc, refoff = int(sc), int(refoff)
+                        scDiff = sc - al.bestScore
+                        self.scDiffs[scDiff] += 1
+                        correct = False
+                        # Check reference id, orientation
+                        if refid == al.refid and fw == al.orientation():
+                            # Check offset
+                            correct = abs(refoff - al.pos) < args.wiggle
+                        assert trainingNm in ['Unp', 'M1', 'M2', 'Conc']
+                        # Add to training dataset
+                        if trainingNm == "Unp":
+                            self.dataset.addUnp(al, correct)
+                        elif trainingNm[0] == "M":
+                            self.dataset.addM(al, correct)
                         if mate1 is not None:
-                            self.dists.addPair(mate1, mate2, self.ref)
-                        else:
-                            self.dists.addRead(al, self.ref)
-                    except ReferenceOOB: pass
-            
-            if mate1 is None:
-                lastAl = al
-                lastCorrect = correct
-            else:
-                lastAl = None
-                lastCorrect = None
+                            assert trainingNm == "Conc"
+                            correct1, correct2 = correct, lastCorrect
+                            if (lastAl.flags & 64) != 0:
+                                correct1, correct2 = correct2, correct1
+                            self.dataset.addPaired(mate1, mate2, abs(mate1.tlen), correct1, correct2)
+                    elif al.isAligned():
+                        # Test data
+                        if mate1 is not None:
+                            assert al.alType == 'CP'
+                            correct1, correct2 = isCorrect(mate1), isCorrect(mate2)
+                            self.dataset.addPaired(mate1, mate2, abs(mate1.tlen), correct1, correct2)
+                        elif al.alType == 'UU':
+                            self.dataset.addUnp(al, isCorrect(al))
+                        elif al.alType in ['UP', 'DP']:
+                            print ln
+                            self.dataset.addM(al, isCorrect(al))
+                
+                # Add to our input-read summaries
+                if self.dists is not None:
+                    if al.isAligned():
+                        if al.rnext == "=" and al.mateMapped():
+                            # Can't easily get read length for opposite mate, so
+                            # just use length of this mate as a surrogate
+                            fraglen = abs(al.pnext - al.pos) + len(al.seq)
+                            self.dists.addFraglen(fraglen)
+                        try:
+                            if mate1 is not None:
+                                self.dists.addPair(mate1, mate2, self.ref)
+                            else:
+                                self.dists.addRead(al, self.ref)
+                        except ReferenceOOB: pass
+                
+                if mate1 is None:
+                    lastAl = al
+                    lastCorrect = correct
+                else:
+                    lastAl = None
+                    lastCorrect = None
+                
+                self.resultQ.put(True)
+        except:
+            self.resultQ.put(False)
 
 def createInput():
     ''' Return an Input object that reads all user-provided input reads '''
@@ -565,11 +571,13 @@ def go(args, alignerArgs):
         logging.info('Real-data Bowtie 2 command: "%s"' % align_cmd)
         
         # Create the thread that eavesdrops on output from bowtie2
+        resultQ = Queue()
         othread = Output(
             bt2.outQ,          # SAM queue
             testData,          # Dataset to gather alignments into
             dists,             # empirical dists
             ref,               # reference genome
+            resultQ,           # result queue
             samOfh=inputSamFh) # SAM output filehandle
         othread.daemon = True
         othread.start()
@@ -584,18 +592,21 @@ def go(args, alignerArgs):
         # appropriate queue
         upto = args.upto or sys.maxint
         numReads = 0
-        fh = open('tmp.tab6', 'w')
         for (rd1, rd2) in iter(createInput()):
             bt2.inQ.put(Read.toTab6(rd1, rd2, truncateName=True) + '\n')
             numReads += 1
             if numReads >= upto: break
-        fh.close()
         bt2.inQ.put(None)
         
         logging.debug('Waiting for bt2 to finish')
         while bt2.pipe.poll() is None:
             time.sleep(0.5)
-        logging.debug('bt2 process finished')
+        while othread.is_alive():
+            othread.join(0.5)
+        logging.debug('bt2 process and output thread finished')
+        othreadResult = resultQ.get()
+        if not othreadResult:
+            raise RuntimeError('Aligner output monitoring thread encountered error; aborting...')
         
         logging.info('Finished aligning input reads')
         if inputSamFh is not None:
@@ -643,11 +654,13 @@ def go(args, alignerArgs):
         
         # Create thread that eavesdrops on output from bowtie2 with simulated input
         logging.info('  Opening output-parsing thread')
+        resultQ = Queue()
         othread = Output(\
             bt2.outQ,        # SAM input filehandle
             trainingData,    # Training data
             None,            # qualities/edits for unpaired
             ref,             # reference genome
+            resultQ,         # result queue
             samOfh=trainingSamFh)
         othread.daemon = True
         othread.start()
@@ -700,7 +713,12 @@ def go(args, alignerArgs):
         logging.debug('Waiting for bt2 to finish')
         while bt2.pipe.poll() is None:
             time.sleep(0.5)
+        while othread.is_alive():
+            othread.join(0.5)
         logging.debug('bt2 process finished')
+        othreadResult = resultQ.get()
+        if not othreadResult:
+            raise RuntimeError('Aligner output monitoring thread encountered error; aborting...')
         logging.info('Finished simulating and aligning training reads')
         if trainingPairFh is not None:
             logging.info('  Paired training reads written to "%s"' % trainingPairFn)
@@ -783,6 +801,8 @@ if __name__ == "__main__":
     parser.add_argument(\
         '--bt2-exe', metavar='path', type=str, help='Path to Bowtie 2 exe')
     parser.add_argument(\
+        '--bwa-exe', metavar='path', type=str, help='Path to BWA exe')
+    parser.add_argument(\
         '--aligner', metavar='name', default='bowtie2', type=str, help='bowtie2 or bwa-mem')
     
     # Some basic flags
@@ -803,7 +823,13 @@ if __name__ == "__main__":
         '--input-from-wgsim', action='store_const', const=True, default=False, help='Input reads were simulated from wgsim')
     parser.add_argument(\
         '--input-from-grinder', action='store_const', const=True, default=False, help='Input reads were simulated from Grinder')
-    
+    parser.add_argument(\
+        '--correct-chromosomes', metavar='list', type=str, nargs='+',
+        help='Label test data originating from any of these '
+             'chromosomes as "correct."  Useful for tests on '
+             'real-world data where it is known that the data came '
+             'from a parituclar chromosome.')
+
     # Output file-related arguments
     parser.add_argument(\
         '--output-directory', metavar='path', type=str, required=True, help='Write outputs to this directory')

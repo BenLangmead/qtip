@@ -39,10 +39,10 @@ def boundEditDistance(x, y):
 def traceTranscript(D, x, y):
     ''' Trace back from bottom-right cell and report edit
         transcript. '''
-    i, j = len(x), len(y)
+    i, j, hi = len(x), len(y), max(len(x), len(y)) + 1
     xscript = []
     while i > 0 or j > 0:
-        diag, vert, horz = sys.maxint, sys.maxint, sys.maxint
+        diag, vert, horz = hi, hi, hi
         delt = None
         if i > 0 and j > 0:
             delt = 0 if x[i-1] == y[j-1] else 1

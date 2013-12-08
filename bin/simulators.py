@@ -9,56 +9,36 @@ Better if we can do everything we need just given the read name.
 
 import re
 
-def sameAlignment(al, left, right, refid, fw, wiggle=10):
+def sameAlignment(al, left, refid, fw, wiggle=10):
     # TODO: calculate reference length, e.g. by parsing CIGAR
+    #print [(refid, al.refid), (left, al.pos), (fw, al.fw)]
     return refid == al.refid and \
            abs(left - al.pos) < wiggle and \
-           abs(right - (al.pos + len(al))) < wiggle and \
            al.fw == fw
 
-_mason_orig_beg = re.compile('orig_begin=([0-9]*)')
-_mason_orig_end = re.compile('orig_end=([0-9]*)')
-_mason_contig = re.compile('contig=([^\s]*)')
-_mason_strand = re.compile('strand=([^\s]*)')
+_wgsimex_re = re.compile('([^_]+)_([^_]+)_([^_]+)_([^:]+):([^:]+):([^_]+)_([^:]+):([^:]+):([^_]+)_([^_]+)_([^_]+)_([^_]+)_([^/]+).*')
 
-def parseMason(nm):
-    be = _mason_orig_beg.search(nm)
-    en = _mason_orig_end.search(nm)
-    assert be is not None and en is not None
-    
-    # Mason's offsets are 0-based
-    left, right = int(be.group(1)), int(en.group(1))
-    
-    rr = _mason_contig.search(nm)
-    assert rr is not None
-    refid = rr.group(1)
-    
-    sr = _mason_strand.search(nm)
-    assert sr is not None
-    strand = sr.group(1)
-    
-    return left, right, refid, strand == 'forward'
+def isExtendedWgsim(nm):
+    ret = _wgsimex_re.match(nm) is not None
+    return ret
 
-def alignmentCorrectMason(al, wiggle=10):
-    left, right, refid, fw = parseMason(al.name)
-    return sameAlignment(al, left, right, refid, fw, wiggle)
+def parseExtendedWgsim(al):
+    ''' Note: this is my extended version of wgsim's output '''
+    nm = al.name
+    res = _wgsimex_re.match(nm)
+    refid, fragst1, fragen1 = res.group(1), int(res.group(2))-1, int(res.group(3))-1
+    len1, len2 = int(res.group(10)), int(res.group(11))
+    flip = res.group(12) == '1'
+    mate1 = al.mate1
+    ln = len1 if mate1 else len2
+    if (not flip) == mate1:
+        return fragst1, refid, True
+    else:
+        return fragen1 - (ln-1), refid, False
 
-def parseWgsim(nm):
-    raise RuntimeException('Not implemented')
+def correctExtendedWgsim(al, wiggle=10):
+    st, refid, fw = parseExtendedWgsim(al)
+    return sameAlignment(al, st, refid, fw, wiggle=wiggle)
 
-def alignmentCorrectWgsim(al, wiggle=10):
-    left, right, refid, fw = parseWgsim(al.name)
-    return sameAlignment(al, left, right, refid, fw, wiggle)
-
-def parseGrinder(nm):
-    raise RuntimeException('Not implemented')
-
-def alignmentCorrectGrinder(al, wiggle=10):
-    left, right, refid, fw = parseGrinder(al.name)
-    return sameAlignment(al, left, right, refid, fw, wiggle)
-
-def parseSimulatedReadName(nm, format='mason'):
-    if format == 'mason': return parseMason(nm)
-    elif format == 'wgsim': return parseWgsim(nm)
-    elif format == 'grinder': return parseGrinder(nm)
-    else: raise RuntimeException('Bad format: "%s"' % format)
+def parseSimulatedReadName(nm):
+    return parseExtendedWgsim(nm)
