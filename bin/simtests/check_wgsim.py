@@ -23,7 +23,7 @@ if len(sys.argv) < 4:
 wgsimFn1, wgsimFn2 = sys.argv[1], sys.argv[2]
 ref = ReferenceIndexed(sys.argv[3:])
 
-nm_re = re.compile('@([^_]+)_([^_]+)_([^_]+)_([^:]+):([^:]+):([^_]+)_([^:]+):([^:]+):([^_]+)_([^_]+)_([^/]+)/([12])')
+nm_re = re.compile('@([^_]+)_([^_]+)_([^_]+)_([^:]+):([^:]+):([^_]+)_([^:]+):([^:]+):([^_]+)_([^_]+)_([^_]+)_([^_]+)_([^/]+)/([12])')
 
 with gzip.open(wgsimFn1) if wgsimFn1.endswith('.gz') else open(wgsimFn1) as fh1:
     with gzip.open(wgsimFn2) if wgsimFn2.endswith('.gz') else open(wgsimFn2) as fh2:
@@ -40,7 +40,7 @@ with gzip.open(wgsimFn1) if wgsimFn1.endswith('.gz') else open(wgsimFn1) as fh1:
             # ! whether it's "flipped"
             res1 = nm_re.match(l1_1)
             refid, fragst1, fragen1 = res1.group(1), int(res1.group(2)), int(res1.group(3))
-            flip = res1.group(10) == '1'
+            flip = res1.group(12) == '1'
             assert fragen1 > fragst1
             ref1 = ref.get(refid, fragst1-1, len(l2_1))
             ref2 = ref.get(refid, fragen1-len(l2_2), len(l2_2))
