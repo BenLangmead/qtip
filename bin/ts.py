@@ -83,6 +83,7 @@ import time
 import logging
 import gzip
 from collections import defaultdict
+from traceback import print_tb
 try:
     from Queue import Queue, Empty, Full
 except ImportError:
@@ -370,12 +371,11 @@ class Dists(object):
 def isCorrect(al):
     ''' Return true if the given alignment is both simulated and "correct" --
         i.e. in or very near it's true point of origin '''
-    print simulators.isExtendedWgsim(al.name)
     if args.correct_chromosomes is not None:
-        return al.refid in args.correct_chromosomes
+        return (al.refid in args.correct_chromosomes), 0
     elif simulators.isExtendedWgsim(al.name):
         return simulators.correctExtendedWgsim(al, args.wiggle)
-    else: return None
+    else: return None, 0
 
 class Output(Thread):
     
@@ -385,7 +385,9 @@ class Output(Thread):
         record corresponds to a simulated read, its correctness is checked and
         an output tuple written '''
     
-    def __init__(self, samQ, dataset, dists, ref, resultQ, samOfh=None, ival=10000):
+    def __init__(self, samQ, dataset, dists, ref,
+                 distHistCor, distHistIncor, resultQ,
+                 samOfh=None, ival=10000):
         Thread.__init__(self)
         self.samQ = samQ             # SAM records come from here
         self.samOfh = samOfh         # normal (non-simulated) SAM recs go here
@@ -394,6 +396,8 @@ class Output(Thread):
         self.ref = ref               # reference sequences
         self.scDiffs = defaultdict(int) # histogram of expected-versus-observed score differences
         self.ival = ival
+        self.distHistCor = distHistCor
+        self.distHistIncor = distHistIncor
         self.resultQ = resultQ
         self.deamon = True
     
@@ -468,13 +472,31 @@ class Output(Thread):
                         # Test data
                         if mate1 is not None:
                             assert al.alType == 'CP'
-                            correct1, correct2 = isCorrect(mate1), isCorrect(mate2)
+                            correct1, dist1 = isCorrect(mate1)
+                            correct2, dist2 = isCorrect(mate2)
+                            if correct1 == False and dist1 < 20*args.wiggle:
+                                self.distHistIncor[dist1] += 1
+                            elif correct1:
+                                self.distHistCor[dist1] += 1
+                            if correct2 == False and dist2 < 20*args.wiggle:
+                                self.distHistIncor[dist2] += 1
+                            elif correct2:
+                                self.distHistCor[dist2] += 1
                             self.dataset.addPaired(mate1, mate2, abs(mate1.tlen), correct1, correct2)
                         elif al.alType == 'UU':
-                            self.dataset.addUnp(al, isCorrect(al))
+                            correct, dist = isCorrect(al)
+                            if correct == False and dist < 20*args.wiggle:
+                                self.distHistIncor[dist] += 1
+                            elif correct:
+                                self.distHistCor[dist] += 1
+                            self.dataset.addUnp(al, correct)
                         elif al.alType in ['UP', 'DP']:
-                            print ln
-                            self.dataset.addM(al, isCorrect(al))
+                            correct, dist = isCorrect(al)
+                            if correct == False and dist < 20*args.wiggle:
+                                self.distHistIncor[dist] += 1
+                            elif correct:
+                                self.distHistCor[dist] += 1
+                            self.dataset.addM(al, correct)
                 
                 # Add to our input-read summaries
                 if self.dists is not None:
@@ -498,8 +520,13 @@ class Output(Thread):
                     lastAl = None
                     lastCorrect = None
                 
-                self.resultQ.put(True)
-        except:
+            logging.debug('Output monitoring thread returning successfully')
+            self.resultQ.put(True)
+        except Exception as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            print_tb(exc_traceback)
+            logging.error(str(e))
+            logging.debug('Output monitoring thread returning error')
             self.resultQ.put(False)
 
 def createInput():
@@ -507,6 +534,9 @@ def createInput():
     assert args.fasta or args.fastq
     return Input(format="fastq" if args.fastq else "fasta", unpFns=args.U,
                  m1Fns=args.m1, m2Fns=args.m2)
+
+resultTestQ = Queue()
+resultTrainingQ = Queue()
 
 def go(args, alignerArgs):
     ''' Main driver for tandem simulator '''
@@ -567,17 +597,19 @@ def go(args, alignerArgs):
         inputSamFh = open(samFn, 'w') if (args.write_input_sam or args.write_all) else None
         testData = Dataset()
         dists = Dists()
+        corDist, incorDist = defaultdict(int), defaultdict(int)
         
         logging.info('Real-data Bowtie 2 command: "%s"' % align_cmd)
         
         # Create the thread that eavesdrops on output from bowtie2
-        resultQ = Queue()
         othread = Output(
             bt2.outQ,          # SAM queue
             testData,          # Dataset to gather alignments into
             dists,             # empirical dists
             ref,               # reference genome
-            resultQ,           # result queue
+            corDist,
+            incorDist,
+            resultTestQ,       # result queue
             samOfh=inputSamFh) # SAM output filehandle
         othread.daemon = True
         othread.start()
@@ -591,22 +623,28 @@ def go(args, alignerArgs):
         # Read through all the input read files and direct all reads to the
         # appropriate queue
         upto = args.upto or sys.maxint
-        numReads = 0
+        numReads, numUnp, numPair = 0, 0, 0
         for (rd1, rd2) in iter(createInput()):
             bt2.inQ.put(Read.toTab6(rd1, rd2, truncateName=True) + '\n')
             numReads += 1
+            if rd2 is None: numUnp += 1
+            else: numPair += 1
             if numReads >= upto: break
+            if not othread.is_alive():
+                logging.error('Output thread died! - leaving input loop early.')
+                break
         bt2.inQ.put(None)
         
-        logging.debug('Waiting for bt2 to finish')
+        logging.info('Fed %d input reads (%d unpaired, %d pairs) to aligner' % (numReads, numUnp, numPair))
+        logging.debug('Waiting for aligner to finish')
         while bt2.pipe.poll() is None:
             time.sleep(0.5)
         while othread.is_alive():
             othread.join(0.5)
-        logging.debug('bt2 process and output thread finished')
-        othreadResult = resultQ.get()
+        logging.debug('Aligner process and output thread finished')
+        othreadResult = resultTestQ.get()
         if not othreadResult:
-            raise RuntimeError('Aligner output monitoring thread encountered error; aborting...')
+            raise RuntimeError('Aligner output monitoring thread encountered error')
         
         logging.info('Finished aligning input reads')
         if inputSamFh is not None:
@@ -614,14 +652,18 @@ def go(args, alignerArgs):
         
         # Writing test dataset
         if args.write_test_data or args.write_all:
-            if False:
-                testPickleFn = os.path.join(args.output_directory, 'test.pickle' + ('.gz' if args.compress_output else ''))
-                testData.save(testPickleFn, compress=args.compress_output)
-                logging.info('Test data written to "%s"' % testPickleFn)
-            
             testCsvFnPrefix = os.path.join(args.output_directory, 'test')
             testData.saveCsvs(testCsvFnPrefix, compress=args.compress_output)
             logging.info('Test data (CSV format) written to "%s*"' % testCsvFnPrefix)
+        
+        # Writing correct/incorrect distances
+        if args.write_test_distances or args.write_all:
+            for short, long, hist in [ ('cor', 'Correct', corDist), ('incor', 'Incorrect', incorDist) ]:
+                testDistFn = os.path.join(args.output_directory, 'test_%s_dists.csv' % short)
+                with open(testDistFn, 'w') as fh:
+                    for i, j in sorted(hist.iteritems()):
+                        fh.write('%d,%d\n' % (i, j))
+                logging.info('%s-alignment distances written to "%s"' % (long, testDistFn))
         
         # Stop timing interval for alignment phase 1
         al1Ival = time.clock() - st
@@ -642,6 +684,7 @@ def go(args, alignerArgs):
         samFn = os.path.join(args.output_directory, 'training.sam')
         trainingSamFh = open(samFn, 'w') if (args.write_training_sam or args.write_all) else None
         trainingData = Dataset()
+        corDist, incorDist = defaultdict(int), defaultdict(int)
         
         # Construct sequence and quality simulators
         logging.info('  Creating sequence simulator')
@@ -654,13 +697,14 @@ def go(args, alignerArgs):
         
         # Create thread that eavesdrops on output from bowtie2 with simulated input
         logging.info('  Opening output-parsing thread')
-        resultQ = Queue()
         othread = Output(\
             bt2.outQ,        # SAM input filehandle
             trainingData,    # Training data
             None,            # qualities/edits for unpaired
             ref,             # reference genome
-            resultQ,         # result queue
+            corDist,
+            incorDist,
+            resultTrainingQ, # result queue
             samOfh=trainingSamFh)
         othread.daemon = True
         othread.start()
@@ -689,13 +733,16 @@ def go(args, alignerArgs):
                 bt2.inQ.put(Read.toTab6(rdp1, rdp2, truncateName=True) + '\n')
                 bt2.inQ.put(Read.toTab6(rdm1, truncateName=True) + '\n')
                 bt2.inQ.put(Read.toTab6(rdm2, truncateName=True) + '\n')
+                if not othread.is_alive():
+                    logging.error('Output thread died! - leaving input loop early.')
+                    break
             # Signal that we're done supplying paired-end reads
             if writeTrainingReads:
                 trainingPairFh.close()
         
         # Simulate unpaired reads from empirical distributions
         logging.info('  Simulating %d unpaired reads' % args.num_reads)
-        if dists.hasUnpaired():
+        if othread.is_alive() and dists.hasUnpaired():
             for i in xrange(0, args.num_reads):
                 if (i+1 % 100) == 0:
                     logging.info('    Simulating unpaired read %d' % i)
@@ -704,6 +751,9 @@ def go(args, alignerArgs):
                     trainingUnpFh.write(Read.toTab6(rd))
                     trainingUnpFh.write('\n')
                 bt2.inQ.put(Read.toTab6(rd, truncateName=True) + '\n')
+                if not othread.is_alive():
+                    logging.error('Output thread died! - leaving input loop early.')
+                    break
             if writeTrainingReads:
                 trainingUnpFh.close()
         
@@ -716,9 +766,9 @@ def go(args, alignerArgs):
         while othread.is_alive():
             othread.join(0.5)
         logging.debug('bt2 process finished')
-        othreadResult = resultQ.get()
+        othreadResult = resultTrainingQ.get()
         if not othreadResult:
-            raise RuntimeError('Aligner output monitoring thread encountered error; aborting...')
+            raise RuntimeError('Aligner output monitoring thread encountered error')
         logging.info('Finished simulating and aligning training reads')
         if trainingPairFh is not None:
             logging.info('  Paired training reads written to "%s"' % trainingPairFn)
@@ -848,6 +898,12 @@ if __name__ == "__main__":
     parser.add_argument(\
         '--write-training-data', action='store_const', const=True,
         default=False, help='Write Dataset object for training data.')
+    parser.add_argument(\
+        '--write-test-distances', action='store_const', const=True,
+        default=False, help='Write distances between true/actual alignments.')
+    parser.add_argument(\
+        '--write-training-distances', action='store_const', const=True,
+        default=False, help='Write distances between true/actual alignments.')
     parser.add_argument(\
         '--write-all', action='store_const', const=True,
         default=False, help='Same as specifying all --write-* options')

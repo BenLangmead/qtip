@@ -76,7 +76,9 @@ class Alignment(object):
               = probability alignment is incorrect
         '''
     
-    __nonAcgt  = re.compile('[^ACGT]')
+    __nonAcgt = re.compile('[^ACGT]')
+    __cigarLclip = re.compile('^([0-9]+)S.*')
+    __cigarRclip = re.compile('.*[^0-9]([0-9]+)S$')
     
     __metaclass__ = ABCMeta
     
@@ -106,6 +108,18 @@ class Alignment(object):
     def __len__(self):
         ''' Return read length '''
         return len(self.seq)
+    
+    def softClippedLeft(self):
+        ''' Return amt soft-clipped from LHS '''
+        res = self.__cigarLclip.match(self.cigar)
+        if res is None: return 0
+        else: return int(res.group(1))
+    
+    def softClippedRight(self):
+        ''' Return amt soft-clipped from RHS '''
+        res = self.__cigarRclip.match(self.cigar)
+        if res is None: return 0
+        else: return int(res.group(1))
     
     def stackedAlignment(self, alignSoftClipped=False, ref=None):
         ''' Return a stacked alignment corresponding to this

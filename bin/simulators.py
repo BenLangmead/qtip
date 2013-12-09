@@ -10,13 +10,13 @@ Better if we can do everything we need just given the read name.
 import re
 
 def sameAlignment(al, left, refid, fw, wiggle=10):
-    # TODO: calculate reference length, e.g. by parsing CIGAR
-    #print [(refid, al.refid), (left, al.pos), (fw, al.fw)]
+    alpos = al.pos - al.softClippedLeft()
     return refid == al.refid and \
-           abs(left - al.pos) < wiggle and \
-           al.fw == fw
+           abs(left - alpos) < wiggle and \
+           al.fw == fw, abs(left - alpos)
 
-_wgsimex_re = re.compile('([^_]+)_([^_]+)_([^_]+)_([^:]+):([^:]+):([^_]+)_([^:]+):([^:]+):([^_]+)_([^_]+)_([^_]+)_([^_]+)_([^/]+).*')
+_wgsimex_re = re.compile('(.+)_([^_]+)_([^_]+)_([^:]+):([^:]+):([^_]+)_([^:]+):([^:]+):([^_]+)_([^_]+)_([^_]+)_([^_]+)_([^/]+).*')
+#                           1   2       3       4       5       6       7       8       9       10      11      12      13
 
 def isExtendedWgsim(nm):
     ret = _wgsimex_re.match(nm) is not None
@@ -29,7 +29,7 @@ def parseExtendedWgsim(al):
     refid, fragst1, fragen1 = res.group(1), int(res.group(2))-1, int(res.group(3))-1
     len1, len2 = int(res.group(10)), int(res.group(11))
     flip = res.group(12) == '1'
-    mate1 = al.mate1
+    mate1 = al.mate1 or not al.paired
     ln = len1 if mate1 else len2
     if (not flip) == mate1:
         return fragst1, refid, True
