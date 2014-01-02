@@ -69,11 +69,11 @@ def go(args):
     test_dfs = read_dataset(args.test_prefix)
 
     logging.info('Fitting models')
-    datasets = [('Unpaired', train_dfs['u'], test_dfs['u'], False),
-                ('Mate', train_dfs['m'], test_dfs['m'], False),
-                ('Concordant', train_dfs['c'], test_dfs['c'], True)]
+    datasets = [('Unpaired', 'u', train_dfs['u'], test_dfs['u'], False),
+                ('Mate', 'm', train_dfs['m'], test_dfs['m'], False),
+                ('Concordant', 'c', train_dfs['c'], test_dfs['c'], True)]
     models = [('RFR', RandomForestRegressor(n_estimators=10, max_depth=5))]
-    for dataset_name, train, test, paired in datasets:
+    for dataset_name, dataset_shortname, train, test, paired in datasets:
         if paired:
             x_train = train[['bestnorm1', 'diffnorm1', 'diffnormconc']].values
             x_test = test[['bestnorm1', 'diffnorm1', 'diffnormconc']].values
@@ -94,7 +94,7 @@ def go(args):
             logging.info('  Writing results')
             result_test_df = DataFrame.from_items([('pcor', pcor_test), ('mapq', mapq_test),
                                                    ('orig', mapq_orig_test), ('correct', y_test)])
-            result_test_df.to_csv(args.test_prefix + '_' + model_name + '.csv', index=False)
+            result_test_df.to_csv(args.test_prefix + '_' + dataset_shortname + '_' + model_name + '.csv', index=False)
             if args.training_results:
                 logging.info('  Fitting "%s" on training dataset "%s"' % (model_name, dataset_name))
                 pcor_train = model.predict(x_train)
@@ -102,7 +102,8 @@ def go(args):
                 logging.info('  Writing results')
                 result_train_df = DataFrame.from_items([('pcor', pcor_train), ('mapq', mapq_train),
                                                         ('orig', mapq_orig_train), ('correct', y_train)])
-                result_train_df.to_csv(args.training_prefix + '_' + model_name + '.csv', index=False)
+                result_train_df.to_csv(args.training_prefix + '_' + dataset_shortname + '_' + model_name + '.csv',
+                                       index=False)
 
     logging.info('Done')
 
