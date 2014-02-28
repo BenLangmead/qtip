@@ -10,7 +10,7 @@ Better if we can do everything we need just given the read name.
 import re
 
 def sameAlignment(al, left, refid, fw, wiggle=10):
-    alpos = al.pos - al.softClippedLeft()
+    alpos = al.pos - al.soft_clipped_left()
     return refid == al.refid and \
            abs(left - alpos) < wiggle and \
            al.fw == fw, abs(left - alpos)

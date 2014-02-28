@@ -14,13 +14,9 @@ try:
 except ImportError:
     from queue import Queue  # python 3.x
 
-class Bowtie2(Aligner):
+class BwaMem(Aligner):
     
-    ''' Encapsulates a Bowtie 2 process.  The input can be a FASTQ
-        file, or a Queue onto which the caller enqueues reads.
-        Similarly, output can be a SAM file, or a Queue from which the
-        caller dequeues SAM records.  All records are textual; parsing
-        is up to the user. '''
+    ''' Encapsulates a bwa mem process.  Note: I've disabled '''
     
     def __init__(self,
                  cmd,
@@ -47,35 +43,40 @@ class Bowtie2(Aligner):
             the outQ.
         '''
         if index is None:
-            raise RuntimeError('Must specify --index when aligner is Bowtie 2')
+            raise RuntimeError('Must specify --index when aligner is bwa mem')
         cmdToks = cmd.split()
+        options = []
         popenStdin, popenStdout, popenStderr = None, None, None
         self.inQ, self.outQ = None, None
-        # Make sure input arguments haven't been specified already
-        for tok in ['-U', '-1', '-2']: assert tok not in cmdToks
         # Compose input arguments
+        if unpaired is not None and len(unpaired) >= 1:
+            raise RuntimeError('bwa mem can\'t handle more than one input file at a time')
+        if paired is not None and len(paired) >= 1:
+            raise RuntimeError('bwa mem can\'t handle more than one input file at a time')
+        if unpaired is not None and paired is not None:
+            raise RuntimeError('bwa mem can\'t handle unpaired and paired-end inputs at the same time')
         inputArgs = []
         if unpaired is not None:
-            inputArgs.extend(['-U', ','.join(unpaired)])
+            inputArgs = [unpaired[0]]
         if paired is not None:
-            inputArgs.extend(['-1', ','.join(map(lambda x: x[0], paired))])
-            inputArgs.extend(['-2', ','.join(map(lambda x: x[1], paired))])
+            assert len(paired[0]) == 2
+            inputArgs = [paired[0][0], paired[0][1]]
         if unpaired is None and paired is None:
-            inputArgs.extend(['--tab6', '-'])
+            inputArgs = ['-']
             popenStdin = PIPE
-        # Make sure output arguments haven't been specified already
-        assert '-S' not in cmdToks
         # Compose output arguments
         outputArgs = []
         if sam is not None:
-            outputArgs.extend(['-S', sam])
+            outputArgs.extend(['>', sam])
         else:
             popenStdout = PIPE
-        indexArgs = ['-x', index]
+        # Tell bwa mem whether to expected paired-end interleaved input
+        if pairsOnly:
+            options.append('-p')
         # Put all the arguments together
         cmd += ' '
-        cmd += ' '.join(inputArgs + outputArgs + indexArgs)
-        logging.info('Bowtie 2 command: ' + cmd)
+        cmd += ' '.join(options + [index] + inputArgs + outputArgs)
+        logging.info('bwa mem command: ' + cmd)
         if quiet:
             popenStderr = open(os.devnull, 'w')
         ON_POSIX = 'posix' in sys.builtin_module_names
@@ -97,32 +98,24 @@ class Bowtie2(Aligner):
             self._outThread.start()
     
     def put(self, rd1, rd2=None):
-        self.inQ.put(Read.to_tab6(rd1, rd2, truncateName=True) + '\n')
+        self.inQ.put(Read.to_interleaved_fastq(rd1, rd2, truncate_name=True) + '\n')
     
     def done(self):
         self.inQ.put(None)
     
     def supportsMix(self):
-        return True
+        return False
 
 
-class AlignmentBowtie2(Alignment):
-    """ Encapsulates a Bowtie 2 SAM alignment record.  Parses certain
-        important SAM extra fields output by Bowtie 2. """
+class AlignmentBwaMem(Alignment):
+    """ Encapsulates a bwa mem SAM alignment record.  Parses certain
+        important SAM extra fields output by bwa mem. """
     
     __asRe = re.compile('AS:i:([-]?[0-9]+)')  # best score
     __xsRe = re.compile('XS:i:([-]?[0-9]+)')  # second-best score
-    __mdRe = re.compile('MD:Z:([^\s]+)')  # MD:Z string
-    __ytRe = re.compile('YT:Z:([A-Z]+)')  # alignment type
-    __ysRe = re.compile('YS:i:([-]?[0-9]+)')  # score of opposite
-    __xlsRe = re.compile('Xs:i:([-]?[0-9]+)')  # 3rd best
-    __zupRe = re.compile('ZP:i:([-]?[0-9]+)')  # best concordant
-    __zlpRe = re.compile('Zp:i:([-]?[0-9]+)')  # 2nd best concordant
-    __kNRe = re.compile('YN:i:([-]?[0-9]+)')  # min valid score
-    __knRe = re.compile('Yn:i:([-]?[0-9]+)')  # max valid score
-
+    
     def __init__(self):
-        super(AlignmentBowtie2, self).__init__()
+        super(AlignmentBwaMem, self).__init__()
         self.name = None
         self.flags = None
         self.refid = None
@@ -141,10 +134,9 @@ class AlignmentBowtie2(Alignment):
         self.paired = None
         self.concordant = None
         self.discordant = None
-        self.al_type = None
 
     def parse(self, ln):
-        """ Parse ln, which is a line of SAM output from Bowtie 2.  The line
+        """ Parse ln, which is a line of SAM output from bwa mem.  The line
             must correspond to an aligned read. """
         self.name, self.flags, self.refid, self.pos, self.mapq, self.cigar, \
             self.rnext, self.pnext, self.tlen, self.seq, self.qual, self.extra = \
@@ -177,58 +169,9 @@ class AlignmentBowtie2(Alignment):
             self.secondBestScore = int(se.group(1))
         # Parse MD:Z
         self.mdz = None
-        se = self.__mdRe.search(self.extra)
-        if se is not None:
-            self.mdz = se.group(1)
-        # Parse Xs:i
-        se = self.__xlsRe.search(self.extra)
-        self.thirdBestScore = None
-        if se is not None:
-            self.thirdBestScore = int(se.group(1))
-        # Parse ZP:i
-        se = self.__zupRe.search(self.extra)
-        self.bestConcordantScore = None
-        if se is not None:
-            self.bestConcordantScore = int(se.group(1))
-        # Parse Zp:i
-        se = self.__zlpRe.search(self.extra)
-        self.secondBestConcordantScore = None
-        if se is not None:
-            self.secondBestConcordantScore = int(se.group(1))
-        # Parse YS:i
-        se = self.__ysRe.search(self.extra)
-        self.mateBest = None
-        if se is not None:
-            self.mateBest = int(se.group(1))
-        # Parse YN:i
-        self.minValid = None
-        se = self.__kNRe.search(self.extra)
-        if se is not None:
-            self.minValid = int(se.group(1))
-        # Parse Yn:i
-        self.maxValid = None
-        se = self.__knRe.search(self.extra)
-        if se is not None:
-            self.maxValid = int(se.group(1))
-        self.al_type = None
-        se = self.__ytRe.search(self.extra)
-        if se is not None:
-            self.al_type = se.group(1)
-        if self.al_type == 'CP':
-            assert self.paired
-            assert self.concordant
-            assert not self.discordant
-        if self.al_type == 'DP':
-            assert self.paired
-            assert not self.concordant
-            assert self.discordant
-        if self.al_type == 'UP':
-            assert self.paired
-            assert not self.concordant
-            #assert not self.discordant
         assert self.rep_ok()
     
     def rep_ok(self):
         # Call parent's repOk
-        assert super(AlignmentBowtie2, self).rep_ok()
+        assert super(AlignmentBwaMem, self).rep_ok()
         return True

@@ -1,53 +1,80 @@
 import re
 from sam import cigarToList, mdzToList, cigarMdzToStacked
 from abc import ABCMeta, abstractmethod
-from align import editDistance, boundEditDistance
+from align import editDistance
 from reference import ReferenceOOB
 
+
 class Read(object):
-    ''' A read, along with some helper functions for parsing and
-        composing a few differnt read formats. '''
+    """ A read, along with some helper functions for parsing and
+        composing a few differnt read formats. """
     
     def __init__(self, name, seq, qual, orig=None):
-        ''' Initialize new read given name, sequence, quality '''
+        """ Initialize new read given name, sequence, quality """
         self.name = name
         self.seq = seq
         self.qual = qual
         self.orig = orig
-        assert self.repOk()
+        assert self.rep_ok()
     
     @classmethod
-    def fromSimulator(cls, seq, qual, refid, refoff, fw, sc, trainingNm):
-        ''' Construct appropriate read object (with appropriate name) given
-            some simulated properties of the read. '''
+    def from_simulator(cls, seq, qual, refid, refoff, fw, sc, trainingNm):
+        """ Construct appropriate read object (with appropriate name) given
+            some simulated properties of the read. """
         rdname = "!!ts-sep!!".join(["!!ts!!", refid, "+" if fw else "-", str(refoff), str(sc), trainingNm])
         return cls(rdname, seq, qual)
     
     @classmethod
-    def toTab6(cls, rd1, rd2=None, truncateName=False):
-        ''' Convert either an unpaired read or a pair of reads to tab6
-            format '''
+    def to_tab6(cls, rd1, rd2=None, truncateName=False):
+        """ Convert either an unpaired read or a pair of reads to tab6
+            format """
         name1 = rd1.name
-        if truncateName: name1 = name1.split()[0]
+        if truncateName:
+            name1 = name1.split()[0]
         if rd2 is not None:
             name2 = rd2.name
-            if truncateName: name2 = name2.split()[0]
+            if truncateName:
+                name2 = name2.split()[0]
             return "\t".join([name1, rd1.seq, rd1.qual, name2, rd2.seq, rd2.qual])
         return "\t".join([name1, rd1.seq, rd1.qual])
     
     @classmethod
-    def toFastq(cls, rd, truncateName=False):
-        ''' Convert a single read to FASTQ format '''
+    def from_tab6(cls, ln):
+        toks = ln.rstrip().split('\t')
+        if len(toks) == 3:
+            return Read(toks[0], toks[1], toks[2]), None
+        else:
+            return Read(toks[0], toks[1], toks[2]), Read(toks[3], toks[4], toks[5])
+    
+    @classmethod
+    def to_fastq(cls, rd, truncate_name=False):
+        """ Convert a single read to FASTQ format """
         name = rd.name
-        if truncateName: name = name.split()[0]
+        if truncate_name:
+            name = name.split()[0]
         return '\n'.join(['@' + name, rd.seq, '+', rd.qual])
     
+    @classmethod
+    def to_interleaved_fastq(cls, rd1, rd2=None, truncate_name=False):
+        """ Convert a single read to interleaved FASTQ format """
+        name1 = rd1.name
+        if truncate_name: name1 = name1.split()[0]
+        if rd2 is not None:
+            name2 = rd2.name
+            if truncate_name: name2 = name2.split()[0]
+            if not name1.endswith('/1'):
+                name1 += '/1'
+            if not name2.endswith('/2'):
+                name2 += '/2'
+            return '\n'.join(['@' + name1, rd1.seq, '+', rd1.qual, '@' + name2, rd2.seq, '+', rd2.qual])
+        return '\n'.join(['@' + name1, rd1.seq, '+', rd1.qual])
+    
     def __len__(self):
-        ''' Return number of nucleotides in read '''
+        """ Return number of nucleotides in read """
         return len(self.seq)
     
     def __str__(self):
-        ''' Return string representation '''
+        """ Return string representation """
         if self.orig is not None:
             return self.orig # original string preferred
         elif self.qual is not None:
@@ -56,14 +83,15 @@ class Read(object):
         else:
             return ">%s\n%s\n" % (self.name, self.seq)
     
-    def repOk(self):
-        ''' Check that read is internally consistent '''
+    def rep_ok(self):
+        """ Check that read is internally consistent """
         if self.qual is not None:
             assert len(self.seq) == len(self.qual), "seq=%s\nqual=%s" % (self.seq, self.qual)
         return True
 
+
 class Alignment(object):
-    ''' Abstract base class encapsulating an alignment record for a
+    """ Abstract base class encapsulating an alignment record for a
         single aligned read.  Concrete subclasses consider the various
         tools' SAM dialects.
         
@@ -74,7 +102,7 @@ class Alignment(object):
              involved in alignment (ignore soft-clipped bases)
         mapq: aligner-estimated mapping quality, -10 log10 (p) where p
               = probability alignment is incorrect
-        '''
+        """
     
     __nonAcgt = re.compile('[^ACGT]')
     __cigarLclip = re.compile('^([0-9]+)S.*')
@@ -86,50 +114,56 @@ class Alignment(object):
     def parse(self, ln):
         pass
     
-    def __init__(self, ln):
-        self.parse(ln)
-    
-    def isAligned(self):
-        ''' Return true iff read aligned '''
+    def __init__(self):
+        pass
+
+    def is_aligned(self):
+        """ Return true iff read aligned """
         return (self.flags & 4) == 0
     
     def orientation(self):
-        ''' Return orientation as + or - '''
+        """ Return orientation as + or - """
         return '-' if ((self.flags & 16) != 0) else '+'
     
-    def mateMapped(self):
-        ''' Return true iff opposite mate aligned '''
+    def mate_mapped(self):
+        """ Return true iff opposite mate aligned """
         return (self.flags & 8) == 0
-    
-    def fragmentLength(self):
-        ''' Return fragment length '''
-        return abs(self.tlen)
+
+    @staticmethod
+    def fragment_length(al1, al2):
+        """ Return fragment length """
+        if abs(al1.tlen) == 0:
+            return 0  # no implied fragment
+        if al1.pos < al2.pos:
+            return abs(al1.tlen) + al1.soft_clipped_left() + al2.soft_clipped_right()
+        else:
+            return abs(al1.tlen) + al2.soft_clipped_left() + al1.soft_clipped_right()
     
     def __len__(self):
-        ''' Return read length '''
+        """ Return read length """
         return len(self.seq)
     
-    def softClippedLeft(self):
-        ''' Return amt soft-clipped from LHS '''
+    def soft_clipped_left(self):
+        """ Return amt soft-clipped from LHS """
         res = self.__cigarLclip.match(self.cigar)
-        if res is None: return 0
-        else: return int(res.group(1))
-    
-    def softClippedRight(self):
-        ''' Return amt soft-clipped from RHS '''
+        return 0 if res is None else int(res.group(1))
+
+    def soft_clipped_right(self):
+        """ Return amt soft-clipped from RHS """
         res = self.__cigarRclip.match(self.cigar)
-        if res is None: return 0
-        else: return int(res.group(1))
-    
-    def stackedAlignment(self, alignSoftClipped=False, ref=None):
-        ''' Return a stacked alignment corresponding to this
+        return 0 if res is None else int(res.group(1))
+
+    def stacked_alignment(self, alignSoftClipped=False, ref=None):
+        """ Return a stacked alignment corresponding to this
             alignment.  Optionally re-align the soft-clipped portions
             of the read so that the stacked alignment includes all
-            characters from read. '''
+            characters from read. """
         cigarList = cigarToList(self.cigar)
-        mdzList = mdzToList(self.mdz)
-        # Get stacked alignment
-        rdAln, rfAln = cigarMdzToStacked(self.seq, cigarList, mdzList)
+        if self.mdz is not None:
+            mdzList = mdzToList(self.mdz)
+            rdAln, rfAln = cigarMdzToStacked(self.seq, cigarList, mdzList)
+        else:
+            rdAln, rfAln = cigarRefToStacked(self.seq, cigarList, ref)
         rdAln, rfAln = [rdAln], [rfAln]
         if alignSoftClipped:
             assert ref is not None
@@ -178,9 +212,8 @@ class Alignment(object):
                         rfAln.append(rfAlnNew)
         return ''.join(rdAln), ''.join(rfAln)
     
-    def repOk(self):
-        ''' Check alignment for internal consistency '''
-        assert self.alType is not None
-        assert self.paired or self.fragmentLength() == 0
-        assert not self.isAligned() or self.bestScore is not None
+    def rep_ok(self):
+        """ Check alignment for internal consistency """
+        assert self.paired or self.fragment_length() == 0
+        assert not self.is_aligned() or self.bestScore is not None
         return True
