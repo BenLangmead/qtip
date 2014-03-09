@@ -109,16 +109,16 @@ class FragmentSimSerial2(object):
         assert chunk_size >= self.max_fraglen
         num_concordant, num_discordant, num_unpaired, num_bad_end = 0, 0, 0, 0
         if not self.dists.sc_dist_conc.empty():
-            num_added = self.dists.sc_dist_conc.num_added()
+            num_added = self.dists.sc_dist_conc.num_added
             num_concordant = int(max(fraction * num_added, minimum))
         if not self.dists.sc_dist_disc.empty():
-            num_added = self.dists.sc_dist_disc.num_added()
+            num_added = self.dists.sc_dist_disc.num_added
             num_discordant = int(max(fraction * num_added, minimum))
         if not self.dists.sc_dist_unp.empty():
-            num_added = self.dists.sc_dist_unp.num_added()
+            num_added = self.dists.sc_dist_unp.num_added
             num_unpaired = int(max(fraction * num_added, minimum))
         if not self.dists.sc_dist_bad_end.empty():
-            num_added = self.dists.sc_dist_bad_end.num_added()
+            num_added = self.dists.sc_dist_bad_end.num_added
             num_bad_end = int(max(fraction * num_added, minimum))
         assert num_concordant + num_discordant + num_unpaired + num_bad_end > 0
         assert num_concordant >= 0 and num_discordant >= 0 and num_unpaired >= 0 and num_bad_end >= 0
@@ -199,8 +199,7 @@ class FragmentSimSerial2(object):
                     if typ == 'unp':
                         # unpaired
                         sc_draw = draws[i]
-                        fw, _, _, rf_aln, sc, _, _, _ = sc_draw
-                        rl = len(rf_aln) - rf_aln.count('-')
+                        fw, _, _, rf_aln, sc, rl, _, _ = sc_draw
                         assert rl == fraglens[i]
                         rdseq = substr if fw else revcomp(substr)
                         read = Read.from_simulator(rdseq, None, ref_id, ref_off, fw, sc, typ)
@@ -208,8 +207,7 @@ class FragmentSimSerial2(object):
                         yield typ, read, None
                     elif typ == 'bad_end':
                         sc_draw = draws[i]
-                        fw, _, _, rf_aln, sc, _, mate1, ordlen = sc_draw
-                        rl = len(rf_aln) - rf_aln.count('-')
+                        fw, _, _, rf_aln, sc, rl, mate1, ordlen = sc_draw
                         assert rl == fraglens[i]
                         rdseq = substr if fw else revcomp(substr)
                         rdp1 = Read.from_simulator(rdseq, None, ref_id, ref_off, fw, sc, typ)
@@ -224,10 +222,8 @@ class FragmentSimSerial2(object):
                     else:
                         # paired-end
                         sc1_draw, sc2_draw, _, upstream1 = draws[i]
-                        m1fw, _, _, rf_aln_1, sc1, _, _, _ = sc1_draw
-                        m2fw, _, _, rf_aln_2, sc2, _, _, _ = sc2_draw
-                        rl1 = len(rf_aln_1) - rf_aln_1.count('-')
-                        rl2 = len(rf_aln_2) - rf_aln_2.count('-')
+                        m1fw, _, _, rf_aln_1, sc1, rl1, _, _ = sc1_draw
+                        m2fw, _, _, rf_aln_2, sc2, rl2, _, _ = sc2_draw
                         assert max(rl1, rl2) <= fraglens[i]
                         if upstream1:
                             seq1, seq2 = substr[:rl1], substr[-rl2:]

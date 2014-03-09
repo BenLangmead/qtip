@@ -93,7 +93,7 @@ def iter_fasta_chunks_fast(fasta_filenames, chunk_size=500000):
 
 
 class ReferenceOOB(Exception):
-    ''' Out of bounds exception for reference sequences '''
+    """ Out of bounds exception for reference sequences """
     
     def __init__(self, value):
         self.value = value
@@ -103,40 +103,93 @@ class ReferenceOOB(Exception):
 
 
 class Reference(object):
-    ''' Abstract base class for concrete subclasses implementing
+    """ Abstract base class for concrete subclasses implementing
         different ways of getting at substrings in collections of
-        FASTA files. '''
+        FASTA files. """
     
     __metaclass__ = ABCMeta
     
     @abstractmethod
     def hasName(self, refid):
-        ''' Return True iff our FASTA files have a sequence named
-            'refid' '''
+        """ Return True iff our FASTA files have a sequence named
+            'refid' """
         return False
     
     @abstractmethod
     def length(self, refid):
-        ''' Return the length of the sequence named 'refid' '''
+        """ Return the length of the sequence named 'refid' """
         return 0
     
     @abstractmethod
     def get(self, refid, start, ln):
-        ''' Return the length-'ln' substring beginning at offset
-            'start' in the sequence named 'refid' '''
+        """ Return the length-'ln' substring beginning at offset
+            'start' in the sequence named 'refid' """
         return ''
     
     @abstractmethod
     def names(self):
-        ''' Return iterator over names of sequences '''
+        """ Return iterator over names of sequences """
         return None
 
+
+class ReferenceSimple(Reference):
+    """ Loads a group of FASTA files into memory for easy random access. """
+
+    def __init__(self, fafns):
+        self.refs, self.lens = {}, {}
+        abort = False
+        for fafn in fafns:
+            with open(fafn, 'r') as fafh:
+                name = None
+                for line in fafh:
+                    line = line.rstrip()
+                    ln = len(line)
+                    if ln > 0 and line[0] == '>':
+                        ind = line.find(" ")
+                        if ind == -1:
+                            ind = len(line)
+                        line = line[1:ind]
+                        name = line
+                        self.refs[name] = []
+                        self.lens[name] = 0
+                    else:
+                        assert name is not None
+                        self.refs[name].append(line)
+                        self.lens[name] += ln
+            if abort:
+                break
+        for k in self.refs.iterkeys():
+            self.refs[k] = ''.join(self.refs[k])
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        pass
+
+    def hasName(self, refid):
+        return refid in self.refs
+
+    def names(self):
+        return self.refs.iterkeys()
+
+    def length(self, refid):
+        return self.lens[refid]
+
+    def get(self, refid, pos, ln):
+        """ Return the specified substring of the reference """
+        assert refid in self.refs
+        if pos + ln > self.lens[refid]:
+            raise ReferenceOOB('"%s" has length %d; tried to get [%d, %d)' % (refid, self.lens[refid], pos, pos+ln))
+        return self.refs[refid][pos:pos+ln]
+
+
 class ReferencePicklable(Reference):
-    ''' Encapsulates a collection of FASTA files.  If a pickle filename is
+    """ Encapsulates a collection of FASTA files.  If a pickle filename is
         specified and the pickle file exists, we read from there.
         Otherwise we read from the FASTA files.  If a pickle file name
         is specified but doesn't exist at first, we create it at the
-        end. '''
+        end. """
     
     def __init__(self, fafns, pickleFn=None, verbose=False):
         self.refs, self.lens = {}, {}
@@ -194,16 +247,17 @@ class ReferencePicklable(Reference):
         self.refs, self.lens = load(open(fn, 'rb'))
     
     def get(self, refid, pos, ln):
-        ''' Return the specified substring of the reference '''
+        """ Return the specified substring of the reference """
         assert refid in self.refs
         if pos + ln > self.lens[refid]:
             raise ReferenceOOB('"%s" has length %d; tried to get [%d, %d)' % (refid, self.lens[refid], pos, pos+ln))
         return self.refs[refid][pos:pos+ln]
 
+
 class ReferenceIndexed(Reference):
-    ''' Like Reference but uses .fai index files to avoid ever loading
+    """ Like Reference but uses .fai index files to avoid ever loading
         entire sequences into memory.  Use in Python 'with' block so
-        that FASTA filehandles are closed appropriately. '''
+        that FASTA filehandles are closed appropriately. """
     
     __removeWs = re.compile(r'\s+')
     
@@ -250,7 +304,7 @@ class ReferenceIndexed(Reference):
         return self.lens[refid]
     
     def get(self, refid, start, ln):
-        ''' Return the specified substring of the reference. '''
+        """ Return the specified substring of the reference. """
         assert refid in self.offset
         if start + ln > self.lens[refid]:
             raise ReferenceOOB('"%s" has length %d; tried to get [%d, %d)' % (refid, self.lens[refid], start, start + ln))
@@ -298,7 +352,7 @@ if __name__ == "__main__":
                 self.tmpdir = mkdtemp()
                 self.fa_fn_1 = os.path.join(self.tmpdir, 'tmp1.fa')
                 with open(self.fa_fn_1, 'w') as fh:
-                    fh.write('''>short_name1 with some stuff after whitespace
+                    fh.write(""">short_name1 with some stuff after whitespace
 ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT
 ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT
 A
@@ -307,7 +361,7 @@ CAGTCAGTCAGTCAGTCAGTCAGTCAGTCAGTCAGTCAGT
 CAGTCAGTCAGTCAGTCAGTCAGTCAGTCAGTCAGTCAGT
 >short_name3 with some stuff after whitespace
 CA
-''')
+""")
 
             def tearDown(self):
                 rmtree(self.tmpdir)

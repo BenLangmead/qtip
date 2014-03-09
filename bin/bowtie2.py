@@ -97,7 +97,7 @@ class Bowtie2(Aligner):
             self._outThread.start()
     
     def put(self, rd1, rd2=None):
-        self.inQ.put(Read.to_tab6(rd1, rd2, truncateName=True) + '\n')
+        self.inQ.put(Read.to_tab6(rd1, rd2, truncate_name=True) + '\n')
     
     def done(self):
         self.inQ.put(None)

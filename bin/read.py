@@ -1,5 +1,5 @@
 import re
-from sam import cigarToList, mdzToList, cigarMdzToStacked
+from sam import Cigar, Mdz, cigar_mdz_to_stacked, cigar_ref_to_stacked
 from abc import ABCMeta, abstractmethod
 from align import editDistance
 from reference import ReferenceOOB
@@ -18,22 +18,22 @@ class Read(object):
         assert self.rep_ok()
     
     @classmethod
-    def from_simulator(cls, seq, qual, refid, refoff, fw, sc, trainingNm):
+    def from_simulator(cls, seq, qual, refid, refoff, fw, sc, training_nm):
         """ Construct appropriate read object (with appropriate name) given
             some simulated properties of the read. """
-        rdname = "!!ts-sep!!".join(["!!ts!!", refid, "+" if fw else "-", str(refoff), str(sc), trainingNm])
+        rdname = "!!ts-sep!!".join(["!!ts!!", refid, "+" if fw else "-", str(refoff), str(sc), training_nm])
         return cls(rdname, seq, qual)
     
     @classmethod
-    def to_tab6(cls, rd1, rd2=None, truncateName=False):
+    def to_tab6(cls, rd1, rd2=None, truncate_name=False):
         """ Convert either an unpaired read or a pair of reads to tab6
             format """
         name1 = rd1.name
-        if truncateName:
+        if truncate_name:
             name1 = name1.split()[0]
         if rd2 is not None:
             name2 = rd2.name
-            if truncateName:
+            if truncate_name:
                 name2 = name2.split()[0]
             return "\t".join([name1, rd1.seq, rd1.qual, name2, rd2.seq, rd2.qual])
         return "\t".join([name1, rd1.seq, rd1.qual])
@@ -58,10 +58,12 @@ class Read(object):
     def to_interleaved_fastq(cls, rd1, rd2=None, truncate_name=False):
         """ Convert a single read to interleaved FASTQ format """
         name1 = rd1.name
-        if truncate_name: name1 = name1.split()[0]
+        if truncate_name:
+            name1 = name1.split()[0]
         if rd2 is not None:
             name2 = rd2.name
-            if truncate_name: name2 = name2.split()[0]
+            if truncate_name:
+                name2 = name2.split()[0]
             if not name1.endswith('/1'):
                 name1 += '/1'
             if not name2.endswith('/2'):
@@ -76,7 +78,7 @@ class Read(object):
     def __str__(self):
         """ Return string representation """
         if self.orig is not None:
-            return self.orig # original string preferred
+            return self.orig  # original string preferred
         elif self.qual is not None:
             assert len(self.seq) == len(self.qual)
             return "@%s\n%s\n+\n%s\n" % (self.name, self.seq, self.qual)
@@ -153,67 +155,73 @@ class Alignment(object):
         res = self.__cigarRclip.match(self.cigar)
         return 0 if res is None else int(res.group(1))
 
-    def stacked_alignment(self, alignSoftClipped=False, ref=None):
+    def stacked_alignment(self, align_soft_clipped=False, ref=None):
         """ Return a stacked alignment corresponding to this
             alignment.  Optionally re-align the soft-clipped portions
             of the read so that the stacked alignment includes all
             characters from read. """
-        cigarList = cigarToList(self.cigar)
+        cigar = Cigar(self.cigar)
         if self.mdz is not None:
-            mdzList = mdzToList(self.mdz)
-            rdAln, rfAln = cigarMdzToStacked(self.seq, cigarList, mdzList)
+            rd_aln, rf_aln = cigar_mdz_to_stacked(self.seq, cigar, Mdz(self.mdz))
         else:
-            rdAln, rfAln = cigarRefToStacked(self.seq, cigarList, ref)
-        rdAln, rfAln = [rdAln], [rfAln]
-        if alignSoftClipped:
+            assert ref is not None
+            rd_aln, rf_aln = cigar_ref_to_stacked(self.seq, cigar, ref, self.refid, self.pos)
+        rd_aln, rf_aln = [rd_aln], [rf_aln]
+        if align_soft_clipped:
             assert ref is not None
             nrd, nrf = 0, 0
-            skipEditDistance = False
-            for i in xrange(len(rdAln)):
-                if rdAln[i] != '-': nrd += 1
-                if rfAln[i] != '-': nrf += 1
+            skip_edit_distance = False
+            for i in xrange(len(rd_aln)):
+                if rd_aln[i] != '-':
+                    nrd += 1
+                if rf_aln[i] != '-':
+                    nrf += 1
             for i in [0, -1]:
-                if cigarList[i][0] == 4: # soft clipping?
+                if cigar.cigar_list[i][0] == 4:  # soft clipping?
                     # Check for best alignment of soft-clipped portion
                     fudge = 10
-                    unalLn = cigarList[i][1]
-                    readLn = len(self)
+                    unal_ln = cigar.cigar_list[i][1]
+                    read_ln = len(self)
                     # 0-based offsets of leftmost and rightmost
                     # reference characters involved in alignment
                     posl_rf, posr_rf = self.pos, self.pos + nrf - 1
                     if i == 0:
-                        readl, readr = 0, unalLn
-                        refl, refr = posl_rf - unalLn, posl_rf
+                        readl, readr = 0, unal_ln
+                        refl, refr = posl_rf - unal_ln, posl_rf
                     else:
-                        readl, readr = readLn - unalLn, readLn
-                        refl, refr = posr_rf, posr_rf + unalLn
+                        readl, readr = read_ln - unal_ln, read_ln
+                        refl, refr = posr_rf, posr_rf + unal_ln
                     if refl < 0 or refr > ref.length(self.refid):
-                        raise ReferenceOOB('[%d, %d) fell outside bounds for "%s": [0, %d)' % (refl, refr, self.refid, ref.length(self.refid)))
+                        raise ReferenceOOB('[%d, %d) fell outside bounds for "%s": [0, %d)' %
+                                           (refl, refr, self.refid, ref.length(self.refid)))
                     # Align read to ref using reasonable scoring
                     # function
                     rdstr = self.seq[readl:readr].upper()
                     rdstr = re.sub(self.__nonAcgt, 'N', rdstr)
-                    assert refr - refl <= unalLn + fudge
+                    assert refr - refl <= unal_ln + fudge
                     refstr = ref.get(self.refid, refl, refr - refl).upper()
                     refstr = re.sub(self.__nonAcgt, 'N', refstr)
                     assert len(rdstr) == len(refstr)
                     # Add traceback to stacked alignment
-                    if skipEditDistance:
-                        rdAlnNew, rfAlnNew = rdstr, refstr
+                    if skip_edit_distance:
+                        rd_aln_new, rf_aln_new = rdstr, refstr
                     else:
                         eddist, stack = editDistance(rdstr, refstr, stacked=True)
-                        rdAlnNew, rfAlnNew = stack
-                    rdAlnNew, rfAlnNew = rdAlnNew.lower(), rfAlnNew.lower()
+                        rd_aln_new, rf_aln_new = stack
+                    rd_aln_new, rf_aln_new = rd_aln_new.lower(), rf_aln_new.lower()
                     if i == 0:
-                        rdAln.insert(0, rdAlnNew)
-                        rfAln.insert(0, rfAlnNew)
+                        rd_aln.insert(0, rd_aln_new)
+                        rf_aln.insert(0, rf_aln_new)
                     else:
-                        rdAln.append(rdAlnNew)
-                        rfAln.append(rfAlnNew)
-        return ''.join(rdAln), ''.join(rfAln)
+                        rd_aln.append(rd_aln_new)
+                        rf_aln.append(rf_aln_new)
+        rd_aln, rf_aln = ''.join(rd_aln), ''.join(rf_aln)
+        rd_len = len(rd_aln) - rd_aln.count('-')
+        rf_len = len(rf_aln) - rf_aln.count('-')
+        return rd_aln, rf_aln, rd_len, rf_len
     
     def rep_ok(self):
         """ Check alignment for internal consistency """
-        assert self.paired or self.fragment_length() == 0
+        #assert self.paired or self.fragment_length() == 0
         assert not self.is_aligned() or self.bestScore is not None
         return True

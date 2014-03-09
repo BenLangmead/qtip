@@ -4,12 +4,9 @@
 ts.py
 
 A "tandem simulator," which wraps an alignment tool as it runs, eavesdrops on
-the input and output, and builds a model that can be used to improve the
-quality values calculated for aligned reads.
-
-In a typical run, the user supplies an index and some read files to ts.py,
-ts.py runs Bowtie 2 and produces alignments.  The reads and alignments are
-used to create a model of the input data.  The model is then used to simulate
+input and output, simulates a new dataset similar to the input data, aligns
+it, uses those alignments as training data to build a model to predict MAPQ,
+then re-calcualtes MAPQs for the original input using that predictor.
 
 Output files encapsulate:
 1. Input data model
@@ -19,27 +16,17 @@ Output files encapsulate:
 5. Trained models
 6. Results of running the trained models on the training data
 
-Paired-end reads come with several additional issues
-- Input has mix of alignment types: UP, DP, and CP, where probably only CP is
-  well represented.
-  + Do we actively try to simulate UP and DP?  How do you simulate a DP?  It
-    might be discordant because the fragment spans a breakpoint, but we don't
-    really know why.
-- We're eventually going to build models that have to be good enough to
-  estimate MAPQs for all three kinds
-
 Things we learn from reads
 ==========================
 
 - Read length distribution
-- Quality values
 
 Things we learn from alignments
 ===============================
 
 - Alignment type (aligned, unaligned, concordant, discordant)
 - Fragment length distribution
-- Number and placement of mismatches and gaps
+- Number and placement of mismatches and gaps and corresponding quality values
 
 SAM extra fields used
 =====================
@@ -56,8 +43,6 @@ TODO:
 
 __author__ = "Ben Langmead"
 __email__ = "langmea@cs.jhu.edu"
-
-# depends on bowtie2.py, bwamem.py, randutil.py, sam.py, samples.py, simualtors.py
 
 import os
 import sys
@@ -119,123 +104,24 @@ class ScoreDist(object):
             sampler. """
         sc = al.bestScore
         # Get stacked alignment
-        rd_aln, rf_aln = al.stacked_alignment(alignSoftClipped=True, ref=ref)
-        rl = len(rf_aln) - rf_aln.count('-')
-        self.max_fraglen = max(self.max_fraglen, rl)
-        self.res.add((al.fw, al.qual, rd_aln, rf_aln, sc, rl, al.mate1, ordlen))
-    
+        rd_aln, rf_aln, rd_len, rf_len = al.stacked_alignment(align_soft_clipped=True, ref=ref)
+        self.max_fraglen = max(self.max_fraglen, rf_len)
+        self.res.add((al.fw, al.qual, rd_aln, rf_aln, sc, rf_len, al.mate1, ordlen))
+
+    @property
     def num_added(self):
         """ Return the number of tuples that have been added, which could be
             much greater than the number sampled """
         return self.res.num_added()
 
+    @property
     def num_sampled(self):
         """ Return number of tuples that have been sampled """
         return self.res.num_sampled()
     
     def empty(self):
         """ Return true iff no tuples have been added """
-        return self.num_sampled() == 0
-
-
-class ScoreDistEven(object):
-    """ Capture a list of tuples, where each tuples represents the following
-        traits observed in an alignment: (a) orientation, (b) quality string,
-        (c) read side of stacked alignment, (d) ref side of stacked alignment,
-        (e) score.  Keeping these tuples allows us to generate new reads that
-        mimic observed reads in these key ways.
-
-        The "even" version of this class attempts to make the sample
-        relatively uniform across scores.  Without this, our sample will be
-        hugely biased toward very high-scoring alignments, which are typical
-        for high-quality datasets. """
-
-    def __init__(self, k=10000, num_strata=10, train_from=1000):
-        """ Make a reservoir sampler for holding the tuples. """
-        self.ress = [ReservoirSampler(k // num_strata) for _ in xrange(num_strata)]
-        self.staged_for_training = []
-        self.num_strata = num_strata
-        self.num_added = 0
-        self.train_from = train_from
-        self.trained = False
-        self.max_fraglen = 0
-        self.min_sc, self.max_sc = float('inf'), float('-inf')
-        self.avg_fraglen = None
-
-    def _bucketize_score(self, sc):
-        """ Convert an alignment score to a bucket index """
-        standardized = (float(sc) - self.min_sc) / (self.max_sc - self.min_sc)
-        standardized = max(min(standardized, 1.0), 0.0)
-        return int(round(standardized * (self.num_strata-1)))
-
-    def _train(self):
-        """ Train using data staged so far. """
-        for al in self.staged_for_training:
-            self.min_sc = min(self.min_sc, al[4])
-            self.max_sc = max(self.max_sc, al[4])
-        for al in self.staged_for_training:
-            self._add_post_training(al)
-        self.staged_for_training = []
-        self.trained = True
-
-    def finalize(self):
-        """ Train using data staged so far. """
-        self.avg_fraglen = np.mean([x[5] for x in self.res])
-        if not self.trained:
-            self._train()
-
-    def draw(self):
-        """ Draw from the reservoir """
-        if self.empty():
-            raise RuntimeError('Call add before draw')
-        if not self.trained and len(self) > 0:
-            raise RuntimeError('Call finalize before draw')
-        resi = random.randint(0, len(self.ress)-1)
-        while self.ress[resi].empty():
-            resi = random.randint(0, len(self.ress)-1)
-        return self.ress[resi].draw()
-
-    def _tupleize_alignment(self, al, ordlen, ref):
-        """ Turn alignment object into relevant tuple: (a) orientation,
-            (b) quality string, (c) read half of stacked alignment, (d)
-            reference half of stacked alignment, (e) score. """
-        sc = al.bestScore
-        rd_aln, rf_aln = al.stacked_alignment(alignSoftClipped=True, ref=ref)
-        rl = len(rf_aln) - rf_aln.count('-')
-        self.max_fraglen = max(self.max_fraglen, rl)
-        return al.fw, al.qual, rd_aln, rf_aln, sc, rl, al.mate1, ordlen
-
-    def add(self, al, ref, ordlen=0):
-        """ Convert given alignment to a tuple and add it to the reservoir
-            sampler. """
-        tup = self._tupleize_alignment(al, ordlen, ref)
-        if self.trained:
-            self._add_post_training(tup)
-        else:
-            self.staged_for_training.append(tup)
-            assert len(self.staged_for_training) <= self.train_from
-            if len(self.staged_for_training) == self.train_from:
-                self.finalize()
-        self.num_added += 1
-
-    def _add_post_training(self, tup):
-        fw, qual, rd_aln, rf_aln, sc = tup
-        bucket = self._bucketize_score(sc)
-        assert 0 <= bucket < len(self.ress)
-        self.ress[bucket].add(tup)
-
-    def num_added(self):
-        """ Return the number of tuples that have been added, which could be
-            much greater than the number sampled """
-        return self.res.num_added()
-
-    def num_sampled(self):
-        """ Return number of tuples that have been sampled """
-        return self.res.num_sampled()
-
-    def empty(self):
-        """ Return true iff no tuples have been added """
-        return self.num_sampled() == 0
+        return self.num_sampled == 0
 
 
 class ScorePairDist(object):
@@ -271,136 +157,26 @@ class ScorePairDist(object):
         # Make note of which end is upstream
         upstream1 = al1.pos < al2.pos
         # Get stacked alignment
-        rd_aln_1, rf_aln_1 = al1.stacked_alignment(alignSoftClipped=True, ref=ref)
-        rd_aln_2, rf_aln_2 = al2.stacked_alignment(alignSoftClipped=True, ref=ref)
-        rlen1 = len(rf_aln_1) - rf_aln_1.count('-')
-        rlen2 = len(rf_aln_2) - rf_aln_2.count('-')
-        self.res.add(((al1.fw, al1.qual, rd_aln_1, rf_aln_1, sc1, rlen1, True, rlen2),
-                      (al2.fw, al2.qual, rd_aln_2, rf_aln_2, sc2, rlen2, False, rlen1), fraglen, upstream1))
-    
+        rd_aln_1, rf_aln_1, rd_len_1, rf_len_1 = al1.stacked_alignment(align_soft_clipped=True, ref=ref)
+        rd_aln_2, rf_aln_2, rd_len_2, rf_len_2 = al2.stacked_alignment(align_soft_clipped=True, ref=ref)
+        assert fraglen == 0 or max(rf_len_1, rf_len_2) <= fraglen
+        self.res.add(((al1.fw, al1.qual, rd_aln_1, rf_aln_1, sc1, rf_len_1, True, rf_len_2),
+                      (al2.fw, al2.qual, rd_aln_2, rf_aln_2, sc2, rf_len_2, False, rf_len_1), fraglen, upstream1))
+
+    @property
     def num_added(self):
         """ Return the number of tuples that have been added, which could be
             much greater than the number sampled """
         return self.res.num_added()
 
+    @property
     def num_sampled(self):
         """ Return number of tuples that have been sampled """
         return self.res.num_sampled()
 
     def empty(self):
         """ Return true iff no tuples have been added """
-        return self.num_sampled() == 0
-
-
-class ScorePairDistEven(object):
-    """ Capture a list of tuple pairs, where each tuple pair represents the
-        following in an alignment of a paired-end reads where both ends
-        aligned: (a) orientation, (b) quality string, (c) read side of stacked
-        alignment, (d) ref side of stacked alignment, (e) score, (f) fragment
-        length.  We record pairs of tuples where the first element of the pair
-        corresponds to mate 1 and the second to mate 2.
-
-        The "even" version of this class attempts to make the sample
-        relatively uniform across scores.  Without this, our sample will be
-        hugely biased toward very high-scoring alignments, which are typical
-        for high-quality datasets. """
-
-    def __init__(self, k=10000, num_strata=10, train_from=1000):
-        """ Make a reservoir sampler for holding the tuples. """
-        self.ress = [ReservoirSampler(k // num_strata) for _ in xrange(num_strata)]
-        self.staged_for_training = []
-        self.num_strata = num_strata
-        self.num_added = 0
-        self.train_from = train_from
-        self.trained = False
-        self.max_allowed_fraglen = 50000  # maximum allowed fragment length
-        self.max_fraglen = 0  # maximum observed fragment length
-        self.min_sc, self.max_sc = float('inf'), float('-inf')
-        self.avg_fraglen = None
-
-    def _bucketize_score(self, sc):
-        """ Convert an alignment score to a bucket index """
-        standardized = (float(sc) - self.min_sc) / (self.max_sc - self.min_sc)
-        standardized = max(min(standardized, 1.0), 0.0)
-        return int(round(standardized * (self.num_strata-1)))
-
-    def _train(self):
-        """ Train using data staged so far. """
-        for al1, al2, _ in self.staged_for_training:
-            sc = al1[4] + al2[4]
-            self.min_sc = min(self.min_sc, sc)
-            self.max_sc = max(self.max_sc, sc)
-        for al1, al2, fraglen, upstream1 in self.staged_for_training:
-            self._add_post_training(al1, al2, fraglen, upstream1)
-        self.staged_for_training = []
-        self.trained = True
-
-    def finalize(self):
-        """ Train using data staged so far. """
-        self.avg_fraglen = np.mean([x[2] for x in self.res])
-        if not self.trained:
-            self._train()
-
-    def draw(self):
-        """ Draw from the reservoir """
-        if self.empty():
-            raise RuntimeError('Call add before draw')
-        if not self.trained and len(self) > 0:
-            raise RuntimeError('Call finalize before draw')
-        resi = random.randint(0, len(self.ress)-1)
-        while self.ress[resi].empty():
-            resi = random.randint(0, len(self.ress)-1)
-        return self.ress[resi].draw()
-
-    def _tupleize_alignments(self, al1, al2, ref):
-        """ Turn alignment object into relevant tuple: (a) orientation,
-            (b) quality string, (c) read half of stacked alignment, (d)
-            reference half of stacked alignment, (e) score. """
-        sc1, sc2 = al1.bestScore, al2.bestScore
-        rd_aln_1, rf_aln_1 = al1.stacked_alignment(alignSoftClipped=True, ref=ref)
-        rd_aln_2, rf_aln_2 = al2.stacked_alignment(alignSoftClipped=True, ref=ref)
-        # Record fragment length
-        fraglen = Alignment.fragment_length(al1, al2)
-        # Record whether mate 1 is upstream
-        upstream1 = al1.pos < al2.pos
-        rlen1 = len(rf_aln_1) - rf_aln_1.count('-')
-        rlen2 = len(rf_aln_2) - rf_aln_2.count('-')
-        return (al1.fw, al1.qual, rd_aln_1, rf_aln_1, sc1, rlen1, True, rlen2), \
-               (al2.fw, al2.qual, rd_aln_2, rf_aln_2, sc2, rlen2, False, rlen1), fraglen, upstream1
-
-    def add(self, al1, al2, ref):
-        """ Convert given alignment pair to a tuple and add it to the
-            reservoir sampler. """
-        al1tup, al2tup, fraglen, upstream1 = self._tupleize_alignments(al1, al2, ref)
-        self.max_fraglen = max(self.max_fraglen, fraglen)
-        if self.trained:
-            self._add_post_training(al1tup, al2tup, fraglen, upstream1)
-        else:
-            self.staged_for_training.append((al1tup, al2tup, fraglen, upstream1))
-            assert len(self.staged_for_training) <= self.train_from
-            if len(self.staged_for_training) == self.train_from:
-                self.finalize()
-        self.num_added += 1
-
-    def _add_post_training(self, al1tup, al2tup, fraglen, upstream1):
-        _, _, _, _, sc1 = al1tup
-        _, _, _, _, sc2 = al2tup
-        bucket = self._bucketize_score(sc1 + sc2)
-        assert 0 <= bucket < len(self.ress)
-        self.ress[bucket].add((al1tup, al2tup, fraglen, upstream1))
-
-    def num_added(self):
-        """ Return the number of tuples that have been added, which could be
-            much greater than the number sampled """
-        return self.res.num_added()
-
-    def num_sampled(self):
-        """ Return number of tuples that have been sampled """
-        return self.res.num_sampled()
-
-    def empty(self):
-        """ Return true iff no tuples have been added """
-        return self.num_sampled() == 0
+        return self.num_sampled == 0
 
 
 class Dist(object):
@@ -444,170 +220,6 @@ class Dist(object):
             self.max = key
         if self.min is None or key < self.min:
             self.min = key
-
-
-class SimulatorWrapper(object):
-
-    # This doesn't quite work because we're returning iterators.  The user
-    # can't mix and match calls to these various methods.  Have to think
-    # more about the interface between this and its caller.  Another reason
-    # we might want this class to pick which kind of read gets generated for
-    # each draw: otherwise we might be biased against the last one we pick
-    # if we run out of reference.
-
-    def __init__(self, frag_iter, dists):
-        self.frag_iter = frag_iter
-        self.dists = dists
-
-    def _sim_fragment(self):
-        try:
-            # Try to simulate a fragment
-            refid, refoff, seq = self.frag_iter.next()
-        except StopIteration:
-            return None, None, None  # already went through the whole reference
-        return refid, refoff, seq
-
-    def _next_unpaired(self, sc_dist, typ):
-        """ Simulate an unpaired read """
-        while True:
-            sc_draw = sc_dist.draw()
-            # sc_draw is tuple: (fw, qual, rd_aln, rf_aln, sc)
-            fw, _, _, rf_aln, sc = sc_draw
-            rl = len(rf_aln) - rf_aln.count('-')
-            refid, refoff, seq = self._sim_fragment()
-            if seq is None:
-                break  # exhausted reference
-            assert len(seq) >= rl
-            seq = seq[:rl] if fw else seq[-rl:]
-            read = Read.from_simulator(seq, None, refid, refoff, fw, sc, typ)
-            mutate(read, fw, sc_draw)  # mutate unpaired read
-            assert read.qual is not None
-            yield read
-
-    def next_unpaired(self):
-        for x in self._next_unpaired(self.dists.sc_dist_unp, 'Unp'):
-            yield x
-
-    def next_bad_end(self):
-        for x in self._next_unpaired(self.dists.sc_dist_bad_end, 'BadEnd'):
-            yield x
-
-    @staticmethod
-    def _draw_pair(sc_dist):
-        m1fw, m2fw = None, None
-        fl, rl1, rl2 = None, None, None
-        sc1, sc2, upstream1 = None, None, None
-        sc1_draw, sc2_draw = None, None
-        # Draw a long enough fragment to accomodate both ends
-        while fl < rl1 or fl < rl2:
-            sc1_draw, sc2_draw, fl, upstream1 = sc_dist.draw()
-            m1fw, _, _, rf_aln_1, sc1 = sc1_draw
-            m2fw, _, _, rf_aln_2, sc2 = sc2_draw
-            rl1 = len(rf_aln_1) - rf_aln_1.count('-')
-            rl2 = len(rf_aln_2) - rf_aln_2.count('-')
-        return fl, rl1, rl2, sc1, sc2, m1fw, m2fw, upstream1, sc1_draw, sc2_draw
-
-    def _next_pair(self, sc_dist, typ):
-        """ Simulate a paired-end read """
-        while True:
-            fl, rl1, rl2, sc1, sc2, m1fw, m2fw, upstream1,\
-                sc1_draw, sc2_draw = self._draw_pair(sc_dist)
-            refid, refoff, seq = self._sim_fragment()
-            if seq is None:
-                break  # exhausted reference
-            assert len(seq) >= fl
-            if upstream1:
-                seq1, seq2 = seq[:rl1], seq[-rl2:]
-            else:
-                seq2, seq1 = seq[:rl1], seq[-rl2:]
-            if not m1fw:
-                seq1 = revcomp(seq1)
-            if not m2fw:
-                seq2 = revcomp(seq2)
-            # Now we have the Watson offset for one mate or the other,
-            # depending on which mate is to the left w/r/t Watson.
-            if upstream1:
-                refoff1 = refoff
-                refoff2 = refoff + fl - rl2
-            else:
-                refoff1 = refoff + fl - rl1
-                refoff2 = refoff
-            rdp1 = Read.from_simulator(seq1, None, refid, refoff1, m1fw, sc1, typ)
-            rdp2 = Read.from_simulator(seq2, None, refid, refoff2, m2fw, sc2, typ)
-            mutate(rdp1, m1fw, sc1_draw)
-            mutate(rdp2, m2fw, sc2_draw)
-            yield rdp1, rdp2
-
-    def next_concordant_pair(self):
-        for x in self._next_pair(self.dists.sc_dist_conc, 'Conc'):
-            yield x
-
-    def next_discordant_pair(self):
-        for x in self._next_pair(self.dists.sc_dist_disc, 'Disc'):
-            yield x
-
-
-class SimulatorWrapperOld(object):
-    
-    """ Wrapper that sends requests to the Simulator but uses information
-        gathered during alignment so far to select such parameters as read
-        length, concordant/discordant fragment length, etc.
-        
-        With each call to next(), we either simulate a paired-end read or an
-        unpaired read.
-        """
-    
-    def __init__(self, sim, dists):
-        self.sim = sim      # sequence simulator
-        self.dists = dists  # empirical distributions
-    
-    def next_unpaired(self):
-        """ Simulate an unpaired read """
-        sc_draw = self.dists.sc_dist_unp.draw()
-        # sc_draw is tuple: (fw, qual, rd_aln, rf_aln, sc)
-        fw, _, _, rf_aln, sc = sc_draw
-        rl = len(rf_aln) - rf_aln.count('-')
-        refid, refoff, seq = self.sim.sim(rl)  # simulate it
-        assert rl == len(seq)
-        read = Read.from_simulator(seq, None, refid, refoff, fw, sc, "Unp")
-        mutate(read, fw, sc_draw)  # mutate unpaired read
-        assert read.qual is not None
-        return read
-    
-    def next_concordant_pair(self):
-        """ Simulate a paired-end read """
-        fl, rl1, rl2 = None, None, None
-        sc1_draw, sc2_draw, upstream1 = None, None, None
-        sc1, sc2, m1fw, m2fw = None, None, None, None
-        while fl < rl1 or fl < rl2:
-            sc1_draw, sc2_draw, fl, upstream1 = self.dists.sc_dist_conc.draw()
-            m1fw, _, _, rf_aln_1, sc1 = sc1_draw
-            m2fw, _, _, rf_aln_2, sc2 = sc2_draw
-            rl1 = len(rf_aln_1) - rf_aln_1.count('-')
-            rl2 = len(rf_aln_2) - rf_aln_2.count('-')
-        refid, refoff, fw, seq = self.sim.sim(fl)  # simulate fragment
-        assert len(seq) == fl
-        if upstream1:
-            seq1, seq2 = seq[:rl1], seq[-rl2:]
-        else:
-            seq2, seq1 = seq[:rl1], seq[-rl2:]
-        if not m1fw:
-            seq1 = revcomp(seq1)
-        if not m2fw:
-            seq2 = revcomp(seq2)
-        # Now we have the Watson offset for one mate or the other,
-        # depending on which mate is to the left w/r/t Watson.
-        if upstream1:
-            refoff1 = refoff
-            refoff2 = refoff + fl - rl2
-        else:
-            refoff1 = refoff + fl - rl1
-            refoff2 = refoff
-        rdp1 = Read.from_simulator(seq1, None, refid, refoff1, m1fw, sc1, "Conc")
-        rdp2 = Read.from_simulator(seq2, None, refid, refoff2, m2fw, sc2, "Conc")
-        mutate(rdp1, m1fw, sc1_draw)
-        mutate(rdp2, m2fw, sc2_draw)
-        return rdp1, rdp2
 
 
 class Input(object):
@@ -679,18 +291,11 @@ class Dists(object):
         data on concordant and discordantly aligned pairs, such as
         their fragment length and strands. """
 
-    def __init__(self, even=False):
-        self.even = even
-        if even:
-            self.sc_dist_unp = ScoreDistEven()
-            self.sc_dist_bad_end = ScoreDistEven()
-            self.sc_dist_conc = ScorePairDistEven()
-            self.sc_dist_disc = ScorePairDistEven()
-        else:
-            self.sc_dist_unp = ScoreDist()
-            self.sc_dist_bad_end = ScoreDist()
-            self.sc_dist_conc = ScorePairDist()
-            self.sc_dist_disc = ScorePairDist()
+    def __init__(self):
+        self.sc_dist_unp = ScoreDist()
+        self.sc_dist_bad_end = ScoreDist()
+        self.sc_dist_conc = ScorePairDist()
+        self.sc_dist_disc = ScorePairDist()
 
     def finalize(self):
         self.sc_dist_unp.finalize()
@@ -785,7 +390,7 @@ class AlignmentReader(Thread):
         self.sam_ofh = sam_ofh
         self.dataset = dataset
         self.dists = dists
-        self.ref = ref
+        self.ref = ref  # TODO: what kind of reference object?  Needs to be random access?  Needs to be fast?
         self.alignment_class = alignment_class
         self.sc_diffs = defaultdict(int)
         self.ival = ival
@@ -1015,7 +620,7 @@ def go(args, aligner_args):
         sam_fn = os.path.join(args.output_directory, 'input.sam')
         input_sam_fh = open(sam_fn, 'w') if (args.write_input_sam or args.write_all) else None
         test_data = Dataset()
-        dists = Dists(even=args.even)
+        dists = Dists()
         cor_dist, incor_dist = defaultdict(int), defaultdict(int)
         
         logging.info('Real-data aligner command: "%s"' % align_cmd)
@@ -1174,7 +779,8 @@ def go(args, aligner_args):
                 n_simread += 1
                 if (n_simread % 1000) == 0:
                     logging.info('    simulated %d reads (%d conc, %d disc, %d bad-end, %d unp)' %
-                                 (n_simread, typ_count['conc'], typ_count['disc'], typ_count['bad_end'], typ_count['unp']))
+                                 (n_simread, typ_count['conc'], typ_count['disc'],
+                                  typ_count['bad_end'], typ_count['unp']))
 
             logging.info('  Finished simulating reads (%d conc, %d disc, %d bad_end, %d unp)' %
                          (typ_count['conc'], typ_count['disc'], typ_count['bad_end'], typ_count['unp']))
@@ -1290,11 +896,6 @@ if __name__ == "__main__":
                         help='Label test data originating from any of these chromosomes as "correct."  Useful for '
                              'tests on real-world data where it is known that the data came from a parituclar '
                              'chromosome.')
-
-    # Sampling-related arguments
-    parser.add_argument('--even', action='store_const', const=True, default=False,
-                        help="Don't try to even out sampling.  This usually leads to a worse fit since not as many "
-                             "alignment scores and degrees of repetitiveness are well represented in the sample.")
 
     # Output file-related arguments
     parser.add_argument('--output-directory', metavar='path', type=str, required=True,
