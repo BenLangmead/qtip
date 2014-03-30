@@ -100,7 +100,7 @@ class FragmentSimSerial2(object):
         self.max_fraglen = max(dists.longest_fragment(), dists.longest_unpaired())
         assert self.max_fraglen > 0
 
-    def simulate_batch(self, fraction, minimum, chunk_size=5000000):
+    def simulate_batch(self, fraction, min_unp, min_conc, min_disc, min_bad_end, chunk_size=5000000, bias=2):
         """ Simulate a batch of around 'num_target' fragments.  Some of the
             fragments will be for concordant pairs, some for discordant pairs,
             and some for unpaired reads.  The mix is according to the
@@ -110,16 +110,16 @@ class FragmentSimSerial2(object):
         num_concordant, num_discordant, num_unpaired, num_bad_end = 0, 0, 0, 0
         if not self.dists.sc_dist_conc.empty():
             num_added = self.dists.sc_dist_conc.num_added
-            num_concordant = int(max(fraction * num_added, minimum))
+            num_concordant = int(max(fraction * num_added, min_conc))
         if not self.dists.sc_dist_disc.empty():
             num_added = self.dists.sc_dist_disc.num_added
-            num_discordant = int(max(fraction * num_added, minimum))
+            num_discordant = int(max(fraction * num_added, min_disc))
         if not self.dists.sc_dist_unp.empty():
             num_added = self.dists.sc_dist_unp.num_added
-            num_unpaired = int(max(fraction * num_added, minimum))
+            num_unpaired = int(max(fraction * num_added, min_unp))
         if not self.dists.sc_dist_bad_end.empty():
             num_added = self.dists.sc_dist_bad_end.num_added
-            num_bad_end = int(max(fraction * num_added, minimum))
+            num_bad_end = int(max(fraction * num_added, min_bad_end))
         assert num_concordant + num_discordant + num_unpaired + num_bad_end > 0
         assert num_concordant >= 0 and num_discordant >= 0 and num_unpaired >= 0 and num_bad_end >= 0
         last_seq, last_ref_id = '', None
@@ -130,10 +130,10 @@ class FragmentSimSerial2(object):
                 n_concordant_chances = n_discordant_chances = \
                     n_unpaired_chances = n_bad_end_chances = length - self.max_fraglen + 1
             else:
-                n_concordant_chances = length - self.conc_fraglen_avg + 1
-                n_bad_end_chances = length - self.bad_end_fraglen_avg + 1
-                n_discordant_chances = length - self.disc_fraglen_avg + 1
-                n_unpaired_chances = length - self.unp_fraglen_avg + 1
+                n_concordant_chances = 0 if num_concordant == 0 else length - self.conc_fraglen_avg + 1
+                n_bad_end_chances = 0 if num_bad_end == 0 else length - self.bad_end_fraglen_avg + 1
+                n_discordant_chances = 0 if num_discordant == 0 else length - self.disc_fraglen_avg + 1
+                n_unpaired_chances = 0 if num_unpaired == 0 else length - self.unp_fraglen_avg + 1
             return (0 if (num_concordant == 0 or n_concordant_chances <= 0) else numpy.random.binomial(num_concordant, float(n_concordant_chances) / self.total_length),
                     0 if (num_discordant == 0 or n_discordant_chances <= 0) else numpy.random.binomial(num_discordant, float(n_discordant_chances) / self.total_length),
                     0 if (num_unpaired == 0 or n_unpaired_chances <= 0) else numpy.random.binomial(num_unpaired, float(n_unpaired_chances) / self.total_length),
@@ -173,11 +173,10 @@ class FragmentSimSerial2(object):
                                       ['conc', 'disc', 'unp', 'bad_end']):
                 if cov == 0:
                     continue
-                unpaired = typ in ['unp', 'bad_end']
                 # pick fragment starting positions
-                draws = [dist.draw() for _ in xrange(cov)]
+                draws = [dist.draw(bias) for _ in xrange(cov)]
                 # have to special-case this for unpaired draws
-                fraglens = [int(round(d[5 if unpaired else 2])) for d in draws]
+                fraglens = [d.fraglen for d in draws]
                 assert not any(x > self.max_fraglen for x in fraglens)
                 if spillover:
                     leftmost = [self.max_fraglen - fraglen for fraglen in fraglens]
@@ -198,20 +197,23 @@ class FragmentSimSerial2(object):
                     ref_off = offset + left_off
                     if typ == 'unp':
                         # unpaired
-                        sc_draw = draws[i]
-                        fw, _, _, rf_aln, sc, rl, _, _ = sc_draw
+                        fw, qual, rd_aln, rf_aln, sc, rl = \
+                            draws[i].fw, draws[i].qual, draws[i].rd_aln, \
+                            draws[i].rf_aln, draws[i].sc, draws[i].rf_len
                         assert rl == fraglens[i]
                         rdseq = substr if fw else revcomp(substr)
                         read = Read.from_simulator(rdseq, None, ref_id, ref_off, fw, sc, typ)
-                        mutate(read, fw, sc_draw)  # mutate unpaired read
+                        mutate(read, qual, rd_aln, rf_aln)  # mutate unpaired read
                         yield typ, read, None
                     elif typ == 'bad_end':
-                        sc_draw = draws[i]
-                        fw, _, _, rf_aln, sc, rl, mate1, ordlen = sc_draw
+                        fw, qual, rd_aln, rf_aln, sc, rl, mate1, ordlen =\
+                            draws[i].fw, draws[i].qual, draws[i].rd_aln,\
+                            draws[i].rf_aln, draws[i].sc, draws[i].rf_len,\
+                            draws[i].mate1, draws[i].ordlen
                         assert rl == fraglens[i]
                         rdseq = substr if fw else revcomp(substr)
                         rdp1 = Read.from_simulator(rdseq, None, ref_id, ref_off, fw, sc, typ)
-                        mutate(rdp1, fw, sc_draw)  # mutate unpaired read
+                        mutate(rdp1, qual, rd_aln, rf_aln)  # mutate unpaired read
                         rdseq2 = ''.join([random.choice('ACGT') for _ in xrange(ordlen)])
                         # TODO: borrow qualities rather than make them up
                         qual2 = 'I' * len(rdseq2)
@@ -221,11 +223,14 @@ class FragmentSimSerial2(object):
                         yield typ, rdp1, rdp2
                     else:
                         # paired-end
-                        sc1_draw, sc2_draw, _, upstream1 = draws[i]
-                        m1fw, _, _, rf_aln_1, sc1, rl1, _, _ = sc1_draw
-                        m2fw, _, _, rf_aln_2, sc2, rl2, _, _ = sc2_draw
+                        m1fw, qual_1, rd_aln_1, rf_aln_1, sc1, rl1 =\
+                            draws[i].rt1.fw, draws[i].rt1.qual, draws[i].rt1.rd_aln,\
+                            draws[i].rt1.rf_aln, draws[i].rt1.sc, draws[i].rt1.rf_len
+                        m2fw, qual_2, rd_aln_2, rf_aln_2, sc2, rl2 =\
+                            draws[i].rt2.fw, draws[i].rt2.qual, draws[i].rt2.rd_aln,\
+                            draws[i].rt2.rf_aln, draws[i].rt2.sc, draws[i].rt2.rf_len
                         assert max(rl1, rl2) <= fraglens[i]
-                        if upstream1:
+                        if draws[i].upstream1:
                             seq1, seq2 = substr[:rl1], substr[-rl2:]
                         else:
                             seq2, seq1 = substr[:rl2], substr[-rl1:]
@@ -235,7 +240,7 @@ class FragmentSimSerial2(object):
                             seq2 = revcomp(seq2)
                         # Now we have the Watson offset for one mate or the other,
                         # depending on which mate is to the left w/r/t Watson.
-                        if upstream1:
+                        if draws[i].upstream1:
                             refoff1 = ref_off
                             refoff2 = ref_off + fraglens[i] - rl2
                         else:
@@ -243,8 +248,8 @@ class FragmentSimSerial2(object):
                             refoff2 = ref_off
                         rdp1 = Read.from_simulator(seq1, None, ref_id, refoff1, m1fw, sc1, typ)
                         rdp2 = Read.from_simulator(seq2, None, ref_id, refoff2, m2fw, sc2, typ)
-                        mutate(rdp1, m1fw, sc1_draw)
-                        mutate(rdp2, m2fw, sc2_draw)
+                        mutate(rdp1, qual_1, rd_aln_1, rf_aln_1)
+                        mutate(rdp2, qual_2, rd_aln_2, rf_aln_2)
                         yield typ, rdp1, rdp2
 
 
@@ -394,14 +399,11 @@ class SequenceSimulator(object):
         return ref_id, ref_offset, fw, seq
 
 
-def mutate(rd, rdfw, sc_dist_draw):
+def mutate(rd, qual, rd_aln, rf_aln):
     """ Given a read that already has the appropriate length (i.e. equal to #
         characters on the reference side of the alignment), take the alignment
         information contained in the scDistDraw object and modify rd to
         contain the same pattern of edits.  Modifies rd in place. """
-    fw, qual, rd_aln, rf_aln, sc, _, _, _ = sc_dist_draw
-    if rdfw != fw:
-        qual, rd_aln, rf_aln = qual[::-1], rd_aln[::-1], rf_aln[::-1]
     rd.qual = qual  # Install qualities
     # Walk along stacked alignment, making corresponding changes to
     # read sequence

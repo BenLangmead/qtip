@@ -4,10 +4,11 @@ try:
 except ImportError:
     from queue import Queue, Empty, Full  # python 3.x
 
+
 class AsyncWriter(threading.Thread):
     
-    ''' Thread that takes items off a queue and writes them to a named file,
-        which could be a FIFO '''
+    """ Thread that takes items off a queue and writes them to a named file,
+        which could be a FIFO """
     
     def __init__(self, fn, q):
         threading.Thread.__init__(self)
@@ -15,8 +16,8 @@ class AsyncWriter(threading.Thread):
         self.q = q
     
     def run(self):
-        ''' Write reads to the FIFO.  When None appears on the queue, we're
-            done receiving reads and we close the FIFO filehandle. '''
+        """ Write reads to the FIFO.  When None appears on the queue, we're
+            done receiving reads and we close the FIFO filehandle. """
         i = 0
         fh = open(self.fn, 'w')
         while True:
@@ -29,11 +30,12 @@ class AsyncWriter(threading.Thread):
             fh.write(item)
             self.q.task_done()
             i += 1
-        fh.close() # close FIFO filehandle
+        fh.close()  # close FIFO filehandle
+
 
 def q2fh(q, fh, timeout=0.2):
-    ''' Get strings from 'queue' and write them to filehandle 'inp'.
-        When we dequeue None, we're done. '''
+    """ Get strings from 'queue' and write them to filehandle 'inp'.
+        When we dequeue None, we're done. """
     while True:
         try:
             i = q.get(block=True, timeout=timeout)
@@ -44,9 +46,10 @@ def q2fh(q, fh, timeout=0.2):
         fh.write(i)
     fh.close()
 
+
 def fh2q(fh, q, timeout=0.2):
-    ''' Get strings from 'out' filehandle and add them to 'queue'.  We
-        enqueue None last, to indicate no more inputs. '''
+    """ Get strings from 'out' filehandle and add them to 'queue'.  We
+        enqueue None last, to indicate no more inputs. """
     for ln in fh:
         while True:
             try:

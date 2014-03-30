@@ -73,8 +73,9 @@ class UnpairedTuple(object):
         optional "other end length" field that is 0 for unpaired alignments
         and >0 for bad-end alignments. """
 
-    def __init__(self, rdlen, minv, maxv, bestsc, best2sc, mapq, ordlen=0):
+    def __init__(self, rdname, rdlen, minv, maxv, bestsc, best2sc, mapq, ordlen=0):
         assert minv is None or minv <= bestsc <= maxv
+        self.rdname = rdname            # read name
         self.rdlen = rdlen              # read len
         self.ordlen = ordlen            # read len of opposite end
         self.minv = minv                # min valid score
@@ -84,7 +85,7 @@ class UnpairedTuple(object):
         self.mapq = mapq                # original mapq
 
     def __iter__(self):
-        return iter([self.bestsc, self.best2sc, self.minv, self.maxv, self.rdlen, self.mapq, self.ordlen])
+        return iter([self.rdname, self.bestsc, self.best2sc, self.minv, self.maxv, self.rdlen, self.mapq, self.ordlen])
     
     @classmethod
     def from_alignment(cls, al, ordlen=0):
@@ -96,14 +97,15 @@ class UnpairedTuple(object):
         if hasattr(al, 'minValid'):
             assert hasattr(al, 'maxValid')
             min_valid, max_valid = al.minValid, al.maxValid
-        return cls(len(al), min_valid, max_valid, al.bestScore, secbest, al.mapq, ordlen)
+        return cls(al.name, len(al), min_valid, max_valid, al.bestScore, secbest, al.mapq, ordlen)
     
     @classmethod
     def to_data_frame(cls, ptups, cor=None):
         """ Convert the paired-end tuples to a pandas DataFrame """
         from pandas import DataFrame
-        rdlen, best1, best2, minv, maxv, mapq, ordlen = [], [], [], [], [], [], []
+        names, rdlen, best1, best2, minv, maxv, mapq, ordlen = [], [], [], [], [], [], [], []
         for ptup in ptups:
+            names.append(ptup.rdname)
             best1.append(ptup.bestsc)
             best2.append(ptup.best2sc)
             minv.append(ptup.minv)
@@ -111,7 +113,8 @@ class UnpairedTuple(object):
             rdlen.append(ptup.rdlen)
             mapq.append(ptup.mapq)
             ordlen.append(ptup.ordlen)
-        df = DataFrame.from_items([('best1', best1),
+        df = DataFrame.from_items([('name', names)
+                                   ('best1', best1),
                                    ('best2', best2),
                                    ('minv', minv),
                                    ('maxv', maxv),
@@ -125,30 +128,34 @@ class UnpairedTuple(object):
 
 class PairedTuple(object):
     """ Concordant paired-end training/test tuple.  One per mate alignment. """
-    def __init__(self, rdlen1, minv1, maxv1, bestsc1, best2sc1, mapq1,
-                 rdlen2, minv2, maxv2, bestsc2, best2sc2, mapq2,
+    def __init__(self, rdname1, rdlen1, minv1, maxv1,
+                 bestsc1, best2sc1, mapq1,
+                 rdname2, rdlen2, minv2, maxv2,
+                 bestsc2, best2sc2, mapq2,
                  bestconcsc, best2concsc, fraglen):
         assert minv1 is None or minv1 <= bestsc1 <= maxv1
         assert minv2 is None or minv2 <= bestsc2 <= maxv2
-        self.rdlen1 = rdlen1            # read len
-        self.rdlen2 = rdlen2            # read len
-        self.minv1 = minv1              # min valid score
-        self.minv2 = minv2              # min valid score
-        self.maxv1 = maxv1              # max valid score
-        self.maxv2 = maxv2              # max valid score
-        self.bestsc1 = bestsc1          # best
-        self.bestsc2 = bestsc2          # best
-        self.best2sc1 = best2sc1        # 2nd-best score
-        self.best2sc2 = best2sc2        # 2nd-best score
-        self.mapq1 = mapq1              # original mapq
-        self.mapq2 = mapq2              # original mapq
+        self.rdname1 = rdname1          # read name #1
+        self.rdname2 = rdname2          # read name #2
+        self.rdlen1 = rdlen1            # read len #1
+        self.rdlen2 = rdlen2            # read len #2
+        self.minv1 = minv1              # min valid score #1
+        self.minv2 = minv2              # min valid score #2
+        self.maxv1 = maxv1              # max valid score #1
+        self.maxv2 = maxv2              # max valid score #2
+        self.bestsc1 = bestsc1          # best #1
+        self.bestsc2 = bestsc2          # best #2
+        self.best2sc1 = best2sc1        # 2nd-best score #1
+        self.best2sc2 = best2sc2        # 2nd-best score #2
+        self.mapq1 = mapq1              # original mapq #1
+        self.mapq2 = mapq2              # original mapq #2
         self.bestconcsc = bestconcsc    # best concordant
         self.best2concsc = best2concsc  # 2nd-best concordant
         self.fraglen = fraglen          # fragment length
 
     def __iter__(self):
-        return iter([self.bestsc1, self.best2sc1, self.minv1, self.maxv1, self.rdlen1, self.mapq1,
-                     self.bestsc2, self.best2sc2, self.minv2, self.maxv2, self.rdlen2, self.mapq2,
+        return iter([self.rdname1, self.bestsc1, self.best2sc1, self.minv1, self.maxv1, self.rdlen1, self.mapq1,
+                     self.rdname2, self.bestsc2, self.best2sc2, self.minv2, self.maxv2, self.rdlen2, self.mapq2,
                      self.bestconcsc, self.best2concsc, self.fraglen])
     
     @classmethod
@@ -173,15 +180,16 @@ class PairedTuple(object):
             assert al1.secondBestConcordantScore == al2.secondBestConcordantScore
             best_concordant_score, second_best_concordant_score = \
                 al1.bestConcordantScore, al1.secondBestConcordantScore
-        return cls(len(al1), min_valid1, max_valid1, al1.bestScore,
+        return cls(al1.name, len(al1), min_valid1, max_valid1, al1.bestScore,
                    secbest1, al1.mapq,
-                   len(al2), min_valid2, max_valid2, al2.bestScore,
+                   al2.name, len(al2), min_valid2, max_valid2, al2.bestScore,
                    secbest2, al2.mapq,
                    best_concordant_score, second_best_concordant_score,
                    Alignment.fragment_length(al1, al2))
 
     @classmethod
     def columnize(cls, ptups):
+        rdname_1, rdname_2 = [], []
         rdlen_1, rdlen_2 = [], []
         best1_1, best1_2 = [], []
         best2_1, best2_2 = [], []
@@ -190,6 +198,8 @@ class PairedTuple(object):
         best1conc, best2conc = [], []
         fraglen = []
         for ptup in ptups:
+            rdname_1.append(ptup.rdname1)
+            rdname_2.append(ptup.rdname2)
             best1_1.append(ptup.bestsc1)
             best1_2.append(ptup.bestsc2)
             best2_1.append(ptup.best2sc1)
@@ -205,21 +215,25 @@ class PairedTuple(object):
             maxv_1.append(ptup.maxv1)
             maxv_2.append(ptup.maxv2)
             fraglen.append(ptup.fraglen)
-        return best1_1, best2_1, minv_1, maxv_1, rdlen_1, mapq_1, best1_2, best2_2, minv_2, maxv_2, rdlen_2, mapq_2,\
+        return rdname_1, best1_1, best2_1, minv_1, maxv_1, rdlen_1, mapq_1,\
+            rdname_2, best1_2, best2_2, minv_2, maxv_2, rdlen_2, mapq_2,\
             best1conc, best2conc, fraglen
 
     @classmethod
     def to_data_frames(cls, ptups, cor=None):
         """ Convert the paired-end tuples to a pandas DataFrame """
         from pandas import DataFrame
-        best1_1, best2_1, minv_1, maxv_1, rdlen_1, mapq_1, best1_2, best2_2, minv_2, maxv_2, rdlen_2, mapq_2,\
+        rdname_1, best1_1, best2_1, minv_1, maxv_1, rdlen_1, mapq_1,\
+            rdname_2, best1_2, best2_2, minv_2, maxv_2, rdlen_2, mapq_2,\
             best1conc, best2conc, fraglen = PairedTuple.columnize(ptups)
-        df = DataFrame.from_items([('best1_1', best1_1),
+        df = DataFrame.from_items([('name_1', rdname_1),
+                                   ('best1_1', best1_1),
                                    ('best2_1', best2_1),
                                    ('minv_1', minv_1),
                                    ('maxv_1', maxv_1),
                                    ('rdlen_1', rdlen_1),
                                    ('mapq_1', mapq_1),
+                                   ('name_2', rdname_2),
                                    ('best1_2', best1_2),
                                    ('best2_2', best2_2),
                                    ('minv_2', minv_2),
@@ -304,11 +318,11 @@ class Dataset(object):
             else:
                 fh = open(fn, 'w')
             if paired:
-                fh.write(','.join(['best1', 'secbest1', 'minv1', 'maxv1', 'len1', 'mapq1',
-                                   'best2', 'secbest2', 'minv2', 'maxv2', 'len2', 'mapq2',
+                fh.write(','.join(['name1', 'best1', 'secbest1', 'minv1', 'maxv1', 'len1', 'mapq1',
+                                   'name2', 'best2', 'secbest2', 'minv2', 'maxv2', 'len2', 'mapq2',
                                    'bestconc', 'secbestconc', 'fraglen', 'correct']) + '\n')
             else:
-                fh.write(','.join(['best', 'secbest', 'minv', 'maxv', 'len', 'mapq',
+                fh.write(','.join(['name', 'best', 'secbest', 'minv', 'maxv', 'len', 'mapq',
                                    'olen', 'correct']) + '\n')
             for tup, correct in izip(data, corrects):
                 correct_str = 'NA'
@@ -338,25 +352,25 @@ class Dataset(object):
 
             if paired:
                 for toks in csv.reader(fh):
-                    assert 16 == len(toks)
-                    if 'best1' == toks[0]:
+                    assert 18 == len(toks)
+                    if 'name1' == toks[0]:
                         continue  # skip header
                     # Note: pandas csv parser is much faster
-                    best1, secbest1, minv1, maxv1, ln1, mapq1 = map(int_or_none, toks[0:6])
-                    best2, secbest2, minv2, maxv2, ln2, mapq2 = map(int_or_none, toks[6:12])
-                    bestconc, secbestconc, fraglen = map(int_or_none, toks[12:15])
-                    data.append(PairedTuple(ln1, minv1, maxv1, best1, secbest1, mapq1,
-                                            ln2, minv2, maxv2, best2, secbest2, mapq2,
+                    rdname1, best1, secbest1, minv1, maxv1, ln1, mapq1 = map(int_or_none, toks[0:7])
+                    rdname2, best2, secbest2, minv2, maxv2, ln2, mapq2 = map(int_or_none, toks[7:14])
+                    bestconc, secbestconc, fraglen = map(int_or_none, toks[14:17])
+                    data.append(PairedTuple(rdname1, ln1, minv1, maxv1, best1, secbest1, mapq1,
+                                            rdname2, ln2, minv2, maxv2, best2, secbest2, mapq2,
                                             bestconc, secbestconc, fraglen))
                     corrects.append(toks[-1] == 'T')
             else:
                 for toks in csv.reader(fh):
-                    assert 7 == len(toks)
-                    if 'best' == toks[0]:
+                    assert 8 == len(toks)
+                    if 'name' == toks[0]:
                         continue  # skip header
                     # Note: pandas csv parser is much faster
-                    best, secbest, minv, maxv, ln, mapq, oln = map(int_or_none, toks[:7])
-                    data.append(UnpairedTuple(ln, minv, maxv, best, secbest, mapq, oln))
+                    rdname, best, secbest, minv, maxv, ln, mapq, oln = map(int_or_none, toks[:8])
+                    data.append(UnpairedTuple(rdname, ln, minv, maxv, best, secbest, mapq, oln))
                     corrects.append(toks[-1] == 'T')
             fh.close()
 

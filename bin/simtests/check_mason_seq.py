@@ -1,10 +1,10 @@
-'''
+"""
 check_mason.py
 
 Given a FASTQ file simulated with Mason and the collection of FASTA files
 simulated from, check that the simulated reads seem to match the reference in
 the proper spot.
-'''
+"""
 
 import sys
 import gzip
@@ -14,6 +14,8 @@ from align import editDistance
 from reference import ReferenceIndexed
 
 _revcomp_trans = string.maketrans("ACGTacgt", "TGCAtgca")
+
+
 def revcomp(s):
     return s[::-1].translate(_revcomp_trans)
 
@@ -28,7 +30,8 @@ _mason_orig_end = re.compile('orig_end=([0-9]*)')
 _mason_contig = re.compile('contig=([^\s]*)')
 _mason_strand = re.compile('strand=([^\s]*)')
 
-def parseMason(nm):
+
+def parse_mason(nm):
     be = _mason_orig_beg.search(nm)
     en = _mason_orig_end.search(nm)
     assert be is not None and en is not None
@@ -54,7 +57,7 @@ with gzip.open(fastqFn) if fastqFn.endswith('.gz') else open(fastqFn) as fh:
         l4_1 = fh.readline()
         if len(l4_1) == 0:
             break
-        left, right, refid, strand = parseMason(l1_1)
+        left, right, refid, strand = parse_mason(l1_1)
         refstr = ref.get(refid, left, right - left)
         if not strand:
             refstr = revcomp(refstr)

@@ -36,9 +36,6 @@ SAM extra fields used
  Bowtie-specific: Xs:i, YT:Z, YS:i, Zp:i, YN:i, Yn:i
  (and we potentially don't need YS:i or YT:Z?)
 
-TODO:
-- Handle large fragment lengths gracefully.  We have a 10K nt cutoff now.
-
 """
 
 __author__ = "Ben Langmead"
@@ -65,7 +62,7 @@ from threading import Thread
 import simulators
 from samples import Dataset
 from randutil import ReservoirSampler, WeightedRandomGenerator
-from simplesim import FragmentSimSerial2, mutate
+from simplesim import FragmentSimSerial2
 from read import Read, Alignment
 from bowtie2 import AlignmentBowtie2, Bowtie2
 from bwamem import AlignmentBwaMem, BwaMem
@@ -78,6 +75,34 @@ def revcomp(s):
     return s[::-1].translate(_revcomp_trans)
 
 
+class ReadTemplate(object):
+    def __init__(self, sc, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen):
+        self.sc = sc
+        self.fw = fw
+        self.qual = qual
+        self.rd_aln = rd_aln
+        self.rf_aln = rf_aln
+        self.rf_len = rf_len
+        self.mate1 = mate1
+        self.ordlen = olen
+
+    @property
+    def fraglen(self):
+        return self.rf_len
+
+
+class PairTemplate(object):
+    def __init__(self, rt1, rt2, fraglen, upstream1):
+        self.rt1 = rt1
+        self.rt2 = rt2
+        self._fraglen = fraglen
+        self.upstream1 = upstream1
+
+    @property
+    def fraglen(self):
+        return self._fraglen
+
+
 class ScoreDist(object):
     """ Capture a list of tuples, where each tuples represents the following
         traits observed in an alignment: (a) orientation, (b) quality string,
@@ -85,19 +110,22 @@ class ScoreDist(object):
         (e) score.  Keeping these tuples allows us to generate new reads that
         mimic observed reads in these key ways. """
     
-    def __init__(self, k=10000):
+    def __init__(self, k=50000):
         """ Make a reservoir sampler for holding the tuples. """
         self.res = ReservoirSampler(k)
         self.max_fraglen = 0
         self.avg_fraglen = None
+        self.finalized = False
+        self.samp = None
 
-    def finalize(self):
-        self.avg_fraglen = np.mean([x[5] for x in self.res])
-
-    def draw(self):
+    def draw(self, bias=2):
         """ Draw from the reservoir """
+        assert self.finalized
         assert not self.empty()
-        return self.res.draw()
+        rnd_i = int(len(self.samp) * random.uniform(0, 1) / random.uniform(1, bias))
+        assert 0 <= rnd_i < len(self.samp)
+        sc, _, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen = self.samp[rnd_i]
+        return ReadTemplate(sc, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen)
     
     def add(self, al, ref, ordlen=0):
         """ Convert given alignment to a tuple and add it to the reservoir
@@ -106,7 +134,8 @@ class ScoreDist(object):
         # Get stacked alignment
         rd_aln, rf_aln, rd_len, rf_len = al.stacked_alignment(align_soft_clipped=True, ref=ref)
         self.max_fraglen = max(self.max_fraglen, rf_len)
-        self.res.add((al.fw, al.qual, rd_aln, rf_aln, sc, rf_len, al.mate1, ordlen))
+        self.res.add((sc, random.uniform(0, 1),
+                      al.fw, al.qual, rd_aln, rf_aln, rf_len, al.mate1, ordlen))
 
     @property
     def num_added(self):
@@ -122,6 +151,14 @@ class ScoreDist(object):
     def empty(self):
         """ Return true iff no tuples have been added """
         return self.num_sampled == 0
+
+    def finalize(self):
+        """ Sort the samples in preparation for draws that might be biased
+            toward high or (more likely) low scores. """
+        self.finalized = True
+        if not self.empty():
+            self.samp = sorted(self.res.r)
+            self.avg_fraglen = np.mean([x[6] for x in self.res])
 
 
 class ScorePairDist(object):
@@ -132,27 +169,35 @@ class ScorePairDist(object):
         length.  We record pairs of tuples where the first element of the pair
         corresponds to mate 1 and the second to mate 2. """
     
-    def __init__(self, k=10000):
+    def __init__(self, k=50000, max_allowed_fraglen=100000):
         """ Make a reservoir sampler for holding the tuples. """
         self.res = ReservoirSampler(k)
-        self.max_allowed_fraglen = 50000  # maximum allowed fragment length
+        self.max_allowed_fraglen = max_allowed_fraglen
         self.max_fraglen = 0  # maximum observed fragment length
         self.avg_fraglen = None
+        self.finalized = False
+        self.samp = None
 
-    def finalize(self):
-        self.avg_fraglen = np.mean([x[2] for x in self.res])
-
-    def draw(self):
+    def draw(self, bias=2):
         """ Draw from the reservoir """
+        assert self.finalized
         assert not self.empty()
-        return self.res.draw()
-    
+        rnd_i = int(len(self.samp) * random.uniform(0, 1) / random.uniform(1, bias))
+        assert 0 <= rnd_i < len(self.samp)
+        tup1, tup2, tup3, fraglen, upstream1 = self.samp[rnd_i]
+        fw_1, qual_1, rd_aln_1, rf_aln_1, sc_1, rf_len_1, mate1_1, _ = tup2
+        fw_2, qual_2, rd_aln_2, rf_aln_2, sc_2, rf_len_2, mate1_2, _ = tup3
+        return PairTemplate(ReadTemplate(sc_1, fw_1, qual_1, rd_aln_1, rf_aln_1, rf_len_1, mate1_1, rf_len_2),
+                            ReadTemplate(sc_2, fw_2, qual_2, rd_aln_2, rf_aln_2, rf_len_2, mate1_2, rf_len_1),
+                            fraglen, upstream1)
+
     def add(self, al1, al2, ref):
         """ Convert given alignment pair to a tuple and add it to the
             reservoir sampler. """
         sc1, sc2 = al1.bestScore, al2.bestScore
         # Make note of fragment length
         fraglen = Alignment.fragment_length(al1, al2)
+        fraglen = min(fraglen, self.max_allowed_fraglen)
         self.max_fraglen = max(self.max_fraglen, fraglen)
         # Make note of which end is upstream
         upstream1 = al1.pos < al2.pos
@@ -160,8 +205,11 @@ class ScorePairDist(object):
         rd_aln_1, rf_aln_1, rd_len_1, rf_len_1 = al1.stacked_alignment(align_soft_clipped=True, ref=ref)
         rd_aln_2, rf_aln_2, rd_len_2, rf_len_2 = al2.stacked_alignment(align_soft_clipped=True, ref=ref)
         assert fraglen == 0 or max(rf_len_1, rf_len_2) <= fraglen
-        self.res.add(((al1.fw, al1.qual, rd_aln_1, rf_aln_1, sc1, rf_len_1, True, rf_len_2),
-                      (al2.fw, al2.qual, rd_aln_2, rf_aln_2, sc2, rf_len_2, False, rf_len_1), fraglen, upstream1))
+        self.res.add(((sc1 + sc2, random.uniform(0, 1)),
+                      (al1.fw, al1.qual, rd_aln_1, rf_aln_1, sc1, rf_len_1, True, rf_len_2),
+                      (al2.fw, al2.qual, rd_aln_2, rf_aln_2, sc2, rf_len_2, False, rf_len_1),
+                      fraglen,
+                      upstream1))
 
     @property
     def num_added(self):
@@ -177,6 +225,14 @@ class ScorePairDist(object):
     def empty(self):
         """ Return true iff no tuples have been added """
         return self.num_sampled == 0
+
+    def finalize(self):
+        """ Sort the samples in preparation for draws that might be biased
+            toward high or (more likely) low scores. """
+        self.finalized = True
+        if not self.empty():
+            self.samp = sorted(self.res.r)
+            self.avg_fraglen = np.mean([x[3] for x in self.res])
 
 
 class Dist(object):
@@ -291,11 +347,11 @@ class Dists(object):
         data on concordant and discordantly aligned pairs, such as
         their fragment length and strands. """
 
-    def __init__(self):
-        self.sc_dist_unp = ScoreDist()
-        self.sc_dist_bad_end = ScoreDist()
-        self.sc_dist_conc = ScorePairDist()
-        self.sc_dist_disc = ScorePairDist()
+    def __init__(self, k=50000, max_allowed_fraglen=100000):
+        self.sc_dist_unp = ScoreDist(k=k)
+        self.sc_dist_bad_end = ScoreDist(k=k)
+        self.sc_dist_conc = ScorePairDist(k=k, max_allowed_fraglen=max_allowed_fraglen)
+        self.sc_dist_disc = ScorePairDist(k=k, max_allowed_fraglen=max_allowed_fraglen)
 
     def finalize(self):
         self.sc_dist_unp.finalize()
@@ -620,7 +676,7 @@ def go(args, aligner_args):
         sam_fn = os.path.join(args.output_directory, 'input.sam')
         input_sam_fh = open(sam_fn, 'w') if (args.write_input_sam or args.write_all) else None
         test_data = Dataset()
-        dists = Dists()
+        dists = Dists(args.max_allowed_fraglen)
         cor_dist, incor_dist = defaultdict(int), defaultdict(int)
         
         logging.info('Real-data aligner command: "%s"' % align_cmd)
@@ -706,6 +762,8 @@ def go(args, aligner_args):
         # Construct sequence and quality simulators
         logging.info('  Finalizing distributions')
         dists.finalize()
+        logging.info('    Longest unpaired=%d, fragment=%d' % (dists.longest_unpaired(), dists.longest_fragment()))
+        # TODO: print something about average length and average alignment score
 
         # If the training data is all unpaired, or if the aligner
         # allows us to provide a mix a paired-end and unpaired data,
@@ -771,13 +829,16 @@ def go(args, aligner_args):
 
             logging.info('  Simulating reads')
             n_simread, typ_count = 0, defaultdict(int)
-            for typ, rdp1, rdp2 in simw.simulate_batch(args.simulation_fraction, args.simulation_minimum):
+            for typ, rdp1, rdp2 in simw.simulate_batch(args.sim_fraction, args.sim_unp_min,
+                                                       args.sim_conc_min, args.sim_disc_min,
+                                                       args.sim_bad_end_min,
+                                                       bias=args.low_score_bias):
                 if write_training_reads:
                     training_out_fh[typ].write(Read.to_tab6(rdp1, rdp2) + '\n')
                 aligner.put(rdp1, rdp2)
                 typ_count[typ] += 1
                 n_simread += 1
-                if (n_simread % 1000) == 0:
+                if (n_simread % 10000) == 0:
                     logging.info('    simulated %d reads (%d conc, %d disc, %d bad-end, %d unp)' %
                                  (n_simread, typ_count['conc'], typ_count['disc'],
                                   typ_count['bad_end'], typ_count['unp']))
@@ -803,8 +864,9 @@ def go(args, aligner_args):
             for typ, cnt in typ_count.iteritems():
                 if cnt == 0:
                     continue
-                logging.info('  %s: simulated:%d aligned:%d (%0.2f%%)' %
-                             (typ, cnt, othread.typ_hist[typ], 100.0 * othread.typ_hist[typ] / cnt))
+                func = logging.warning if (cnt / float(othread.typ_hist[typ])) < 0.3 else logging.info
+                func('  %s: simulated:%d aligned:%d (%0.2f%%)' %
+                     (typ, cnt, othread.typ_hist[typ], 100.0 * othread.typ_hist[typ] / cnt))
 
             for typ in training_out_fh.iterkeys():
                 training_out_fh[typ].close()
@@ -859,16 +921,32 @@ if __name__ == "__main__":
 
     parser.add_argument('--seed', metavar='int', type=int, default=99099, required=False,
                         help='Integer to initialize pseudo-random generator')
-    parser.add_argument('--simulation-fraction', metavar='fraction', type=float, default=0.1, required=False,
+
+    parser.add_argument('--sim-fraction', metavar='fraction', type=float, default=0.01, required=False,
                         help='When determining the number of simulated reads to generate for each type of '
-                             'alignment (concordant, discordant, unpaired), let it be no less than this '
-                             'fraction times the number of alignment of that type in the input data.')
-    parser.add_argument('--simulation-minimum', metavar='int', type=int, default=1000, required=False,
-                        help='When determining the number of simulated reads to generate for each type of '
-                             'alignment (concordant, discordant, unpaired) that appears in the input, let '
-                             'it be no less than this number.')
+                             'alignment (concordant, discordant, bad-end, unpaired), let it be no less '
+                             'than this fraction times the number of alignment of that type in the input '
+                             'data.')
+    parser.add_argument('--sim-unp-min', metavar='int', type=int, default=30000, required=False,
+                        help='Number of simulated unpaired reads will be no less than this number.')
+    parser.add_argument('--sim-conc-min', metavar='int', type=int, default=30000, required=False,
+                        help='Number of simulated concordant pairs will be no less than this number.')
+    parser.add_argument('--sim-disc-min', metavar='int', type=int, default=10000, required=False,
+                        help='Number of simulated discordant pairs will be no less than this number.')
+    parser.add_argument('--sim-bad-end-min', metavar='int', type=int, default=10000, required=False,
+                        help='Number of simulated pairs with-one-bad-end will be no less than this number.')
+
     parser.add_argument('--upto', metavar='int', type=int, default=None, required=False,
                         help='Stop after this many input reads')
+    parser.add_argument('--max-allowed-fraglen', metavar='int', type=int, default=100000, required=False,
+                        help='When simulating fragments, observed fragments longer than this will be'
+                             'truncated to this length')
+    parser.add_argument('--low-score-bias', metavar='float', type=int, default=7, required=False,
+                        help='When simulating reads, we randomly select a real read\'s alignment profile'
+                             'as a template.  A higher value for this parameter makes it more likely'
+                             'we\'ll choose a low-scoring alignment.  If set to 1, all templates are'
+                             'equally likely.')
+
     parser.add_argument('--wiggle', metavar='int', type=int, default=30, required=False,
                         help='Wiggle room to allow in starting position when determining whether alignment is correct')
 
