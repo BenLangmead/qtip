@@ -1,33 +1,62 @@
 """
-predict.py
+Things to output:
+- Downsampling series & plot
+-
 """
 
+__author__ = 'langmead'
+
+import pandas
 import os
-import sys
-import random
-import logging
-import numpy as np
-import matplotlib.pyplot as plt
 import math
-from collections import defaultdict
-from pandas import DataFrame
-from pandas.io.parsers import read_csv
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error
-from scipy.interpolate import splrep, splev
-from matplotlib.backends.backend_pdf import PdfPages
+import random
+import itertools
+import matplotlib.pyplot as plt
+import numpy as np
+import logging
+from sklearn import cross_validation
+from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor, AdaBoostRegressor, GradientBoostingRegressor
+from collections import defaultdict, Counter
+
+
+def pcor_to_mapq(p):
+    """ Convert probability correct (pcor) to mapping quality (MAPQ) """
+    return abs(-10.0 * math.log10(1.0 - p)) if p < 1.0 else float('inf')
+
+
+def pcor_to_mapq_iter(p):
+    """ Apply pcor_to_mapq to every element of iterable """
+    return map(pcor_to_mapq, p)
+
+
+def mapq_to_pcor(p):
+    """ Convert mapping quality (MAPQ) to probability correct (pcor) """
+    return (1.0 - (10.0 ** (-0.1 * p))) if p < float('inf') else 1.0
+
+
+def mapq_to_pcor_iter(p):
+    """ Apply mapq_to_pcor to every element of iterable """
+    return map(mapq_to_pcor, p)
+
+
+def round_pcor_iter(pcor):
+    """ Modify pcor so that pcors correspond to nearest integer-rounded MAPQ """
+    assert not any(map(lambda x: x < 0.0 or x > 1.0, pcor))
+    return mapq_to_pcor_iter(map(round, (pcor_to_mapq_iter(pcor))))
 
 
 def read_dataset(prefix):
+    """ Read in training and test data having with given path prefix. """
     dfs = {}
-    for name, suf, paired in [('u', '_unp.csv', False), ('m', '_mates.csv', False), ('c', '_conc.csv', True)]:
+    for name, suf, paired in [('u', '_unp.csv', False), ('d', '_disc.csv', True),
+                              ('c', '_conc.csv', True), ('b', '_bad_end.csv', False)]:
         fn = prefix + suf
         if os.path.exists(fn):
-            dfs[name] = read_csv(fn, quoting=2)
+            dfs[name] = pandas.io.parsers.read_csv(fn, quoting=2)
         elif os.path.exists(fn + '.gz'):
-            dfs[name] = read_csv(fn + '.gz', quoting=2, compression='gzip')
+            dfs[name] = pandas.io.parsers.read_csv(fn + '.gz', quoting=2, compression='gzip')
         elif os.path.exists(fn + '.bz2'):
-            dfs[name] = read_csv(fn + '.bz2', quoting=2, compression='bz2')
+            dfs[name] = pandas.io.parsers.read_csv(fn + '.bz2', quoting=2, compression='bz2')
         else:
             raise RuntimeError('No such file: "%s"' % fn)
 
@@ -35,50 +64,53 @@ def read_dataset(prefix):
         if df['correct'].count() == len(df['correct']):
             df['correct'] = df['correct'].map(lambda x: 1 if x == 'T' else 0)
 
-    for df in [dfs['u'], dfs['m']]:
-        diffv = df.maxv - df.minv
-        df['bestnorm'] = (1.0 * df.best - df.minv) / diffv
-        secbestnorm = (1.0 * df.secbest - df.minv) / diffv
-        df['secbestnorm'] = secbestnorm.fillna(secbestnorm.min())
-        df['diffnorm'] = df.bestnorm - df.secbestnorm
+    def _standardize(df, nm, best_nm, secbest_nm, mn, diff):
+        df[nm] = (df[best_nm] - df[secbest_nm]) / diff
+        df[nm] = df[nm].fillna(np.nanmax(df[nm])).fillna(0)
+        df[best_nm] = (df[best_nm].astype(float) - mn) / diff
+        df[best_nm] = df[best_nm].fillna(np.nanmax(df[best_nm])).fillna(0)
+        assert not any([math.isnan(x) for x in df[nm]])
+        assert not any([math.isnan(x) for x in df[best_nm]])
 
-    conc = dfs['c']
+    for df in [dfs['u'], dfs['b']]:
+        # TODO: set minv/maxv properly if not defined
+        if df.shape[0] == 0:
+            continue
+        df['minv'] = df['minv'].fillna(df['best'].min())
+        df['maxv'] = df['maxv'].fillna(df['best'].max())
+        _standardize(df, 'diff', 'best', 'secbest', df.minv, df.maxv - df.minv)
 
-    diffv_1 = conc.maxv1 - conc.minv1
-    conc['bestnorm1'] = (1.0 * conc.best1 - conc.minv1) / diffv_1
-    secbestnorm_1 = (1.0 * conc.secbest1 - conc.minv1) / diffv_1
-    conc['secbestnorm1'] = secbestnorm_1.fillna(secbestnorm_1.min())
-    conc['diffnorm1'] = conc['bestnorm1'] - conc['secbestnorm1']
+    for df in [dfs['d']]:
+        if df.shape[0] == 0:
+            continue
+        df['minv1'] = df['minv1'].fillna(df['best1'].min())
+        df['maxv1'] = df['maxv1'].fillna(df['best1'].max())
+        _standardize(df, 'diff1', 'best1', 'secbest1', df.minv1, df.maxv1 - df.minv1)
 
-    diffv_2 = conc.maxv2 - conc.minv2
-    conc['bestnorm2'] = (1.0 * conc.best2 - conc.minv2) / diffv_2
-    secbestnorm_2 = (1.0 * conc.secbest2 - conc.minv2) / diffv_2
-    conc['secbestnorm2'] = secbestnorm_2.fillna(secbestnorm_2.min())
-    conc['diffnorm2'] = conc['bestnorm2'] - conc['secbestnorm2']
-
-    diff_conc = diffv_1 + diffv_2
-    conc['bestnormconc'] = (1.0 * conc.best1 + conc.best2 - conc.minv1 - conc.minv2) / diff_conc
-    secbest_conc = (1.0 * conc.secbest1 + conc.secbest2 - conc.minv1 - conc.minv2) / diff_conc
-    conc['secbestnormconc'] = secbest_conc.fillna(secbest_conc.min())
-    conc['diffnormconc'] = conc['bestnormconc'] - conc['secbestnormconc']
+    for df in [dfs['c']]:
+        # TODO: set minv1/maxv1/minv2/maxv2 properly if not defined
+        if df.shape[0] == 0:
+            continue
+        df['minv1'] = df['minv1'].fillna(df['best1'].min())
+        df['maxv1'] = df['maxv1'].fillna(df['best1'].max())
+        df['minv2'] = df['minv2'].fillna(df['best2'].min())
+        df['maxv2'] = df['maxv2'].fillna(df['best2'].max())
+        _standardize(df, 'diff1', 'best1', 'secbest1', df.minv1, df.maxv1 - df.minv1)
+        _standardize(df, 'diff2', 'best2', 'secbest2', df.minv2, df.maxv2 - df.minv2)
+        minconc, maxconc = df.minv1 + df.minv2, df.maxv1 + df.maxv2
+        _standardize(df, 'diff_conc', 'bestconc', 'secbestconc', minconc, maxconc - minconc)
+        df['best_min12'] = df[['best1', 'best2']].min(axis=1)
+        df['diff_min12'] = df[['diff1', 'diff2']].min(axis=1)
+        df['diff_min12conc'] = df[['diff1', 'diff2', 'diff_conc']].min(axis=1)
+        df['fraglen_z'] = ((df['fraglen'] - df['fraglen'].mean()) / df['fraglen'].std()).abs()
 
     return dfs
 
 
-def pcor_to_mapq(p):
-    return map(lambda x: -10.0 * math.log10(1.0 - x) if x < 1.0 else float('inf'), p)
-
-
-def mapq_to_pcor(p):
-    return map(lambda x: 1.0 - (10.0 ** (-0.1 * x)) if x < float('inf') else 1.0, p)
-
-
-def round_pcor(pcor):
-    assert not any(map(lambda x: x < 0.0 or x > 1.0, pcor))
-    return mapq_to_pcor(map(round, (pcor_to_mapq(pcor))))
-
-
-def _tally_cor_per(level, cor):
+def tally_cor_per(level, cor):
+    """ Some predictions from our model are the same; this helper function
+        gathers all the correct/incorrect information for each group of equal
+        predictions. """
     tally = defaultdict(lambda: [0, 0])
     for p, c in zip(level, cor):
         c = 0 if c else 1
@@ -87,10 +119,12 @@ def _tally_cor_per(level, cor):
 
 
 def ranking_error(pcor, cor, rounded=False):
+    """
+    """
     assert len(pcor) == len(cor)
     if rounded:
-        pcor = round_pcor(pcor)
-    tally = _tally_cor_per(pcor, cor)
+        pcor = round_pcor_iter(pcor)
+    tally = tally_cor_per(pcor, cor)
     err, sofar = 0, 0
     # from low-confidence to high confidence
     for p in sorted(tally.iterkeys()):
@@ -106,107 +140,35 @@ def ranking_error(pcor, cor, rounded=False):
     return err
 
 
-def ranking_error_by_quantile(pcor, cor, nquantiles=10, rounded=False):
-    assert len(pcor) == len(cor)
+def mse_error(pcor, cor, rounded=False):
+    """ Return the mean squared error between the pcors (in [0, 1]) and and
+        cors (in {0, 1}).  This is a measure of how close our predictions are
+        to true correct/incorrect. """
     if rounded:
-        pcor = round_pcor(pcor)
-    tally = _tally_cor_per(pcor, cor)
-    errs, sofar = [0] * nquantiles, 0
-    # from low-confidence to high confidence
-    cur_quantile = 0
-    for p in sorted(tally.iterkeys()):
-        ncor, nincor = tally[p]
-        ntot = ncor + nincor
-        assert ntot > 0
-        if nincor > 0:
-            # spread error over this grouping of tied pcors
-            frac = float(nincor) / ntot
-            assert frac <= 1.0
-            errs[cur_quantile] += frac * sum(xrange(sofar, sofar + ntot))
-        sofar += ntot
-        cur_quantile = (sofar * nquantiles) // len(pcor)
-    return errs
+        pcor = round_pcor_iter(pcor)
+    return np.mean((pcor - cor) ** 2) / np.mean((np.mean(cor) - cor) ** 2)
 
 
-def smoothfit_error(pcor, cor, rounded=False, s=125.0, plot=False, log2ize=False):
-    """ Calculate the smooth-fit error.  Possibly also plot the smooth
-        fit. """
-    assert len(pcor) == len(cor)
-    if rounded:
-        pcor = mapq_to_pcor(map(round, (pcor_to_mapq(pcor))))
-    tally = _tally_cor_per(pcor, cor)
-    # create parallel pcor and cor lists
-    sorted_pcor, sorted_cor = [], []
-    for p in sorted(tally.iterkeys(), reverse=True):
-        ncor, nincor = tally[p]
-        ntot = ncor + nincor
-        sorted_pcor.extend([p] * ntot)
-        # use fractional correctness so results are deterministic
-        sorted_cor.extend([float(ncor)/ntot] * ntot)
-    m = len(sorted_cor)
-    assert m == len(sorted_pcor) == len(pcor)
-    y = splev(xrange(m), splrep(xrange(m), sorted_cor, s=s))
-    if plot:
-        ln = len(pcor)
-        x = np.linspace(1.0/ln, (ln - 1.0) / ln, ln - 1.0)
-        if log2ize:
-            x = -np.log2(x[::-1])
-        maxx = math.ceil(np.log2(ln))
-        fig = plt.figure(figsize=(12, 4))
-        axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
-        axes.plot(x, sorted_pcor[:-1], color='r', label='Pcor')
-        axes.plot(x, y[:-1], color='k', label='Smoothed cor')
-        axes.set_xlabel('Index')
-        if log2ize:
-            axes.set_xticklabels(map(lambda z: 2 ** z, np.linspace(-1, -maxx, maxx)), rotation=90)
-        axes.set_ylabel('Probability')
-        axes.set_title('Smooth-fit plot')
-        axes.legend(loc=3)
-        axes.grid(True)
-    y_null = [np.mean(pcor)] * m
-    # smaller is better
-    return mean_squared_error(sorted_pcor, y) / mean_squared_error(sorted_pcor, y_null), y
-
-
-def bucket_error(mapq, cor):
-    """ Rounded given mapqs off to nearest integer.  For each bin, if
-        there is at least one incorrect alignment in the bin, compare
-        predicted MAPQ with "actual". """
-    tally = _tally_cor_per(mapq, cor)
-    err, n = 0, 0
-    for m, t in tally.iteritems():
-        ncor, nincor = t
-        ntot = ncor + nincor
-        assert ntot > 0
-        if nincor > 0 and ncor > 0:
-            pincor = float(nincor) / ntot
-            actual = -10.0 * math.log10(pincor)
-            err += ((actual - m) ** 2)
-            n += 1
-    return float(err)/n  # mean squared error
-
-
-def _drop_rate_cum_sum(pcor, cor):
-    """ Create cumulative sum of # of incorrect alignments starting at
-        high pcor and moving to low pcor.  For blocks of equal pcors,
-        "charge" a fractional amount for the incorrect alignments in
-        that stratum. """
-    tally = _tally_cor_per(pcor, cor)
+def drop_rate_cum_sum(pcor, cor):
+    """ Generate a vector giving (something like) the cumulative sum of
+        incorrect alignments up to each p-value, from high to low p-value.
+        When many p-values are tied, we distribute the incorrect fraction over
+        all the elements in that range so that the answer doesn't depend on
+        how equal p-values are ordered. """
+    tally = tally_cor_per(pcor, cor)
     cumsum, cumsums = 0, []
     for p, tup in sorted(tally.iteritems(), reverse=True):
         ncor, nincor = tup
-        for _ in xrange(ncor + nincor):
+        for i in xrange(ncor + nincor):
             cumsum += (float(nincor) / (ncor + nincor))
             cumsums.append(cumsum)
     return cumsums
 
 
-def _plot_drop_rate(pcor, cor, pcor2=None, log2ize=False):
-    """ Create a plot showing drop rate on x axis versus cumulative
-        number of incorrect alignments on y axis.  Intended as an
-        easier-to-read-all-at-once alternative to a ROC-like plot. """
-    cumsum = _drop_rate_cum_sum(pcor, cor)
-    cumsum2 = None if pcor2 is None else _drop_rate_cum_sum(pcor2, cor)
+def plot_drop_rate(pcor, cor, pcor2=None, log2ize=False):
+    """  """
+    cumsum = drop_rate_cum_sum(pcor, cor)
+    cumsum2 = None if pcor2 is None else drop_rate_cum_sum(pcor2, cor)
     ln = len(pcor)
     x_log = np.linspace(1.0/ln, (ln - 1.0) / ln, ln - 1.0)
     if log2ize:
@@ -227,181 +189,754 @@ def _plot_drop_rate(pcor, cor, pcor2=None, log2ize=False):
     return fig
 
 
-def summarize_performance(pcor_test, mapq_test, pcor_orig_test, mapq_orig_test, y_test):
+def plot_drop_rate_difference(pcor, pcor2, cor, log2ize=False):
+    cumsum1, cumsum2 = drop_rate_cum_sum(pcor, cor), drop_rate_cum_sum(pcor2, cor)
+    ln = len(pcor)
+    x_log = np.linspace(1.0/ln, (ln - 1.0) / ln, ln - 1.0)
+    if log2ize:
+        x_log = -np.log2(x_log[::-1])
+    maxx = math.ceil(np.log2(ln))
+    fig = plt.figure(figsize=(10, 4))
+    axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
+    cumsum_diff = np.subtract(cumsum1, cumsum2)
+    xs, ys = x_log, cumsum_diff[:-1]
+    axes.plot(xs, ys, color='k', label='Model')
+    axes.set_xlabel('MAPQ drop rate')
+    if log2ize:
+        axes.set_xticklabels(map(lambda x: 2 ** x, np.linspace(-1, -maxx, maxx)), rotation=90)
+    axes.set_ylabel('Difference in cumulative # incorrect alignments')
+    axes.set_title('Drop rate comparison on -log2 scale')
+    axes.fill_between(xs, ys, where=ys>=0, interpolate=True, color='red')
+    axes.fill_between(xs, ys, where=ys<=0, interpolate=True, color='green')
+    axes.grid(True)
+    return fig
 
-    # ranking error
-    rank_err = ranking_error(pcor_test, y_test)
-    rank_err_rounded = ranking_error(pcor_test, y_test, rounded=True)
-    rank_err_orig = ranking_error(mapq_orig_test, y_test)
-    rank_err_improve = (100.0 * (rank_err_orig - rank_err_rounded)) / max(rank_err_orig, 1)
 
-    # smooth-fit error
-    sfit_err = smoothfit_error(pcor_test, y_test)
-    sfit_err_rounded = smoothfit_error(pcor_test, y_test, rounded=True)
-    sfit_err_orig = smoothfit_error(pcor_orig_test, y_test)
-    sfit_err_improve = ((100.0 * (sfit_err_orig - sfit_err_rounded))/max(sfit_err_orig, 1))
+def bucket_error_plot(mapq_lists, labs, colors, cor, title=None):
+    """ Plot predicted MAPQ versus actual MAPQ, both rounded to
+        nearest integer.  Omit MAPQs where the number of incorrect
+        alignments is 0 (making MAPQ infinity) """
+    observed_mapq_lists = []
+    actual_mapq_lists = []
+    mx = 0
+    for mapq_list in mapq_lists:
+        # round MAPQs off to integers
+        mapq = map(round, mapq_list)
+        # stratify by mapq & count correct/incorrect
+        tally = tally_cor_per(mapq, cor)
+        observed_mapq_lists.append([])
+        actual_mapq_lists.append([])
+        for p, tup in sorted(tally.iteritems()):
+            ncor, nincor = tup
+            if nincor > 0:  # ignore buckets where all are correct
+                ntot = ncor + nincor
+                observed_mapq_lists[-1].append(p)
+                actual_mapq = pcor_to_mapq(float(ncor) / ntot)
+                actual_mapq_lists[-1].append(actual_mapq)
+                mx = max(max(mx, p), actual_mapq)
+    fig = plt.figure(figsize=(8, 8))
+    axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
+    axes.set_xlabel('Reported MAPQ')
+    axes.set_ylabel('Actual MAPQ')
+    if title is not None:
+        axes.set_title(title)
+    for o, a, l, c in zip(observed_mapq_lists, actual_mapq_lists, labs, colors):
+        axes.scatter(o, a, label=l, color=c)
+    axes.plot([0, mx], [0, mx], color='r')
+    axes.set_xlim((0, mx))
+    axes.set_ylim((0, mx))
+    axes.legend(loc=2)
+    axes.grid(True)
+    return fig
 
-    # bucket error
-    bucket_err = bucket_error(mapq_test, y_test)
-    bucket_err_orig = bucket_error(mapq_orig_test, y_test)
-    bucket_err_improve = ((100.0 * (bucket_err_orig - bucket_err))/max(bucket_err_orig, 1))
 
-    logging.info('  Original errors: %.2e/%.3f/%.2e' % (rank_err_orig, sfit_err_orig, bucket_err_orig))
-    logging.info('  Errors with model: %.2e/%.3f/%.2e' % (rank_err, sfit_err, bucket_err))
-    logging.info('  Errors with model (rounded): %.2e/%.3f' % (rank_err_rounded, sfit_err_rounded))
-    logging.info('  Improvement: %0.2f%%/%0.2f%%/%0.2f%%' % (rank_err_improve, sfit_err_improve, bucket_err_improve))
+def quantile_error_plot(mapq_lists, labs, colors, cor, title=None, quantiles=10, already_sorted=False, exclude_mapq_gt=None):
+    # One problem is how to determine the quantiles when there are multiple methods being compared
+    estimated_mapq_lists = []
+    actual_mapq_lists = []
+    n_filtered = []
+    mx = 0
+    for mapq_list in mapq_lists:
+        assert not np.isinf(np.maximum(mapq_list))
+        # remove MAPQs greater than ceiling
+        n_before = len(mapq_list)
+        if exclude_mapq_gt is not None:
+            mapq_list = filter(lambda x: x <= exclude_mapq_gt, mapq_list)
+        n_filtered.append(n_before - len(mapq_list))
+        # stratify by mapq & count correct/incorrect
+        n = len(mapq_list)
+        assert n >= quantiles
+        if not already_sorted:
+            sorted_order = sorted(range(n), key=lambda x: mapq_list[x])
+            mapq_sorted = [mapq_list[x] for x in sorted_order]
+            pcor_sorted = mapq_to_pcor_iter(mapq_sorted)
+            cor_sorted = [cor[x] for x in sorted_order]
+        else:
+            mapq_sorted, pcor_sorted, cor_sorted = mapq_list, mapq_to_pcor_iter(mapq_list), cor
+        partition_starts = [int(round(i*n/quantiles)) for i in xrange(quantiles+1)]
+        estimated_mapq_lists.append([])
+        actual_mapq_lists.append([])
+        for i in xrange(quantiles):
+            st, en = partition_starts[i], partition_starts[i+1]
+            ncor = sum(cor_sorted[st:en])
+            assert ncor < (en-st)
+            ncor_est = sum(pcor_sorted[st:en])
+            estimated_mapq_lists[-1].append(pcor_to_mapq(float(ncor_est)/(en-st)))
+            actual_mapq_lists[-1].append(pcor_to_mapq(float(ncor)/(en-st)))
+        mx = max(mx, max(max(estimated_mapq_lists[-1]), max(actual_mapq_lists[-1])))
+    assert not math.isinf(mx)
+    fig = plt.figure(figsize=(8, 8))
+    axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
+    axes.set_xlabel('Reported MAPQ')
+    axes.set_ylabel('Actual MAPQ')
+    if title is not None:
+        axes.set_title(title)
+    for o, a, l, c in zip(estimated_mapq_lists, actual_mapq_lists, labs, colors):
+        assert len(o) == len(a)
+        axes.scatter(o, a, label=l, color=c, alpha=0.3, s=60)
+    axes.plot([0, mx], [0, mx], color='r')
+    axes.set_xlim((-.02*mx, 1.02*mx))
+    axes.set_ylim((-.02*mx, 1.02*mx))
+    axes.legend(loc=2)
+    axes.grid(True)
 
-    return rank_err_improve, sfit_err_improve, bucket_err_improve
+
+def plot_subsampling_series(seriess, labs=None, colors=None):
+    fig = plt.figure(figsize=(14, 12))
+
+    if labs is None:
+        labs = [str(i+1) for i in xrange(len(seriess))]
+    if colors is None:
+        colors = ['r', 'b', 'g', 'c', 'm'][:len(seriess)]
+        assert len(colors) == len(seriess)
+
+    ax1 = fig.add_subplot(3, 1, 1)
+    min_rank_err, max_rank_err = float('inf'), 0.0
+    for series, lab, color in zip(seriess, labs, colors):
+        ax1.plot(series.fraction, series.rank_err_round, 'o-', color=color, label=lab)
+        max_rank_err = max(max_rank_err, max(series.rank_err_round))
+        min_rank_err = min(min_rank_err, min(series.rank_err_round))
+    max_rank_err = min(2, max_rank_err)
+    ax1.set_xlabel('Fraction')
+    ax1.set_ylabel('Round rank err')
+    ax1.set_ylim([min(0.8, min_rank_err * 0.98), max(1.2, max_rank_err * 1.02)])
+    ax1.legend(loc=1)
+    ax1.grid(True)
+
+    ax2 = fig.add_subplot(3, 1, 2)
+    max_mse = 0.0
+    for series, lab, color in zip(seriess, labs, colors):
+        ax2.plot(series.fraction, series.mse_err_round, 'o-', color=color, label=lab)
+        max_mse = max(max_mse, max(series.mse_err_round))
+    max_mse = min(2, max_mse)
+    ax2.set_xlabel('Fraction')
+    ax2.set_ylabel('MSE')
+    ax2.set_ylim([0, max(1.0, max_mse * 1.02)])
+    ax2.legend(loc=1)
+    ax2.grid(True)
+
+    ax3 = fig.add_subplot(3, 1, 3)
+    max_mapq_avg = 0.0
+    for series, lab, color in zip(seriess, labs, colors):
+        ax3.plot(series.fraction, series.mapq_avg, 'o-', color=color, label=lab)
+        max_mapq_avg = max(max_mapq_avg, max(series.mapq_avg))
+    ax3.set_xlabel('Fraction')
+    ax3.set_ylabel('Average MAPQ')
+    ax3.set_ylim([0., max(80., max_mapq_avg * 1.02)])
+    ax3.legend(loc=1)
+    ax3.grid(True)
+
+    return fig
+
+
+def plot_fit(model, x_lim=(0.0, 1.0), y_lim=(0.0, 1.0), dx=0.01, dy=0.01, zmin=0.0, zmax=60.0):
+    grid = np.mgrid[slice(y_lim[0], y_lim[1] + dy, dy),
+                    slice(x_lim[0], x_lim[1] + dx, dx)]
+    dim_x = 1 + ((x_lim[1] - x_lim[0]) / dx)
+    dim_y = 1 + ((y_lim[1] - y_lim[0]) / dy)
+    assert grid.shape == (2, dim_x, dim_y), "%s, (2, %d, %d)" % (str(grid.shape), dim_x, dim_y)
+    xy = np.column_stack([grid[0].flatten(), grid[1].flatten()])
+    z = np.array(pcor_to_mapq_iter(MapqFit.postprocess_predictions(model.predict(xy), '')), dtype=np.float32).reshape((dim_x, dim_y))
+
+    # x and y are bounds, so z should be the value *inside* those bounds.
+    # Therefore, remove the last value from the z array.
+    z = z[:-1, :-1].transpose()
+    z = z[::-1, :]
+    if zmin is None:
+        zmin = z.min()
+    if zmax is None:
+        zmax = z.max()
+
+    # pick the desired colormap, sensible levels, and define a normalization
+    # instance which takes data values and translates those into levels.
+    cmap = plt.get_cmap('Blues')
+
+    fitplt = plt.figure(figsize=(10, 10))
+    axes = fitplt.add_subplot(111)
+
+    extents = [x_lim[0], x_lim[1], y_lim[0], y_lim[1]]
+
+    im = axes.imshow(z, cmap=cmap, extent=extents, vmax=zmax, vmin=zmin, origin='upper')
+
+    cbar = fitplt.colorbar(im)
+    cbar.set_label('MAPQ')
+
+    # set the limits of the plot to the limits of the data
+    axes.set_xlabel('Best score, 0=min, 1=max')
+    axes.set_ylabel('Difference between best and second-best score, 0=min, 1=max')
+    axes.set_title('Predicted MAPQ for X, Y in [0, 1]')
+    return fitplt, axes
+
+
+class MapqPredictions:
+
+    def __init__(self):
+        # all these lists are parallel
+        self.pcor = np.array([])  # predicted pcors
+        self.mapq_orig = []  # original mapping qualities
+        self.category = []  # categories of alignments
+        self.names = None  # names of reads
+        self.data = None  # data that gave rise to predictions
+        self.correct = None  # whether or not alignment is correct
+        self.pcor_hist = None
+        self.mapq = None
+        self.correct_end, self.correct_run = 0, 0
+        self.pcor_orig = None
+        self.mapq_avg, self.mapq_orig_avg = None, None
+        self.mapq_std, self.mapq_orig_std = None, None
+        self.rank_err_orig = None
+        self.rank_err = None
+        self.rank_err_round = None
+        self.mse_err_orig = None
+        self.mse_err_raw = None
+        self.mse_err = None
+        self.mse_err_round = None
+
+    def add_pcors(self, pcor, mapq_orig, category, names=None, data=None, correct=None):
+        """ Add a new batch of predictions """
+        self.pcor = np.append(self.pcor, pcor)
+        self.mapq_orig.extend(mapq_orig)
+        self.category.extend([category] * len(pcor))
+        if data is not None:
+            if self.data is None:
+                self.data = []
+            self.data.extend(data)
+        if correct is not None:
+            if self.correct is None:
+                self.correct = correct
+            else:
+                self.correct = np.append(self.correct, correct)
+        if names is not None:
+            if self.names is None:
+                self.names = []
+            self.names.extend(names)
+
+    def incorrect_indexes(self):
+        """ Return indexes of in correct alignments in order
+            from highest to lowest predicted pcor """
+        assert self.correct is not None
+        return [x for x in xrange(len(self.correct)-1, -1, -1) if not self.correct[x]]
+
+    def top_incorrect(self, n=50):
+        assert self.data is not None
+        return [self.data[x] for x in self.incorrect_indexes()[:n]]
+
+    def summarize_incorrect(self, n=50):
+        assert self.correct is not None
+        incor_idx = self.incorrect_indexes()[:n]
+        summ_dict = dict()
+        summ_dict['category'] = [self.category[x] for x in incor_idx]
+        summ_dict['mapq'] = [self.mapq[x] for x in incor_idx]
+        summ_dict['mapq_orig'] = [self.mapq_orig[x] for x in incor_idx]
+        if self.names is not None:
+            summ_dict['names'] = [self.names[x] for x in incor_idx]
+        if self.data is not None:
+            summ_dict['data'] = map(lambda x: ','.join(map(lambda y: '%0.3f' % y, x)), [self.data[x] for x in incor_idx])
+        summ_dict['correct'] = [self.correct[x] for x in incor_idx]
+        return pandas.DataFrame.from_dict(summ_dict)
+
+    def finalize(self, verbose=False):
+
+        # put pcor, mapq, mapq_orig, pcor_orig in order by pcor
+        if verbose:
+            logging.info('  Sorting data')
+        pcor_order = sorted(range(len(self.pcor)), key=lambda x: self.pcor[x])
+        self.pcor = self.pcor[pcor_order]
+        self.mapq_orig = [self.mapq_orig[x] for x in pcor_order]
+        self.category = [self.category[x] for x in pcor_order]
+        if self.data is not None:
+            self.data = [self.data[x] for x in pcor_order]
+        if self.names is not None:
+            self.names = [self.names[x] for x in pcor_order]
+
+        # make pcor histogram
+        self.pcor_hist = Counter(self.pcor)
+
+        self.mapq = mapq = pcor_to_mapq_iter(self.pcor)
+        self.pcor_orig = pcor_orig = mapq_to_pcor_iter(self.mapq_orig)
+
+        pcor, mapq_orig = self.pcor, self.mapq_orig
+
+        # calculate error measures and other measures
+        if self.correct is not None:
+
+            # calculate # of highest pcors and max # pcors in a row that
+            # correspond to correct alignments
+            if verbose:
+                logging.info('  Finding correct runs')
+            self.correct = correct = self.correct[pcor_order]
+            end, run = True, 0
+            for i in xrange(len(correct)-1, -1, -1):
+                if correct[i] and end:
+                    self.correct_end += 1
+                elif end:
+                    end = False
+                run += 1 if correct[i] else -run
+                self.correct_run = max(self.correct_run, run)
+
+            # ranking error; +1 is to avoid division-by-zero when a dataset
+            # is perfectly ranked
+            if verbose:
+                logging.info('  Calculating rank error')
+            self.rank_err_orig = ranking_error(pcor_orig, correct) + 1
+            self.rank_err = (ranking_error(pcor, correct) + 1) / self.rank_err_orig
+            self.rank_err_round = (ranking_error(pcor, correct, rounded=True) + 1) / self.rank_err_orig
+            if verbose:
+                logging.info('    Done: %0.4f, %0.4fr' % (self.rank_err, self.rank_err_round))
+
+            if verbose:
+                logging.info('  Calculating MSE')
+            self.mse_err_orig = mse_error(pcor_orig, correct)
+            self.mse_err_raw = mse_error(pcor, correct)
+            self.mse_err = self.mse_err_raw / self.mse_err_orig
+            self.mse_err_round = mse_error(pcor, correct, rounded=True) / self.mse_err_orig
+            if verbose:
+                logging.info('    Done: %0.4f, %0.4fr (raw:%0.4f, orig raw:%0.4f)' % \
+                             (self.mse_err, self.mse_err_round,
+                              self.mse_err_raw, self.mse_err_orig))
+
+        # summary statistics over pcors and mapqs
+        if verbose:
+            logging.info('  Calculating MAPQ summaries')
+        self.mapq_avg, self.mapq_orig_avg = float(np.mean(mapq)), float(np.mean(mapq_orig))
+        self.mapq_std, self.mapq_orig_std = float(np.std(mapq)), float(np.std(mapq_orig))
+
+    def summary(self, include_distinct=False):
+        """ Return a concise summary of prediction performance """
+        if len(self.pcor) == 0:
+            return ''
+        ret = []
+        if self.correct is not None:
+            ret.append("rerr=%0.2f,%0.2fr" % (self.rank_err, self.rank_err_round))
+            ret.append("mse=%0.2f,%0.2fr" % (self.mse_err, self.mse_err_round))
+        ret.append("q=%0.2f,%0.2f,%0.2f" % (self.mapq_avg, self.mapq_std, max(self.mapq)))
+        ret.append("end=%d,%0.2f%%" % (self.correct_end,
+                                       100.0 * self.correct_end / len(self.pcor)))
+        ret.append("cor=%d,%0.2f%%" % (self.correct_run,
+                                       100.0 * self.correct_run / len(self.pcor)))
+        if include_distinct:
+            ret.append("distinct=%d,%0.2f%%" % (len(self.pcor_hist),
+                                                100.0 * len(self.pcor_hist) / len(self.pcor)))
+        return ' '.join(ret)
+
+
+class MapqFit:
+
+    @staticmethod
+    def _df_to_mat(data, shortname):
+        """ Convert a data frame read with read_dataset into a matrix
+            suitable for use with scikit-learn, and parallel vectors
+            giving the original MAPQ predictions and whether or not the
+            alignments are correct. """
+        if shortname == 'c':
+            # extract relevant paired-end features from training data
+            labs = ['best1',  # score of best alignment for mate
+                    'best2',  # score of best alignment for opposite mate
+                    'diff1',  # difference for mate
+                    'diff2',  # difference for opposite mate
+                    'diff_conc',  # concordant difference
+                    'fraglen_z']  # # stddevs diff for fraglen
+            mapq_header = 'mapq1'
+        elif shortname == 'd':
+            # extract relevant discordant paired-end features
+            labs = ['best1', 'diff1']
+            mapq_header = 'mapq1'
+        else:
+            # extract relevant unpaired features
+            labs = ['best', 'diff']
+            mapq_header = 'mapq'
+        for lab in labs:
+            assert not np.isnan(data[lab]).any()
+        data_mat = data[labs].values
+        correct = np.array(map(lambda x: x == 1, data['correct']))
+        assert not np.isinf(data_mat).any() and not np.isnan(data_mat).any()
+        return data_mat, data[mapq_header], correct
+
+    @staticmethod
+    def _downsample(x_train, mapq_orig_train, y_train, sample_fraction):
+        """ Return a random subset of the data, MAPQs and labels.  Size of
+            subset given by sample_fraction. """
+        n_training_samples = x_train.shape[0]
+        if sample_fraction < 1.0:
+            sample_indexes = random.sample(xrange(n_training_samples), int(round(n_training_samples * sample_fraction)))
+            x_train = x_train[sample_indexes, ]
+            mapq_orig_train = mapq_orig_train[sample_indexes]
+            y_train = np.array([y_train[i] for i in sample_indexes])
+        return x_train, mapq_orig_train, y_train
+
+    def summary(self):
+        ret = []
+        if self.predict_training:
+            ret.append('train: ' + self.pred_overall_train.summary())
+        ret.append(' test: ' + self.pred_overall.summary())
+        return '\n'.join(ret)
+
+    def pcor(self):
+        """ Return list of predicted pcors (probability correct) """
+        return self.pred_overall.pcor
+
+    def pcor_orig(self):
+        """ Return list of pcors (probability correct) reported by
+            the aligner (converted from integer-rounded MAPQs) """
+        return self.pred_overall.pcor_orig
+
+    def mapq(self):
+        """ Return list of predicted MAPQs """
+        return self.pred_overall.mapq
+
+    def mapq_orig(self):
+        """ Return list of the original MAPQs reported by the aligner """
+        return self.pred_overall.mapq_orig
+
+    def correct(self):
+        """ Return list indicating which alignments are correct; None if that
+            information isn't available. """
+        return self.pred_overall.correct
+
+    def data(self):
+        """ Return list of input data given to predictor. """
+        return self.pred_overall.data
+
+    def names(self):
+        """ Return list of names. """
+        return self.pred_overall.names
+
+    def category(self):
+        """ Return list of categories. """
+        return self.pred_overall.category
+
+    @staticmethod
+    def postprocess_predictions(pcor_test, dataset_name, max_pcor=0.999999):
+        """ Deal with pcors equal to 1.0, which cause infinite MAPQs """
+        mn, mx = min(pcor_test), max(pcor_test)
+        if mx >= 1.0:
+            if mn == mx:
+                logging.warning('All data points for %s are predicted correct; results unreliable' % dataset_name)
+                pcor_test = [max_pcor] * len(pcor_test)
+            max_noninf_pcor_test = max(filter(lambda x: x < 1.0, pcor_test))
+            pcor_test = [max_noninf_pcor_test + 1e-6 if p >= 1.0 else p for p in pcor_test]
+        return np.maximum(np.minimum(pcor_test, max_pcor), 0.)
+
+    @staticmethod
+    def _fit(model_gen, x_train, y_train, dataset_shortname, verbose=False):
+        """ Use cross validation to pick the best model from a
+            collection of possible models (iterator model_gen) """
+        score_avgs, score_stds = [], []
+        best_model = None
+        for model, name in model_gen:
+            scores = cross_validation.cross_val_score(model, x_train, y_train)
+            score_avg, score_std = float(np.mean(scores)), float(np.std(scores))
+            if len(score_avgs) == 0 or score_avg > max(score_avgs):
+                if verbose:
+                    logging.info("%s, avg=%0.3f, std=%0.3f, %s *" % (dataset_shortname, score_avg, score_std, name))
+                best_model = model
+            else:
+                if verbose:
+                    logging.info("%s, avg=%0.3f, std=%0.3f, %s" % (dataset_shortname, score_avg, score_std, name))
+            score_avgs.append(score_avg)
+            score_stds.append(score_std)
+        return best_model, score_avgs, score_stds
+
+    def __init__(self, dr, model_gen, sample_fraction=1.0,
+                 sample_fractions=None,
+                 random_seed=628599, predict_training=False,
+                 verbose=False, keep_names=False, keep_data=False):
+
+        def log_msg(s):
+            if verbose:
+                logging.info(s)
+
+        self.sample_fraction = sample_fraction
+        self.random_seed = random_seed
+        self.predict_training = predict_training
+        if sample_fractions is None:
+            sample_fractions = {}
+
+        # read datasets
+        log_msg('Reading datasets')
+        self.train_dfs = train_dfs = read_dataset(os.path.join(dr, 'training'))
+        self.test_dfs = test_dfs = read_dataset(os.path.join(dr, 'test'))
+
+        self.trained_models = {}
+        self.crossval_avg = {}
+        self.crossval_std = {}
+        self.datasets = zip('dbcu',
+                            ['Discordant', 'Bad-end', 'Concordant', 'Unpaired'],
+                            [True, False, True, False])
+        self.pred_overall = MapqPredictions()
+        self.pred = {}
+        self.pred_overall_train = MapqPredictions()
+        self.pred_train = {}
+
+        for dataset_shortname, dataset_name, paired in self.datasets:
+
+            train = train_dfs[dataset_shortname]
+            if train.shape[0] == 0:
+                continue
+
+            log_msg('Fitting %s training data' % dataset_name)
+
+            # seed pseudo-random generators
+            random.seed(random_seed)
+            np.random.seed(random_seed)
+
+            # extract features, convert to matrix
+            x_train, mapq_orig_train, y_train = self._df_to_mat(train, dataset_shortname)
+
+            # optionally downsample
+            frac = sample_fractions[dataset_shortname] if dataset_shortname in sample_fractions else sample_fraction
+            log_msg('Sampling %0.2f%% of %d rows of %s training data' % (100.0 * frac, train.shape[0], dataset_name))
+            x_train, mapq_orig_train, y_train = \
+                self._downsample(x_train, mapq_orig_train, y_train, frac)
+            log_msg('  Now has %d rows' % x_train.shape[0])
+
+            # use cross-validation to pick a model
+            self.trained_models[dataset_shortname], avgs, stds = \
+                self._fit(model_gen, x_train, y_train, dataset_shortname, verbose=verbose)
+
+            self.crossval_avg[dataset_shortname] = max(avgs)
+
+            # fit all the training data with the model
+            self.trained_models[dataset_shortname].fit(x_train, y_train)
+
+            names = None
+            names_colname = 'name1' if paired else 'name'
+
+            for training in [False, True]:
+
+                if training and not predict_training:
+                    continue
+
+                log_msg('Making %s predictions for %s data' % (dataset_name, 'training' if training else 'test'))
+
+                # set up some variables based on training/test
+                test = train_dfs[dataset_shortname] if training else test_dfs[dataset_shortname]
+                pred_overall = self.pred_overall_train if training else self.pred_overall
+                pred = self.pred_train if training else self.pred
+                pred[dataset_shortname] = MapqPredictions()
+
+                # get test matrix
+                x_test, mapq_orig_test, y_test = self._df_to_mat(test, dataset_shortname)
+                y_test = np.array(map(lambda x: x == 1, test.correct))
+
+                # predict
+                pcor = self.trained_models[dataset_shortname].predict(x_test)  # make predictions
+                pcor = np.array(self.postprocess_predictions(pcor, dataset_name))
+                if keep_names and names_colname in test:
+                    names = test[names_colname]
+                data = None
+                if keep_data:
+                    data = x_test.tolist()
+                for pr in [pred_overall, pred[dataset_shortname]]:
+                    pr.add_pcors(pcor, mapq_orig_test, dataset_shortname, names=names, data=data, correct=y_test)
+
+        # finalize the predictions
+        log_msg('Finalizing results for overall test data (%d alignments)' % len(self.pred_overall.pcor))
+        self.pred_overall.finalize(verbose=verbose)
+        for shortname, pred in self.pred.iteritems():
+            log_msg('Finalizing results for "%s" test data (%d alignments)' % (shortname, len(pred.pcor)))
+            pred.finalize(verbose=verbose)
+        if predict_training:
+            log_msg('Finalizing results for overall training data (%d alignments)' % len(self.pred_overall_train))
+            self.pred_overall_train.finalize(verbose=verbose)
+            for shortname, pred in self.pred_train.iteritems():
+                log_msg('Finalizing results for "%s" training data (%d alignments)' % (shortname, len(pred.pcor)))
+                pred.finalize(verbose=verbose)
+        log_msg('Done')
+
+
+def random_forest_models():
+    # These perform OK but not as well as the extremely random trees
+    ret = []
+    for ntrees in xrange(5, 100, 10):
+        for max_depth in [3, 4, 5]:
+            name = "RF(%d,%d)" % (ntrees, max_depth)
+            ret.append((RandomForestRegressor(n_estimators=ntrees, max_depth=max_depth,
+                                              random_state=33, max_features='auto'), name))
+    return ret
+
+
+def extra_trees_models():
+    # These perform quite well
+    ret = []
+    for ntrees in xrange(5, 40, 10):
+        for max_depth in xrange(8, 12):
+            name = "Ex(%d,%d)" % (ntrees, max_depth)
+            ret.append((ExtraTreesRegressor(n_estimators=ntrees, max_depth=max_depth,
+                                            random_state=33, max_features='auto'), name))
+    return ret
+
+
+def gradient_boosting_models():
+    # These perform OK but not as well as the extremely random trees
+    ret = []
+    #for loss in ['ls', 'lad', 'huber', 'quantile']:
+    for loss in ['ls']:
+        for learning_rate in [0.1, 0.2, 0.3, 0.5, 0.75, 1.0]:
+            for ntrees, max_depth in itertools.product(range(5, 40, 10), range(2, 6)):
+                name = "GB(%d, %d, %0.2f, %s)" % (ntrees, max_depth, learning_rate, loss)
+                ret.append((GradientBoostingRegressor(n_estimators=ntrees, max_depth=max_depth,
+                                                      random_state=33, max_features='auto',
+                                                      loss=loss, learning_rate=learning_rate), name))
+    return ret
+
+
+def adaboost_models():
+    # These seem to perform quite poorly
+    ret = []
+    #for loss in ['linear', 'square']:
+    for loss in ['linear']:
+        for learning_rate in [1.0, 1.5, 2.0]:
+            for n_estimators in [10, 15, 20, 25, 30, 35, 40]:
+                name = 'Adaboost(%d, %d, %s)' % (n_estimators, learning_rate, loss)
+                ret.append((AdaBoostRegressor(n_estimators=n_estimators,
+                                              learning_rate=learning_rate, loss=loss), name))
+    return ret
+
+
+def model_family(args):
+    if args.model_family == 'RandomForest':
+        return random_forest_models()
+    elif args.model_family == 'ExtraTrees':
+        return extra_trees_models()
+    elif args.model_family == 'GradientBoosting':
+        return gradient_boosting_models()
+    elif args.model_family == 'AdaBoost':
+        return adaboost_models()
+    else:
+        raise RuntimeError('Bad value for --model-family: "%s"' % args.model_family)
+
+
+def mkdir_quiet(dr):
+    # Create output directory if needed
+    import errno
+    if not os.path.isdir(dr):
+        try:
+            os.makedirs(dr)
+        except OSError as exception:
+            if exception.errno != errno.EEXIST:
+                raise
+
+
+def make_plots(pred, odir, args):
+    mkdir_quiet(odir)
+    if args.plot_cum_incorrect or args.plot_all:
+        logging.info('Making cumulative-incorrect plots')
+        assert pred.correct is not None
+        plot_drop_rate(pred.pcor, pred.correct, pcor2=pred.pcor_orig, log2ize=False).savefig(
+            os.path.join(odir, 'drop_rate.pdf'))
+        plot_drop_rate(pred.pcor, pred.correct, pcor2=pred.pcor_orig, log2ize=True).savefig(
+            os.path.join(odir, 'drop_rate_log2.pdf'))
+        plot_drop_rate_difference(pred.pcor, pred.pcor_orig, pred.correct, log2ize=False).savefig(
+            os.path.join(odir, 'drop_rate_diff.pdf'))
+        plot_drop_rate_difference(pred.pcor, pred.pcor_orig, pred.correct, log2ize=True).savefig(
+            os.path.join(odir, 'drop_rate_diff_log2.pdf'))
+    if args.plot_mapq_buckets or args.plot_all:
+        logging.info('Making MAPQ bucket plots')
+        bucket_error_plot([pred.mapq, pred.mapq_orig], ['Predicted', 'Original'], ['b', 'g'], pred.correct).savefig(
+            os.path.join(odir, 'mapq_buckets.pdf'))
 
 
 def go(args):
-    # Load training and test
-    logging.info('Loading training data')
-    train_dfs = read_dataset(args.training_prefix)
-    logging.info('Loading test data')
-    test_dfs = read_dataset(args.test_prefix)
+    logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', datefmt='%m/%d/%y-%H:%M:%S',
+                        level=logging.DEBUG)
 
-    logging.info('Fitting models')
-    datasets = [('Unpaired', 'u', train_dfs['u'], test_dfs['u'], False),
-                ('Mate', 'm', train_dfs['m'], test_dfs['m'], False),
-                ('Concordant', 'c', train_dfs['c'], test_dfs['c'], True)]
-    models = [('RFR', lambda: RandomForestRegressor(n_estimators=args.random_forest_num_trees,
-                                                    max_depth=args.random_forest_max_depth,
-                                                    random_state=random.randint(0, sys.maxint),
-                                                    max_features='auto'))]
-    for dataset_name, dataset_shortname, train, test, paired in datasets:
-        if test.shape[0] == 0:
-            logging.info('  No test data; skipping...')
-            continue
-        if train.shape[0] == 0:
-            logging.error('  Test data exists, but there is no training data...')
-            raise RuntimeError('Test data exists, but there is no training data')
-        if paired:
-            x_train = train[['bestnorm1', 'diffnorm1', 'diffnormconc']].values
-            x_test = test[['bestnorm1', 'diffnorm1', 'diffnormconc']].values
-            mapq_orig_train = train['mapq1']
-            mapq_orig_test = test['mapq1']
-        else:
-            x_train = train[['bestnorm', 'diffnorm']].values
-            x_test = test[['bestnorm', 'diffnorm']].values
-            mapq_orig_train = train['mapq']
-            mapq_orig_test = test['mapq']
-        pcor_orig_test = mapq_to_pcor(mapq_orig_test)
-        y_train = map(lambda x: x == 1, train.correct)
-        y_test = map(lambda x: x == 1, test.correct)
-        test_data_has_correct = test['correct'].count() == len(test['correct'])
-        for model_name, model_gen in models:
-            nsamples = x_train.shape[0]
-            logging.info('  Fitting "%s" on test dataset "%s" (%d samples)' % (model_name, dataset_name, nsamples))
-            model = model_gen()
-            model.fit(x_train, y_train)
-            pcor_test = model.predict(x_test)
-            mapq_test = pcor_to_mapq(pcor_test)
-            rank_err_improves, sfit_err_improves, bucket_err_improves = [], [], []
-            rank_err_quantile, rank_err_quantile_orig = None, None
-            if test_data_has_correct:
-                rank_err_improve, sfit_err_improve, bucket_err_improve = \
-                    summarize_performance(pcor_test, mapq_test, pcor_orig_test, mapq_orig_test, y_test)
-                rank_err_improves.append(rank_err_improve)
-                sfit_err_improves.append(sfit_err_improve)
-                bucket_err_improves.append(bucket_err_improve)
-                rank_err_quantile = ranking_error_by_quantile(pcor_test, y_test, rounded=True)
-                rank_err_quantile_orig = ranking_error_by_quantile(pcor_orig_test, y_test)
-            logging.info('  Writing results')
-            result_test_df = DataFrame.from_items([('pcor', pcor_test), ('mapq', mapq_test),
-                                                   ('orig', mapq_orig_test), ('correct', y_test)])
-            result_test_df.to_csv(args.test_prefix + '_' + dataset_shortname + '_' + model_name + '.csv', index=False)
-            if args.downsample:
-                logging.info('  Trying various downsampling fractions')
-                fractions = [0.5, 0.2, 0.15, 0.1, 0.08, 0.05, 0.035, 0.025, 0.02, 0.01]
-                for fraction in fractions:
-                    nsamples = int(fraction * x_train.shape[0])
-                    logging.info('    Trying %0.03f%% (%d samples)' % (fraction * 100, nsamples))
-                    samp = random.sample(xrange(x_train.shape[0]), nsamples)
-                    x_train_samp = x_train[samp, ]
-                    y_train_samp = [y_train[i] for i in samp]
-                    model = model_gen()
-                    model.fit(x_train_samp, y_train_samp)
-                    pcor_test = model.predict(x_test)
-                    mapq_test = pcor_to_mapq(pcor_test)
-                    if test_data_has_correct:
-                        rank_err_improve, sfit_err_improve, bucket_err_improve = \
-                            summarize_performance(pcor_test, mapq_test, pcor_orig_test, mapq_orig_test, y_test)
-                        rank_err_improves.append(rank_err_improve)
-                        sfit_err_improves.append(sfit_err_improve)
-                        bucket_err_improves.append(bucket_err_improve)
-                    logging.info('      Writing downsampled results')
-                    result_test_df = DataFrame.from_items([('pcor', pcor_test), ('mapq', mapq_test),
-                                                           ('orig', mapq_orig_test), ('correct', y_test)])
-                    result_test_df.to_csv('%s_%s_%s_down%02d.csv' % (args.test_prefix, dataset_shortname, model_name,
-                                                                     int(fraction*100)), index=False)
-                # write entire
-                if test_data_has_correct:
-                    downsample_series_df = DataFrame.from_items([
-                        ('fraction', [1.0] + fractions),
-                        ('rank_err_improvement', rank_err_improves),
-                        ('smoothfit_err_improvement', sfit_err_improves),
-                        ('bucket_err_improvement', bucket_err_improves)])
-                    downsample_series_df.to_csv('%s_%s_%s_down_series.csv' % (args.test_prefix, dataset_shortname,
-                                                                              model_name), index=False)
+    logging.info('Instantiating model family')
+    fam = model_family(args)
 
-            # Difference in ranking error between model and original, broken
-            # down by decile.  Helpful for distinguishing whether differences
-            # are in the lower or higher quantiles.
-            if test_data_has_correct:
-                quantiles = np.linspace(0.0, 0.9, 10)
-                ranking_error_quantile_df = DataFrame.from_items([
-                    ('quantiles', quantiles),
-                    ('model', rank_err_quantile),
-                    ('original', rank_err_quantile_orig)])
-                ranking_error_quantile_df['model_minus_original'] =\
-                    ranking_error_quantile_df['model'] - ranking_error_quantile_df['original']
-                ranking_error_quantile_df.to_csv('%s_%s_%s_rank_err_q.csv' % (args.test_prefix, dataset_shortname,
-                                                                              model_name), index=False)
+    odir = args.output_directory
+    logging.info('Making output directory "%s"' % odir)
+    mkdir_quiet(odir)
 
-            if args.training_results:
-                logging.info('  Fitting "%s" on training dataset "%s"' % (model_name, dataset_name))
-                pcor_train = model.predict(x_train)
-                mapq_train = pcor_to_mapq(pcor_train)
-                logging.info('  Writing results')
-                result_train_df = DataFrame.from_items([('pcor', pcor_train), ('mapq', mapq_train),
-                                                        ('orig', mapq_orig_train), ('correct', y_train)])
-                result_train_df.to_csv(args.training_prefix + '_' + dataset_shortname + '_' + model_name + '.csv',
-                                       index=False)
+    logging.info('Fitting and making predictions')
+    fit = MapqFit(args.input_directory, fam, args.subsampling_fraction, verbose=args.verbose)
+    print fit.summary()
 
+    if args.subsampling_series is not None:
+        # TODO: replicates so we can better study stability
+        logging.info('Doing subsampling series')
+        ss_odir = os.path.join(odir, 'subsampled')
+        fractions, preds = [], []
+        for fraction in map(float, args.subsampling_series.split(',')):
+            my_odir = os.path.join(ss_odir, '%0.3f' % fraction)
+            logging.info('  Fitting and making predictions for subsampling fraction %0.3f' % fraction)
+            ss_fit = MapqFit(args.input_directory, fam, fraction, verbose=args.verbose)
+            preds.append(ss_fit.pred_overall)
+            fractions.append(fraction)
+            logging.info('  Making plots for subsampling fraction %0.3f' % fraction)
+            make_plots(ss_fit.pred_overall, my_odir, args)
+        perf_dict = {'fraction': fractions,
+                     'rank_err': [x.rank_err for x in preds],
+                     'rank_err_round': [x.rank_err_round for x in preds],
+                     'mse_err': [x.mse_err for x in preds],
+                     'mse_err_round': [x.mse_err_round for x in preds],
+                     'mapq_avg': [x.mapq_avg for x in preds],
+                     'mapq_std': [x.mapq_std for x in preds]}
+        df = pandas.DataFrame.from_dict(perf_dict)
+        df.to_csv(os.path.join(odir, 'subsampling_series.tsv'), sep='\t', index=False)
+        plot_subsampling_series([df]).savefig('subsampling_series.pdf')
+
+    logging.info('Making plots')
+    make_plots(fit.pred_overall, odir, args)
     logging.info('Done')
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description='Fit models, etc.')
+    parser = argparse.ArgumentParser(description='Fit model, make predictions.')
 
-    parser.add_argument('--training-prefix', metavar='path', type=str, default='training',
-                        help='Prefix for files with training data')
-    parser.add_argument('--test-prefix', metavar='path', type=str, default='test',
-                        help='Prefix for files with test data')
-    parser.add_argument('--training-results', action='store_const', const=True, default=False,
-                        help='Use model to fit on training data and emit results')
-    parser.add_argument('--downsample', action='store_const', const=True, default=False,
-                        help='Do a series of downsamples to see how well model does with less data')
-    parser.add_argument('--random-forest-num-trees', metavar='int', type=int, default=35, required=False,
-                        help='Number of trees to use in random forest regression')
-    parser.add_argument('--random-forest-max-depth', metavar='int', type=int, default=6, required=False,
-                        help='Maximum depth of trees in random forest')
-    parser.add_argument('--seed', metavar='int', type=int, default=99099, required=False,
-                        help='Integer to initialize pseudo-random generator')
-    parser.add_argument('--profile', action='store_const', const=True, default=False, help='Print profiling info')
+    # Output-related options
+    parser.add_argument('--input-directory', metavar='path', type=str, required=True,
+                        help='Directory with output from tandem simulator')
+    parser.add_argument('--output-directory', metavar='path', type=str, required=True,
+                        help='Directory to write summaries and plots to')
+
+    # Model-related options
+    parser.add_argument('--model-family', metavar='family', type=str, required=False,
+                        default='ExtraTrees', help='{RandomForest | ExtraTrees | GradientBoosting | AdaBoost}')
+
+    # What to generate
+    parser.add_argument('--subsampling-fraction', metavar='float', type=float, default=1.0,
+                        help='Subsample the training down to this fraction before fitting model')
+    parser.add_argument('--subsampling-series', metavar='floats', type=str, required=True,
+                        help='Comma separated list of subsampling fractions to try')
+    parser.add_argument('--plot-cum-incorrect', action='store_const', const=True, default=False,
+                        help='Make cumulative-incorrect plots, including on -log and normal scale, and for predicted '
+                             'and difference')
+    parser.add_argument('--plot-mapq-buckets', action='store_const', const=True, default=False,
+                        help='Plot expected vs actual MAPQ')
+    parser.add_argument('--plot-all', action='store_const', const=True, default=False,
+                        help='Like specifying all option beginning with --plot')
+
+    # Other options
+    parser.add_argument('--seed', metavar='int', type=int, default=6277, help='Pseudo-random seed')
     parser.add_argument('--verbose', action='store_const', const=True, default=False, help='Be talkative')
+    parser.add_argument('--profile', action='store_const', const=True, default=False, help='Output profiling data')
 
-    args = parser.parse_args()
+    myargs = parser.parse_args()
 
-    logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', datefmt='%m/%d/%y-%H:%M:%S',
-                        level=logging.DEBUG if args.verbose else logging.INFO)
-
-    random.seed(args.seed)
-    if args.profile:
+    if myargs.profile:
         import cProfile
-        cProfile.run('go(args)')
+        cProfile.run('go(myargs)')
     else:
-        go(args)
+        go(myargs)
