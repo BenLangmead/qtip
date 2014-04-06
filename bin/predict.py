@@ -1,7 +1,5 @@
 """
-Things to output:
-- Downsampling series & plot
--
+Given a directory with
 """
 
 __author__ = 'langmead'
@@ -14,6 +12,8 @@ import itertools
 import matplotlib.pyplot as plt
 import numpy as np
 import logging
+import gc
+import cPickle
 from sklearn import cross_validation
 from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor, AdaBoostRegressor, GradientBoostingRegressor
 from collections import defaultdict, Counter
@@ -165,7 +165,7 @@ def drop_rate_cum_sum(pcor, cor):
     return cumsums
 
 
-def plot_drop_rate(pcor, cor, pcor2=None, log2ize=False):
+def plot_drop_rate(pcor, cor, pcor2=None, log2ize=False, rasterize=False):
     """  """
     cumsum = drop_rate_cum_sum(pcor, cor)
     cumsum2 = None if pcor2 is None else drop_rate_cum_sum(pcor2, cor)
@@ -176,9 +176,9 @@ def plot_drop_rate(pcor, cor, pcor2=None, log2ize=False):
     maxx = math.ceil(np.log2(ln))
     fig = plt.figure(figsize=(10, 4))
     axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
-    axes.plot(x_log, cumsum[:-1], color='r', label='Model')
+    axes.plot(x_log, cumsum[:-1], color='r', label='Model', rasterized=rasterize)
     if cumsum2 is not None:
-        axes.plot(x_log, cumsum2[:-1], color='k', label='Original')
+        axes.plot(x_log, cumsum2[:-1], color='k', label='Original', rasterized=rasterize)
     axes.set_xlabel('MAPQ drop rate')
     if log2ize:
         axes.set_xticklabels(map(lambda x: 2 ** x, np.linspace(-1, -maxx, maxx)), rotation=90)
@@ -189,7 +189,7 @@ def plot_drop_rate(pcor, cor, pcor2=None, log2ize=False):
     return fig
 
 
-def plot_drop_rate_difference(pcor, pcor2, cor, log2ize=False):
+def plot_drop_rate_difference(pcor, pcor2, cor, log2ize=False, rasterize=False):
     cumsum1, cumsum2 = drop_rate_cum_sum(pcor, cor), drop_rate_cum_sum(pcor2, cor)
     ln = len(pcor)
     x_log = np.linspace(1.0/ln, (ln - 1.0) / ln, ln - 1.0)
@@ -200,7 +200,7 @@ def plot_drop_rate_difference(pcor, pcor2, cor, log2ize=False):
     axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
     cumsum_diff = np.subtract(cumsum1, cumsum2)
     xs, ys = x_log, cumsum_diff[:-1]
-    axes.plot(xs, ys, color='k', label='Model')
+    axes.plot(xs, ys, color='k', label='Model', rasterized=rasterize)
     axes.set_xlabel('MAPQ drop rate')
     if log2ize:
         axes.set_xticklabels(map(lambda x: 2 ** x, np.linspace(-1, -maxx, maxx)), rotation=90)
@@ -402,8 +402,8 @@ class MapqPredictions:
         self.mapq = None
         self.correct_end, self.correct_run = 0, 0
         self.pcor_orig = None
-        self.mapq_avg, self.mapq_orig_avg = None, None
-        self.mapq_std, self.mapq_orig_std = None, None
+        self.mapq_avg, self.mapq_orig_avg = 0., 0.
+        self.mapq_std, self.mapq_orig_std = 0., 0.
         self.rank_err_orig = None
         self.rank_err = None
         self.rank_err_round = None
@@ -451,7 +451,8 @@ class MapqPredictions:
         if self.names is not None:
             summ_dict['names'] = [self.names[x] for x in incor_idx]
         if self.data is not None:
-            summ_dict['data'] = map(lambda x: ','.join(map(lambda y: '%0.3f' % y, x)), [self.data[x] for x in incor_idx])
+            summ_dict['data'] = map(lambda x: ','.join(map(lambda y: '%0.3f' % y, x)),
+                                    [self.data[x] for x in incor_idx])
         summ_dict['correct'] = [self.correct[x] for x in incor_idx]
         return pandas.DataFrame.from_dict(summ_dict)
 
@@ -838,23 +839,24 @@ def mkdir_quiet(dr):
                 raise
 
 
-def make_plots(pred, odir, args):
+def make_plots(pred, odir, args, prefix=''):
     mkdir_quiet(odir)
+    fmat = args.plot_format
     if args.plot_cum_incorrect or args.plot_all:
-        logging.info('Making cumulative-incorrect plots')
+        logging.info(prefix + 'Making cumulative-incorrect plots')
         assert pred.correct is not None
-        plot_drop_rate(pred.pcor, pred.correct, pcor2=pred.pcor_orig, log2ize=False).savefig(
-            os.path.join(odir, 'drop_rate.pdf'))
-        plot_drop_rate(pred.pcor, pred.correct, pcor2=pred.pcor_orig, log2ize=True).savefig(
-            os.path.join(odir, 'drop_rate_log2.pdf'))
-        plot_drop_rate_difference(pred.pcor, pred.pcor_orig, pred.correct, log2ize=False).savefig(
-            os.path.join(odir, 'drop_rate_diff.pdf'))
-        plot_drop_rate_difference(pred.pcor, pred.pcor_orig, pred.correct, log2ize=True).savefig(
-            os.path.join(odir, 'drop_rate_diff_log2.pdf'))
+        plot_drop_rate(pred.pcor, pred.correct, pcor2=pred.pcor_orig, log2ize=False, rasterize=args.rasterize).savefig(
+            os.path.join(odir, 'drop_rate.' + fmat))
+        plot_drop_rate(pred.pcor, pred.correct, pcor2=pred.pcor_orig, log2ize=True, rasterize=args.rasterize).savefig(
+            os.path.join(odir, 'drop_rate_log2.' + fmat))
+        plot_drop_rate_difference(pred.pcor, pred.pcor_orig, pred.correct, log2ize=False, rasterize=args.rasterize).savefig(
+            os.path.join(odir, 'drop_rate_diff.' + fmat))
+        plot_drop_rate_difference(pred.pcor, pred.pcor_orig, pred.correct, log2ize=True, rasterize=args.rasterize).savefig(
+            os.path.join(odir, 'drop_rate_diff_log2.' + fmat))
     if args.plot_mapq_buckets or args.plot_all:
-        logging.info('Making MAPQ bucket plots')
+        logging.info(prefix + 'Making MAPQ bucket plots')
         bucket_error_plot([pred.mapq, pred.mapq_orig], ['Predicted', 'Original'], ['b', 'g'], pred.correct).savefig(
-            os.path.join(odir, 'mapq_buckets.pdf'))
+            os.path.join(odir, 'mapq_buckets.' + fmat))
 
 
 def go(args):
@@ -865,39 +867,64 @@ def go(args):
     fam = model_family(args)
 
     odir = args.output_directory
-    logging.info('Making output directory "%s"' % odir)
     mkdir_quiet(odir)
 
-    logging.info('Fitting and making predictions')
-    fit = MapqFit(args.input_directory, fam, args.subsampling_fraction, verbose=args.verbose)
-    print fit.summary()
-
     if args.subsampling_series is not None:
-        # TODO: replicates so we can better study stability
         logging.info('Doing subsampling series')
         ss_odir = os.path.join(odir, 'subsampled')
-        fractions, preds = [], []
+        fractions = []
+        preds = [list() for _ in xrange(args.subsampling_replicates)]
         for fraction in map(float, args.subsampling_series.split(',')):
-            my_odir = os.path.join(ss_odir, '%0.3f' % fraction)
-            logging.info('  Fitting and making predictions for subsampling fraction %0.3f' % fraction)
-            ss_fit = MapqFit(args.input_directory, fam, fraction, verbose=args.verbose)
-            preds.append(ss_fit.pred_overall)
+            logging.info('  Fraction=%0.3f' % fraction)
+            for repl in xrange(1, args.subsampling_replicates+1):
+                my_seed = hash(str(args.seed + repl))
+                gc.collect()
+                logging.info('    Replicate=%d' % repl)
+                my_odir = os.path.join(ss_odir, '%0.3f' % fraction, str(repl))
+                mkdir_quiet(my_odir)
+                my_fit_fn = os.path.join(my_odir, 'fit.pkl')
+                if os.path.exists(my_fit_fn) and not args.overwrite_fit:
+                    logging.info('      Loading predictions from file')
+                    with open(my_fit_fn, 'rb') as fh:
+                        ss_fit = cPickle.load(fh)
+                else:
+                    logging.info('      Fitting and making predictions')
+                    ss_fit = MapqFit(args.input_directory, fam, fraction, verbose=args.verbose, random_seed=my_seed)
+                    logging.info('      Serializing fit object')
+                    with open(my_fit_fn, 'wb') as ofh:
+                        cPickle.dump(ss_fit, ofh, 2)
+                preds[repl-1].append(ss_fit.pred_overall)
+                logging.info('      Making plots')
+                make_plots(ss_fit.pred_overall, my_odir, args, prefix='        ')
+            gc.collect()
             fractions.append(fraction)
-            logging.info('  Making plots for subsampling fraction %0.3f' % fraction)
-            make_plots(ss_fit.pred_overall, my_odir, args)
-        perf_dict = {'fraction': fractions,
-                     'rank_err': [x.rank_err for x in preds],
-                     'rank_err_round': [x.rank_err_round for x in preds],
-                     'mse_err': [x.mse_err for x in preds],
-                     'mse_err_round': [x.mse_err_round for x in preds],
-                     'mapq_avg': [x.mapq_avg for x in preds],
-                     'mapq_std': [x.mapq_std for x in preds]}
-        df = pandas.DataFrame.from_dict(perf_dict)
-        df.to_csv(os.path.join(odir, 'subsampling_series.tsv'), sep='\t', index=False)
-        plot_subsampling_series([df]).savefig('subsampling_series.pdf')
+        perf_dicts = [{'fraction': fractions,
+                       'rank_err': [x.rank_err for x in pred],
+                       'rank_err_round': [x.rank_err_round for x in pred],
+                       'mse_err': [x.mse_err for x in pred],
+                       'mse_err_round': [x.mse_err_round for x in pred],
+                       'mapq_avg': [x.mapq_avg for x in pred],
+                       'mapq_std': [x.mapq_std for x in pred]} for pred in preds]
+        dfs = [pandas.DataFrame.from_dict(perf_dict) for perf_dict in perf_dicts]
+        for i, df in enumerate(dfs):
+            df.to_csv(os.path.join(odir, 'subsampling_series_%d.tsv' % (i+1)), sep='\t', index=False)
+        plot_subsampling_series(dfs).savefig(os.path.join(odir, 'subsampling_series.' + args.plot_format))
+
+    fit_fn = os.path.join(odir, 'fit.pkl')
+    if os.path.exists(fit_fn) and not args.overwrite_fit:
+        logging.info('Loading fit from file')
+        with open(fit_fn, 'rb') as fh:
+            fit = cPickle.load(fh)
+    else:
+        logging.info('Fitting and making predictions')
+        fit = MapqFit(args.input_directory, fam, args.subsampling_fraction, verbose=args.verbose, random_seed=args.seed)
+        print fit.summary()
+        logging.info('Serializing fit object')
+        with open(fit_fn, 'wb') as ofh:
+            cPickle.dump(fit, ofh, 2)
 
     logging.info('Making plots')
-    make_plots(fit.pred_overall, odir, args)
+    make_plots(fit.pred_overall, odir, args, prefix='  ')
     logging.info('Done')
 
 if __name__ == "__main__":
@@ -914,12 +941,18 @@ if __name__ == "__main__":
     # Model-related options
     parser.add_argument('--model-family', metavar='family', type=str, required=False,
                         default='ExtraTrees', help='{RandomForest | ExtraTrees | GradientBoosting | AdaBoost}')
+    parser.add_argument('--overwrite-fit', action='store_const', const=True, default=False,
+                        help='Re-fit the model even if a fit is already present in --output-directory')
+    parser.add_argument('--compression-effort', metavar='int', type=int, default=1,
+                        help='How hard to try to compress the model when writing to .pkl file')
 
     # What to generate
     parser.add_argument('--subsampling-fraction', metavar='float', type=float, default=1.0,
                         help='Subsample the training down to this fraction before fitting model')
     parser.add_argument('--subsampling-series', metavar='floats', type=str, required=True,
                         help='Comma separated list of subsampling fractions to try')
+    parser.add_argument('--subsampling-replicates', metavar='int', type=int, default=1,
+                        help='Number of times to repeat fiting/prediction for each subsampling fraction')
     parser.add_argument('--plot-cum-incorrect', action='store_const', const=True, default=False,
                         help='Make cumulative-incorrect plots, including on -log and normal scale, and for predicted '
                              'and difference')
@@ -927,6 +960,13 @@ if __name__ == "__main__":
                         help='Plot expected vs actual MAPQ')
     parser.add_argument('--plot-all', action='store_const', const=True, default=False,
                         help='Like specifying all option beginning with --plot')
+    parser.add_argument('--plot-format', metavar='format', type=str, default='png',
+                        help='Extension (and image format) for plot: {pdf, png, eps, jpg, ...}')
+
+    # Plotting options
+    # This doesn't seem to help anything!
+    parser.add_argument('--rasterize', action='store_const', const=True, default=False,
+                        help='Rasterize complicated lines and curves in plots')
 
     # Other options
     parser.add_argument('--seed', metavar='int', type=int, default=6277, help='Pseudo-random seed')
@@ -935,8 +975,18 @@ if __name__ == "__main__":
 
     myargs = parser.parse_args()
 
+    pr = None
     if myargs.profile:
         import cProfile
-        cProfile.run('go(myargs)')
-    else:
-        go(myargs)
+        import pstats
+        import StringIO
+        pr = cProfile.Profile()
+        pr.enable()
+    go(myargs)
+    if myargs.profile:
+        pr.disable()
+        s = StringIO.StringIO()
+        sortby = 'tottime'
+        ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+        ps.print_stats(30)
+        print s.getvalue()
