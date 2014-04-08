@@ -146,9 +146,9 @@ class FragmentSimSerial2(object):
                 spillover = False
             else:
                 # add spillover from previous sequence
-                assert len(last_seq) >= self.max_fraglen-1
-                seq = last_seq[-(self.max_fraglen - 1):] + seq
-                offset -= (self.max_fraglen - 1)
+                to_subtract = min(self.max_fraglen-1, len(last_seq))
+                seq = last_seq[-to_subtract:] + seq
+                offset -= to_subtract
             #
             # ------------============================================
             #  spillover    new sequence
