@@ -422,7 +422,8 @@ def is_correct(al, args):
     """ Return true if the given alignment is both simulated and "correct" --
         i.e. in or very near it's true point of origin """
     if args.correct_chromosomes is not None:
-        return (al.refid in args.correct_chromosomes), 0
+        al_refid_trimmed = al.refid.split()[0]
+        return (al_refid_trimmed in args.correct_chromosomes), 0
     elif simulators.isExtendedWgsim(al.name):
         return simulators.correctExtendedWgsim(al, args.wiggle)
     else:
