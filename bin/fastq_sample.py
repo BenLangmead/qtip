@@ -21,8 +21,11 @@ parser.add_argument(\
 parser.add_argument(\
     '--out', metavar='path', type=str, required=False, help='Output.')
 parser.add_argument(\
+    '--seed', metavar='integer', type=int, default=92039, help='Pseudo-random seed')
+parser.add_argument(\
     '--n', metavar='integer', type=int, required=True, help='Number of reads to sample')
 args = parser.parse_args()
+
 
 class ReservoirSampler(object):
     """ Simple reservoir sampler """
@@ -46,6 +49,7 @@ class ReservoirSampler(object):
     def shuffle(self):
         random.shuffle(self.r)
 
+random.seed(args.seed)
 sampler = ReservoirSampler(args.n)
 for ifn in args.input:
     fh = gzip.GzipFile(ifn, 'r') if ifn.endswith('.gz') else open(ifn, 'r')
@@ -53,9 +57,9 @@ for ifn in args.input:
     while True:
         name1 = fh.readline()
         if len(name1) == 0: break
-        seq   = fh.readline()
+        seq = fh.readline()
         name2 = fh.readline()
-        qual  = fh.readline()
+        qual = fh.readline()
         sampler.add((name1, seq, name2, qual))
     fh.close()
 
