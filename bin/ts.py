@@ -645,6 +645,9 @@ def go(args, aligner_args):
         except OSError as exception:
             if exception.errno != errno.EEXIST:
                 raise
+
+    if args.U is not None and args.m1 is not None:
+        raise RuntimeError('Input must consist of only unpaired or only paired-end reads')
     
     # Construct command to invoke aligner
     aligner_class, alignment_class = Bowtie2, AlignmentBowtie2
@@ -659,7 +662,6 @@ def go(args, aligner_args):
         align_cmd = 'bwa mem '
         if args.bwa_exe is not None:
             align_cmd = args.bwa_exe + ' mem '
-        align_cmd += '-p '
         align_cmd += ' '.join(aligner_args)
         aligner_class, alignment_class = BwaMem, AlignmentBwaMem
     elif args.aligner is not None:
@@ -674,7 +676,7 @@ def go(args, aligner_args):
         # ALIGN REAL DATA (or read in alignments from SAM)
         # ##################################################
         
-        aligner = aligner_class(align_cmd, args.index)
+        aligner = aligner_class(align_cmd, args.index, pairsOnly=args.m1 is not None)
         sam_fn = os.path.join(args.output_directory, 'input.sam')
         input_sam_fh = open(sam_fn, 'w') if (args.write_input_sam or args.write_all) else None
         test_data = Dataset()
