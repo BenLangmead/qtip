@@ -659,6 +659,7 @@ def go(args, aligner_args):
         align_cmd = 'bwa mem '
         if args.bwa_exe is not None:
             align_cmd = args.bwa_exe + ' mem '
+        align_cmd += '-p '
         align_cmd += ' '.join(aligner_args)
         aligner_class, alignment_class = BwaMem, AlignmentBwaMem
     elif args.aligner is not None:
@@ -701,7 +702,7 @@ def go(args, aligner_args):
         # Stop timing setup
         setup_ival = time.clock() - st
         st = time.clock()
-        
+
         logging.info('Initializing threads, queues and FIFOs')
         
         # Read through all the input read files and direct all reads to the
