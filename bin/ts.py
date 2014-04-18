@@ -68,6 +68,8 @@ from bowtie2 import AlignmentBowtie2, Bowtie2
 from bwamem import AlignmentBwaMem, BwaMem
 from reference import ReferenceIndexed, ReferenceOOB
 
+VERSION = '0.1.0'
+
 _revcomp_trans = maketrans("ACGTacgt", "TGCAtgca")
 
 
@@ -462,8 +464,8 @@ class AlignmentReader(Thread):
         args = self.args
         try:
             last_al, last_correct = None, None
-            nal, nunp, npair = 0, 0, 0
-            n_mate_first, n_mate_second = 0, 0
+            nal, nunp, nignored, npair = 0, 0, 0, 0
+            #n_mate_first, n_mate_second = 0, 0
             # Following loop involves maintaining 'last_al' across
             # iterations so that we can match up the two ends of a pair
             correct = None
@@ -487,12 +489,17 @@ class AlignmentReader(Thread):
                 al = self.alignment_class()
                 al.parse(ln)
                 nal += 1
-                if al.paired:
+                if al.flags >= 2048:
+                    nignored += 1
+                    continue
+                elif al.paired:
                     npair += 1
                 else:
                     nunp += 1
+
                 if (nal % self.ival) == 0:
-                    logging.info('      # alignments parsed: %d (%d paired, %d unpaired)' % (nal, npair, nunp))
+                    logging.info('      # alignments parsed: %d (%d paired, %d unpaired, %d ignored)' %
+                                 (nal, npair, nunp, nignored))
 
                 if al.paired and last_al is not None:
                     assert al.concordant == last_al.concordant
@@ -527,7 +534,8 @@ class AlignmentReader(Thread):
                             self.typ_hist['unp'] += 1
                             self.dataset.add_unpaired(al, correct)
                         elif mate1 is not None:
-                            n_mate_second += 1
+                            #n_mate_second += 1
+                            #assert n_mate_second == n_mate_first, (n_mate_first, n_mate_second)
                             correct1, correct2 = correct, last_correct
                             if last_al.mate1:
                                 correct1, correct2 = correct2, correct1
@@ -546,8 +554,8 @@ class AlignmentReader(Thread):
                                 self.dataset.add_bad_end(al, last_al, correct)
                             elif training_nm != 'bad_end2':
                                 raise RuntimeError('Bad training data type: "%s"' % training_nm)
-                        elif al.paired:
-                            n_mate_first += 1
+                        #elif al.paired:
+                        #    n_mate_first += 1
 
                     elif is_training:
                         pass
@@ -555,7 +563,8 @@ class AlignmentReader(Thread):
                     elif al.is_aligned():
                         # Test data
                         if mate1 is not None:
-                            n_mate_second += 1
+                            #n_mate_second += 1
+                            #assert n_mate_second == n_mate_first, (n_mate_first, n_mate_second)
                             if not al.concordant and not al.discordant:
                                 # bad-end
                                 correct, dist = is_correct(al, args)
@@ -587,8 +596,8 @@ class AlignmentReader(Thread):
                             elif correct:
                                 self.dist_hist_cor[dist] += 1
                             self.dataset.add_unpaired(al, correct)
-                        else:
-                            n_mate_first += 1
+                        #else:
+                        #    n_mate_first += 1
 
                 # Add to our input-read summaries
                 if self.dists is not None and al.is_aligned():
@@ -611,7 +620,7 @@ class AlignmentReader(Thread):
                     last_al, last_correct = None, None
 
             logging.debug('Output monitoring thread returning successfully')
-            assert n_mate_first == n_mate_second, (n_mate_first, n_mate_second)
+            #assert n_mate_first == n_mate_second, (n_mate_first, n_mate_second)
             self.result_q.put(True)
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
@@ -693,7 +702,7 @@ def go(args, aligner_args):
             test_data,            # Dataset to gather alignments into
             dists,                # empirical dists
             ref,                  # reference genome
-            alignment_class,       #
+            alignment_class,      #
             cor_dist,             #
             incor_dist,           #
             result_test_q,        # result queue
@@ -868,9 +877,12 @@ def go(args, aligner_args):
             for typ, cnt in typ_count.iteritems():
                 if cnt == 0:
                     continue
-                func = logging.warning if (cnt / float(othread.typ_hist[typ])) < 0.3 else logging.info
-                func('  %s: simulated:%d aligned:%d (%0.2f%%)' %
-                     (typ, cnt, othread.typ_hist[typ], 100.0 * othread.typ_hist[typ] / cnt))
+                if typ not in othread.typ_hist:
+                    logging.warning('  %s: simulated:%d but ALIGNED NONE' % (typ, cnt))
+                else:
+                    func = logging.warning if (cnt / float(othread.typ_hist[typ])) < 0.3 else logging.info
+                    func('  %s: simulated:%d aligned:%d (%0.2f%%)' %
+                         (typ, cnt, othread.typ_hist[typ], 100.0 * othread.typ_hist[typ] / cnt))
 
             for typ in training_out_fh.iterkeys():
                 training_out_fh[typ].close()
@@ -1000,6 +1012,10 @@ if __name__ == "__main__":
                         help='Same as specifying all --write-* options')
     parser.add_argument('--compress-output', action='store_const', const=True, default=False,
                         help='gzip all output files')
+
+    if '--version' in sys.argv:
+        print 'Tandem simulator, version ' + VERSION
+        sys.exit(0)
 
     argv = sys.argv
     outer_aligner_args = []

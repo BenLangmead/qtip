@@ -6,6 +6,7 @@ __author__ = 'langmead'
 
 import pandas
 import os
+import sys
 import math
 import random
 import itertools
@@ -17,6 +18,9 @@ import cPickle
 from sklearn import cross_validation
 from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor, AdaBoostRegressor, GradientBoostingRegressor
 from collections import defaultdict, Counter
+
+
+VERSION = '0.1.0'
 
 
 def pcor_to_mapq(p):
@@ -149,6 +153,67 @@ def mse_error(pcor, cor, rounded=False):
     return np.mean((pcor - cor) ** 2) / np.mean((np.mean(cor) - cor) ** 2)
 
 
+def cum_squared_error(pcor, cor, rounded=False):
+    """ Return the cumulative squared error between pcors and cors, sorted
+        from highest to lowest pcor. """
+    if rounded:
+        pcor = round_pcor_iter(pcor)
+    pcor_order = sorted(range(len(pcor)), key=lambda x: pcor[x], reverse=True)
+    pcor = np.array([pcor[x] for x in pcor_order])
+    cor = np.array([cor[x] for x in pcor_order])
+    assert all(pcor[i] >= pcor[i+1] for i in xrange(len(pcor)-1))
+    return np.cumsum((pcor - cor) ** 2)
+
+
+def plot_drop_rate_v_squared_error(pcor, cor, pcor2=None, log2ize=False, rasterize=False):
+    cumsum = cum_squared_error(pcor, cor)
+    cumsum2 = None if pcor2 is None else cum_squared_error(pcor2, cor)
+    assert len(cumsum) == len(cumsum2)
+    ln = len(pcor)
+    x_log = np.linspace(1.0/ln, (ln - 1.0) / ln, ln)
+    assert len(x_log) == len(cumsum)
+    if log2ize:
+        x_log = -np.log2(x_log[::-1])
+    maxx = math.ceil(np.log2(ln))
+    fig = plt.figure(figsize=(10, 4))
+    axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
+    axes.plot(x_log, cumsum, color='r', label='Model', rasterized=rasterize)
+    if cumsum2 is not None:
+        axes.plot(x_log, cumsum2, color='k', label='Original', rasterized=rasterize)
+    axes.set_xlabel('MAPQ drop rate')
+    if log2ize:
+        axes.set_xticklabels(map(lambda x: 2 ** x, np.linspace(-1, -maxx, maxx)), rotation=90)
+    axes.set_ylabel('Cumulative squared error')
+    axes.set_title('Cumulative MSE comparison %s' % ('on -log2 scale' if log2ize else ''))
+    axes.legend(loc=2)
+    axes.grid(True)
+    return fig
+
+
+def plot_drop_rate_v_squared_error_difference(pcor, pcor2, cor, log2ize=False):
+    cumsum1 = cum_squared_error(pcor, cor)
+    cumsum2 = cum_squared_error(pcor2, cor)
+    ln = len(pcor)
+    x_log = np.linspace(1.0/ln, (ln - 1.0) / ln, ln - 1.0)
+    if log2ize:
+        x_log = -np.log2(x_log[::-1])
+    maxx = math.ceil(np.log2(ln))
+    fig = plt.figure(figsize=(10, 4))
+    axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
+    cumsum_diff = np.subtract(cumsum1, cumsum2)
+    xs, ys = x_log, cumsum_diff[:-1]
+    axes.plot(xs, ys, color='k', label='Model')
+    axes.set_xlabel('MAPQ drop rate')
+    if log2ize:
+        axes.set_xticklabels(map(lambda x: 2 ** x, np.linspace(-1, -maxx, maxx)), rotation=90)
+    axes.set_ylabel('Difference in cumulative MSE')
+    axes.set_title('Drop rate comparison on -log2 scale')
+    axes.fill_between(xs, ys, where=ys>=0, interpolate=True, color='red')
+    axes.fill_between(xs, ys, where=ys<=0, interpolate=True, color='green')
+    axes.grid(True)
+    return fig
+
+
 def drop_rate_cum_sum(pcor, cor):
     """ Generate a vector giving (something like) the cumulative sum of
         incorrect alignments up to each p-value, from high to low p-value.
@@ -208,6 +273,30 @@ def plot_drop_rate_difference(pcor, pcor2, cor, log2ize=False, rasterize=False):
     axes.set_title('Drop rate comparison on -log2 scale')
     axes.fill_between(xs, ys, where=ys>=0, interpolate=True, color='red')
     axes.fill_between(xs, ys, where=ys<=0, interpolate=True, color='green')
+    axes.grid(True)
+    return fig
+
+
+def plot_drop_rate_v_squared_error(pcor, cor, pcor2=None, log2ize=False, rasterize=False):
+    """  """
+    cumsum = cum_squared_error(pcor, cor)
+    cumsum2 = None if pcor2 is None else cum_squared_error(pcor2, cor)
+    ln = len(pcor)
+    x_log = np.linspace(1.0/ln, (ln - 1.0) / ln, ln - 1.0)
+    if log2ize:
+        x_log = -np.log2(x_log[::-1])
+    maxx = math.ceil(np.log2(ln))
+    fig = plt.figure(figsize=(10, 4))
+    axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
+    axes.plot(x_log, cumsum[:-1], color='r', label='Model', rasterized=rasterize)
+    if cumsum2 is not None:
+        axes.plot(x_log, cumsum2[:-1], color='k', label='Original', rasterized=rasterize)
+    axes.set_xlabel('MAPQ drop rate')
+    if log2ize:
+        axes.set_xticklabels(map(lambda x: 2 ** x, np.linspace(-1, -maxx, maxx)), rotation=90)
+    axes.set_ylabel('Cumulative squared error')
+    axes.set_title('Drop rate comparison on -log2 scale')
+    axes.legend(loc=2)
     axes.grid(True)
     return fig
 
@@ -781,7 +870,7 @@ def extra_trees_models():
     # These perform quite well
     ret = []
     for ntrees in xrange(5, 40, 10):
-        for max_depth in xrange(8, 12):
+        for max_depth in xrange(4, 12):
             name = "Ex(%d,%d)" % (ntrees, max_depth)
             ret.append((ExtraTreesRegressor(n_estimators=ntrees, max_depth=max_depth,
                                             random_state=33, max_features='auto'), name))
@@ -890,9 +979,10 @@ def go(args):
                 else:
                     logging.info('      Fitting and making predictions')
                     ss_fit = MapqFit(args.input_directory, fam, fraction, verbose=args.verbose, random_seed=my_seed)
-                    logging.info('      Serializing fit object')
-                    with open(my_fit_fn, 'wb') as ofh:
-                        cPickle.dump(ss_fit, ofh, 2)
+                    if args.serialize_fit:
+                        logging.info('      Serializing fit object')
+                        with open(my_fit_fn, 'wb') as ofh:
+                            cPickle.dump(ss_fit, ofh, 2)
                 preds[repl-1].append(ss_fit.pred_overall)
                 logging.info('      Making plots')
                 make_plots(ss_fit.pred_overall, my_odir, args, prefix='        ')
@@ -919,9 +1009,10 @@ def go(args):
         logging.info('Fitting and making predictions')
         fit = MapqFit(args.input_directory, fam, args.subsampling_fraction, verbose=args.verbose, random_seed=args.seed)
         print fit.summary()
-        logging.info('Serializing fit object')
-        with open(fit_fn, 'wb') as ofh:
-            cPickle.dump(fit, ofh, 2)
+        if args.serialize_fit:
+            logging.info('Serializing fit object')
+            with open(fit_fn, 'wb') as ofh:
+                cPickle.dump(fit, ofh, 2)
 
     logging.info('Making plots')
     make_plots(fit.pred_overall, odir, args, prefix='  ')
@@ -943,6 +1034,8 @@ if __name__ == "__main__":
                         default='ExtraTrees', help='{RandomForest | ExtraTrees | GradientBoosting | AdaBoost}')
     parser.add_argument('--overwrite-fit', action='store_const', const=True, default=False,
                         help='Re-fit the model even if a fit is already present in --output-directory')
+    parser.add_argument('--serialize-fit', action='store_const', const=True, default=False,
+                        help='Write fit model to a pickle file')
     parser.add_argument('--compression-effort', metavar='int', type=int, default=1,
                         help='How hard to try to compress the model when writing to .pkl file')
 
@@ -972,6 +1065,10 @@ if __name__ == "__main__":
     parser.add_argument('--seed', metavar='int', type=int, default=6277, help='Pseudo-random seed')
     parser.add_argument('--verbose', action='store_const', const=True, default=False, help='Be talkative')
     parser.add_argument('--profile', action='store_const', const=True, default=False, help='Output profiling data')
+
+    if '--version' in sys.argv:
+        print 'Tandem predictor, version ' + VERSION
+        sys.exit(0)
 
     myargs = parser.parse_args()
 
