@@ -42,8 +42,11 @@ $TS_HOME/software/mason/mason illumina \
 	--seed 254 \
 	--simulate-qualities \
 	--read-length 100 \
-	--output-file contam1.sim.fq \
+	--output-file .contam1.sim.fq \
 	$CONTAM1_FA
+
+sed 's/contig=/contig=lambda-/' < .contam1.sim.fq > contam1.sim.fq
+rm -f .contam1.sim.fq
 
 $TS_HOME/software/mason/mason illumina \
 	--num-reads $NUM_CONTAM_READS \
@@ -55,6 +58,9 @@ $TS_HOME/software/mason/mason illumina \
 	--output-file contam2.sim.fq \
 	$CONTAM2_FA
 
+sed 's/contig=/contig=e_coli-/' < .contam2.sim.fq > contam2.sim.fq
+rm -f .contam2.sim.fq
+
 $TS_HOME/software/mason/mason illumina \
 	--num-reads $NUM_CONTAM_READS \
 	--num-haplotypes 2 \
@@ -64,3 +70,6 @@ $TS_HOME/software/mason/mason illumina \
 	--read-length 100 \
 	--output-file contam3.sim.fq \
 	$CONTAM3_FA
+
+sed 's/contig=/contig=mouse-/' < .contam3.sim.fq > contam3.sim.fq
+rm -f .contam3.sim.fq
