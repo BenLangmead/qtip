@@ -8,11 +8,13 @@
 
 if [ -z "$TS_HOME" ] ; then
     echo "Set TS_HOME first; should contain software/mason/mason"
-exit 1
+    exit 1
+fi
 
 if [ -z "$TS_REFS" ] ; then
     echo "Set TS_REFS first; should contain hg19.fa, lambda_virus.fa, e_coli.fa and mm10.fa"
-exit 1
+    exit 1
+fi
 
 HG19_FA=$TS_REFS/hg19.fa
 CONTAM1_FA=$TS_REFS/lambda_virus.fa
