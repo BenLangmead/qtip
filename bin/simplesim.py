@@ -3,7 +3,6 @@ import re
 import random
 import sys
 import string
-from math import isnan
 try:
     import numpypy as numpy
 except ImportError:
@@ -162,8 +161,10 @@ class FragmentSimSerial2(object):
             # Now what about the no-spillover case.  Now say we're sampling a
             # sequence with length self.max_fraglen - 1.  There's on
             #
-            nfrags_max = len(seq) - self.max_fraglen + 1
             last_seq = seq
+            nfrags_max = max(len(seq) - (self.max_fraglen - 1), 0)
+            if nfrags_max == 0:
+                continue
             concordant_cov, discordant_cov, unpaired_cov, bad_end_cov = my_binom(len(seq), spillover)
             if concordant_cov == discordant_cov == unpaired_cov == bad_end_cov == 0:
                 continue
