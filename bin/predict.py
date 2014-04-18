@@ -339,14 +339,32 @@ def bucket_error_plot(mapq_lists, labs, colors, cor, title=None):
     return fig
 
 
-def quantile_error_plot(mapq_lists, labs, colors, cor, title=None, quantiles=10, already_sorted=False, exclude_mapq_gt=None):
+def log2ize_p_minus(p, mx=10.0):
+    """ Given a probability p, rescale it so that ps are mapped
+        to values in [0, mx] and the right-hand end is magnified. """
+    return abs(math.log(1 - (1 - (2 ** -mx)) * p, 2))
+
+
+def unlog2ize_p_minus(p, mx=10.0):
+    """ Inverse of log2ize_p_minus """
+    return abs((2 ** -p) - 1)/(1 - (2 ** -mx))
+
+
+def quantile_error_plot(mapq_lists, labs, colors, cor, title=None, quantiles=10,
+                        already_sorted=False, exclude_mapq_gt=None, prob_scale=False,
+                        log2ize=False):
     # One problem is how to determine the quantiles when there are multiple methods being compared
-    estimated_mapq_lists = []
-    actual_mapq_lists = []
+    estimated_lists = []
+    actual_lists = []
     n_filtered = []
+    mse_errors = []
     mx = 0
+    scale = (lambda x: x)
+    if log2ize:
+        scale = log2ize_p_minus
+    elif not prob_scale:
+        scale = pcor_to_mapq
     for mapq_list in mapq_lists:
-        assert not np.isinf(np.maximum(mapq_list))
         # remove MAPQs greater than ceiling
         n_before = len(mapq_list)
         if exclude_mapq_gt is not None:
@@ -358,36 +376,49 @@ def quantile_error_plot(mapq_lists, labs, colors, cor, title=None, quantiles=10,
         if not already_sorted:
             sorted_order = sorted(range(n), key=lambda x: mapq_list[x])
             mapq_sorted = [mapq_list[x] for x in sorted_order]
-            pcor_sorted = mapq_to_pcor_iter(mapq_sorted)
-            cor_sorted = [cor[x] for x in sorted_order]
+            pcor_sorted = np.array(mapq_to_pcor_iter(mapq_sorted))
+            cor_sorted = np.array([cor[x] for x in sorted_order])
         else:
             mapq_sorted, pcor_sorted, cor_sorted = mapq_list, mapq_to_pcor_iter(mapq_list), cor
+        mse_errors.append(mse_error(pcor_sorted, cor_sorted))
         partition_starts = [int(round(i*n/quantiles)) for i in xrange(quantiles+1)]
-        estimated_mapq_lists.append([])
-        actual_mapq_lists.append([])
+        estimated_lists.append([])
+        actual_lists.append([])
         for i in xrange(quantiles):
             st, en = partition_starts[i], partition_starts[i+1]
             ncor = sum(cor_sorted[st:en])
-            assert ncor < (en-st)
             ncor_est = sum(pcor_sorted[st:en])
-            estimated_mapq_lists[-1].append(pcor_to_mapq(float(ncor_est)/(en-st)))
-            actual_mapq_lists[-1].append(pcor_to_mapq(float(ncor)/(en-st)))
-        mx = max(mx, max(max(estimated_mapq_lists[-1]), max(actual_mapq_lists[-1])))
+            assert ncor_est < (en-st)
+            estimated_lists[-1].append(scale(float(ncor_est)/(en-st)))
+            if ncor == (en-st) and not prob_scale:
+                actual_lists[-1].append(None)
+            else:
+                actual_lists[-1].append(scale(float(ncor)/(en-st)))
+        mx = max(mx, max(max(estimated_lists[-1]), max(actual_lists[-1])))
     assert not math.isinf(mx)
-    fig = plt.figure(figsize=(8, 8))
+    fig = plt.figure(figsize=(6, 6))
     axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
-    axes.set_xlabel('Reported MAPQ')
-    axes.set_ylabel('Actual MAPQ')
+    if prob_scale:
+        axes.set_xlabel('Predicted probability correct')
+        axes.set_ylabel('Actual fraction correct')
+    else:
+        axes.set_xlabel('Reported MAPQ')
+        axes.set_ylabel('Actual MAPQ')
     if title is not None:
         axes.set_title(title)
-    for o, a, l, c in zip(estimated_mapq_lists, actual_mapq_lists, labs, colors):
+    for o, a, l, c, mse in zip(estimated_lists, actual_lists, labs, colors, mse_errors):
         assert len(o) == len(a)
-        axes.scatter(o, a, label=l, color=c, alpha=0.3, s=60)
-    axes.plot([0, mx], [0, mx], color='r')
+        a = [mx * 1.04 if m is None else m for m in a]
+        axes.scatter(o, a, label='%s (MSE=%0.3f)' % (l, mse), color=c, alpha=0.5, s=60)
+    axes.plot([-mx, 2*mx], [-mx, 2*mx], color='r')  # red line at y=x
     axes.set_xlim((-.02*mx, 1.02*mx))
     axes.set_ylim((-.02*mx, 1.02*mx))
-    axes.legend(loc=2)
-    axes.grid(True)
+    fracs = [0.0, 0.5, 0.9, 0.95, 0.99, 0.999, 1.0]
+    axes.xaxis.set_ticks(map(log2ize_p_minus, fracs))
+    axes.yaxis.set_ticks(map(log2ize_p_minus, fracs))
+    axes.xaxis.set_ticklabels(map(str, fracs))
+    axes.yaxis.set_ticklabels(map(str, fracs))
+    axes.legend(loc=4)  # lower-right corner
 
 
 def plot_subsampling_series(seriess, labs=None, colors=None):
