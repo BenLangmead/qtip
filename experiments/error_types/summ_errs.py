@@ -19,7 +19,6 @@ import argparse
 parser = argparse.ArgumentParser(description='Sample FASTQ reads from file')
 parser.add_argument('--in', dest='input', metavar='path', type=str, nargs='+',
                     required=True, help='FASTQ file input.')
-parser.add_argument('--out', metavar='path', type=str, required=False, help='Output.')
 parser.add_argument('--wiggle', metavar='integer', type=int, required=False, default=50,
                     help='Wiggle-room to allow for correctness check')
 args = parser.parse_args()
