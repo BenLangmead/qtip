@@ -55,7 +55,7 @@ $TS_HOME/software/mason/mason illumina \
 	--seed 298 \
 	--simulate-qualities \
 	--read-length 100 \
-	--output-file contam2.sim.fq \
+	--output-file .contam2.sim.fq \
 	$CONTAM2_FA
 
 sed 's/contig=/contig=e_coli-/' < .contam2.sim.fq > contam2.sim.fq
@@ -68,7 +68,7 @@ $TS_HOME/software/mason/mason illumina \
 	--seed 046 \
 	--simulate-qualities \
 	--read-length 100 \
-	--output-file contam3.sim.fq \
+	--output-file .contam3.sim.fq \
 	$CONTAM3_FA
 
 sed 's/contig=/contig=mouse-/' < .contam3.sim.fq > contam3.sim.fq
