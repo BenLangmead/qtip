@@ -1,15 +1,31 @@
 #!/bin/sh
 
-BT2_IDX_DIR=$HOME/bowtie2_indexes
-BT2_IDX=$BT2_IDX_DIR/hg19.fa
+#
+# Run Bowtie 2 in --sensitive and --very-sensitive modes to align reads
+# from the simulations.
+#
 
-if ! which bowtie2 ; then
-    echo "Add bowtie2 to PATH first"
+if [ -z "$TS_HOME" ] ; then
+    echo "Set TS_HOME first; should contain software/bowtie2/bowtie2"
+    exit 1
+fi
+if [ -z "$TS_INDEXES" ] ; then
+    echo "Set TS_INDEXES first; should contain hg19.fa.*.bt2"
+    exit 1
 fi
 
-$BT2_EXE \
+$TS_HOME/software/bowtie2/bowtie2 \
 	--sam-no-qname-trunc \
-	-x $BT2_IDX \
+	-x $TS_INDEXES/hg19.fa \
 	-U hg19.sim.fq,contam1.sim.fq,contam2.sim.fq,contam3.sim.fq \
-	-S sim.sam \
+	--sensitive \
+	-S sim.sensitive.sam \
+	-p 12
+
+$TS_HOME/software/bowtie2/bowtie2 \
+	--sam-no-qname-trunc \
+	-x $TS_INDEXES/hg19.fa \
+	-U hg19.sim.fq,contam1.sim.fq,contam2.sim.fq,contam3.sim.fq \
+	--very-sensitive \
+	-S sim.very-sensitive.sam \
 	-p 12
