@@ -6,22 +6,24 @@
 # obtain 3% each of the input data.
 #
 
-FASTA_DIR=$HOME/fasta
+if [ -z "$TS_HOME" ] ; then
+    echo "Set TS_HOME first; should contain software/mason/mason"
+exit 1
 
-HG19_FA=$FASTA_DIR/hg19.fa
-CONTAM1_FA=$FASTA_DIR/lambda_virus.fa
-CONTAM2_FA=$FASTA_DIR/e_coli.fa
-CONTAM3_FA=$FASTA_DIR/mm10.fa
+if [ -z "$TS_REFS" ] ; then
+    echo "Set TS_REFS first; should contain hg19.fa, lambda_virus.fa, e_coli.fa and mm10.fa"
+exit 1
+
+HG19_FA=$TS_REFS/hg19.fa
+CONTAM1_FA=$TS_REFS/lambda_virus.fa
+CONTAM2_FA=$TS_REFS/e_coli.fa
+CONTAM3_FA=$TS_REFS/mm10.fa
 
 # 3% contamination from each of the three types
 NUM_READS=910000
 NUM_CONTAM_READS=30000
 
-if ! which mason ; then
-	echo "Add mason to path first"
-fi
-
-mason illumina \
+$TS_HOME/software/mason/mason illumina \
 	--num-reads $NUM_READS \
 	--num-haplotypes 2 \
 	--include-read-information \
@@ -31,7 +33,7 @@ mason illumina \
 	--output-file hg19.sim.fq \
 	$HG19_FA
 
-mason illumina \
+$TS_HOME/software/mason/mason illumina \
 	--num-reads $NUM_CONTAM_READS \
 	--num-haplotypes 1 \
 	--include-read-information \
@@ -41,7 +43,7 @@ mason illumina \
 	--output-file contam1.sim.fq \
 	$CONTAM1_FA
 
-mason illumina \
+$TS_HOME/software/mason/mason illumina \
 	--num-reads $NUM_CONTAM_READS \
 	--num-haplotypes 1 \
 	--include-read-information \
@@ -51,7 +53,7 @@ mason illumina \
 	--output-file contam2.sim.fq \
 	$CONTAM2_FA
 
-mason illumina \
+$TS_HOME/software/mason/mason illumina \
 	--num-reads $NUM_CONTAM_READS \
 	--num-haplotypes 2 \
 	--include-read-information \
