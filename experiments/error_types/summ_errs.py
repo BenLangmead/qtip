@@ -76,11 +76,11 @@ for ifn in args.input:
             if (flags & 4) != 0:
                 # failed to align
                 if sim_refid in good_refs:
-                    err2 += 1  # category-2 error
+                    err2 += 1  # category-2 error: failed to align, but should have
             else:
                 if sim_refid not in good_refs:
                     err1_map[sim_refid] = err1_map.get(sim_refid, 0) + 1
-                    err1 += 1  # category-1 error
+                    err1 += 1  # category-1 error: aligned, but shouldn't have
                 else:
                     # Right ref seq?
                     same = False
@@ -93,7 +93,7 @@ for ifn in args.input:
                                abs(en - sim_en) < args.wiggle:
                                 same = True
                     if not same:
-                        err3 += 1
+                        err3 += 1  # category-3 error: right genome, wrong place
 
 print "Good refs:"
 print ' '.join(good_refs)
