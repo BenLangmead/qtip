@@ -49,6 +49,7 @@ import time
 import logging
 import gzip
 import errno
+import tempfile
 import numpy as np
 from collections import defaultdict
 from traceback import print_tb
@@ -280,67 +281,6 @@ class Dist(object):
             self.min = key
 
 
-class Input(object):
-    """ Class that parses reads from input files and yields the reads/pairs
-        produced using generators """
-
-    @staticmethod
-    def fasta_parse(fh):
-        """ Parse a single FASTA-format read from given filehandle.  Return
-            None if input is exhausted. """
-        lns = [fh.readline().rstrip() for _ in xrange(2)]
-        orig = '\n'.join(lns) + '\n'
-        if len(lns[0]) == 0:
-            return None
-        return Read(lns[0][1:], lns[1], None, orig)
-
-    @staticmethod
-    def fastq_parse(fh):
-        """ Parse a single FASTQ-format read from given filehandle.  Return
-            None if input is exhausted. """
-        lns = [fh.readline().rstrip() for _ in xrange(4)]
-        orig = '\n'.join(lns) + '\n'
-        if len(lns[0]) == 0:
-            return None
-        return Read(lns[0][1:], lns[1], lns[3], orig)
-    
-    def __init__(self, file_format="fastq", unp_fns=None, m1_fns=None, m2_fns=None):
-        self.format = file_format
-        if file_format == "fastq":
-            self.parse = self.fastq_parse
-        elif file_format == "fasta":
-            self.parse = self.fasta_parse
-        else:
-            raise RuntimeError("Bad input format: '%s'" % file_format)
-        self.unp_fns, self.m1_fns, self.m2_fns = unp_fns, m1_fns, m2_fns
-    
-    def __iter__(self):
-        """ Generator for all the reads.  Yields pairs of Read objects, where
-            second element is None for unpaired reads. """
-        # Yield all the unpaired reads first
-        if self.unp_fns is not None:
-            for unpFn in self.unp_fns:
-                with gzip.open(unpFn, 'r') if unpFn.endswith('.gz') else open(unpFn, 'r') as unpFh:
-                    while True:
-                        rd = self.parse(unpFh)
-                        if rd is not None:
-                            yield (rd, None)
-                        else:
-                            break  # next file
-        # Yield all the paired-end reads
-        if self.m1_fns is not None:
-            assert self.m2_fns is not None
-            for (m1Fn, m2Fn) in zip(self.m1_fns, self.m2_fns):
-                with gzip.open(m1Fn, 'r') if m1Fn.endswith('.gz') else open(m1Fn, 'r') as m1Fh:
-                    with gzip.open(m2Fn, 'r') if m2Fn.endswith('.gz') else open(m2Fn, 'r') as m2Fh:
-                        while True:
-                            rd1, rd2 = self.parse(m1Fh), self.parse(m2Fh)
-                            if rd1 is not None:
-                                yield (rd1, rd2)
-                            else:
-                                break  # next pair of files
-
-
 class Dists(object):
     
     """ Encapsulates the distributions that we capture from real data.
@@ -442,7 +382,7 @@ class AlignmentReader(Thread):
     
     def __init__(self, args, sam_q, dataset, dists, ref,
                  alignment_class, dist_hist_cor, dist_hist_incor,
-                 result_q, sam_ofh=None, ival=10000):
+                 result_q, sam_ofh=None, ival=20000):
         Thread.__init__(self)
         self.args = args
         self.sam_q = sam_q
@@ -462,6 +402,7 @@ class AlignmentReader(Thread):
     def run(self):
         """ Collect SAM output """
         args = self.args
+        has_readline = hasattr(self.sam_q, 'read')
         try:
             last_al, last_correct = None, None
             nal, nunp, nignored, npair = 0, 0, 0, 0
@@ -471,9 +412,14 @@ class AlignmentReader(Thread):
             correct = None
             while True:
                 try:
-                    ln = self.sam_q.get(block=True, timeout=0.5)
-                    if ln is None:
-                        break
+                    if has_readline:
+                        ln = self.sam_q.readline()
+                        if len(ln) == 0:
+                            break
+                    else:
+                        ln = self.sam_q.get(block=True, timeout=0.5)
+                        if ln is None:
+                            break
                 except Empty:
                     continue  # keep trying
                 
@@ -630,11 +576,56 @@ class AlignmentReader(Thread):
             self.result_q.put(False)
 
 
-def create_input(args):
-    """ Return an Input object that reads all user-provided input reads """
-    assert args.fasta or args.fastq
-    return Input(file_format="fastq" if args.fastq else "fasta", unp_fns=args.U,
-                 m1_fns=args.m1, m2_fns=args.m2)
+class TemporaryFileManager():
+
+    def __init__(self):
+        self.dir = tempfile.mkdtemp()
+        self.files = set()
+        self.groups = defaultdict(list)
+        self.peak_size = 0
+
+    def get_filename(self, fn_basename, group=''):
+        """ Return filename for new temporary file in temp dir """
+        if fn_basename in self.files:
+            raise RuntimeError('Temporary file with name "%s" already exists' % fn_basename)
+        self.groups[group].append(fn_basename)
+        self.files.add(fn_basename)
+        return os.path.join(self.dir, fn_basename)
+
+    def remove_group(self, group):
+        """ Remove all the temporary files belonging to the named group """
+        for fn_basename in self.groups[group]:
+            self.files.remove(fn_basename)
+            os.remove(os.path.join(self.dir, fn_basename))
+        del self.groups[group]
+
+    def size(self):
+        """ Return total size of all the files in the temp dir """
+        return sum(os.path.getsize(os.path.join(self.dir, f)) for f in self.files)
+
+    def update_peak(self):
+        """ Update peak size of temporary files """
+        self.peak_size = max(self.peak_size, self.size())
+
+
+class Timing(object):
+
+    def __init__(self):
+        self.labs = []
+        self.timers = dict()
+
+    def start_timer(self, lab):
+        self.labs.append(lab)
+        self.timers[lab] = time.time()
+
+    def end_timer(self, lab):
+        self.timers[lab] = time.time() - self.timers[lab]
+
+    def __str__(self):
+        ret = []
+        for lab in self.labs:
+            ret.append('\t'.join([lab, str(self.timers[lab])]))
+        return '\n'.join(ret) + '\n'
 
 
 def go(args, aligner_args):
@@ -642,7 +633,10 @@ def go(args, aligner_args):
 
     random.seed(args.seed)
     np.random.seed(args.seed)
-    
+
+    tim = Timing()
+    tim.start_timer('Overall')
+
     # Set up logger
     logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', datefmt='%m/%d/%y-%H:%M:%S',
                         level=logging.DEBUG if args.verbose else logging.INFO)
@@ -676,78 +670,101 @@ def go(args, aligner_args):
     elif args.aligner is not None:
         raise RuntimeError('Aligner not supported: "%s"' % args.aligner)
 
-    st = time.clock()
-    
+    temp_man = TemporaryFileManager()
+
     logging.info('Loading reference data')
     with ReferenceIndexed(args.ref) as ref:
     
         # ##################################################
         # ALIGN REAL DATA (or read in alignments from SAM)
         # ##################################################
-        
-        aligner = aligner_class(align_cmd, args.index, pairsOnly=args.m1 is not None)
+
+        unpaired_arg = args.U
+        paired_arg = None
+        if args.m1 is not None:
+            paired_arg = zip(args.m1, args.m2)
+
+        input_sam_fh = None
+        write_input_sam = args.write_input_sam or args.write_all
+        sam_arg = None
         sam_fn = os.path.join(args.output_directory, 'input.sam')
-        input_sam_fh = open(sam_fn, 'w') if (args.write_input_sam or args.write_all) else None
+        if not write_input_sam:
+            sam_fn = temp_man.get_filename('input.sam', 'input sam')
+
+        if args.use_temporary_files:
+            sam_arg = sam_fn
+        else:
+            input_sam_fh = open(sam_fn, 'w') if write_input_sam else None
+
+        if args.use_temporary_files:
+            tim.start_timer('Aligning input reads')
+
+        logging.info('Command for aligning input data: "%s"' % align_cmd)
+        aligner = aligner_class(align_cmd, args.index,
+                                unpaired=unpaired_arg, paired=paired_arg,
+                                sam=sam_arg)
+
+        if args.use_temporary_files:
+            logging.debug('Waiting for aligner to finish')
+            while aligner.pipe.poll() is None:
+                time.sleep(0.5)
+            logging.debug('Aligner finished')
+            tim.end_timer('Aligning input reads')
+
         test_data = Dataset()
         dists = Dists(args.max_allowed_fraglen)
         cor_dist, incor_dist = defaultdict(int), defaultdict(int)
         
-        logging.info('Real-data aligner command: "%s"' % align_cmd)
-        
-        # Create the thread that eavesdrops on output from aligner
         result_test_q = Queue()
-        othread = AlignmentReader(
-            args,
-            aligner.outQ,         # SAM queue
-            test_data,            # Dataset to gather alignments into
-            dists,                # empirical dists
-            ref,                  # reference genome
-            alignment_class,      #
-            cor_dist,             #
-            incor_dist,           #
-            result_test_q,        # result queue
-            sam_ofh=input_sam_fh)  # SAM output filehandle
-        othread.daemon = True
-        othread.start()
-        
-        # Stop timing setup
-        setup_ival = time.clock() - st
-        st = time.clock()
+        if args.use_temporary_files:
+            tim.start_timer('Parsing input read alignments')
+            with open(sam_fn, 'r') as sam_fh:
+                othread = AlignmentReader(
+                    args,
+                    sam_fh,                # SAM file
+                    test_data,             # Dataset to gather alignments into
+                    dists,                 # empirical dists
+                    ref,                   # reference genome
+                    alignment_class,       # class to instantiate for alignment
+                    cor_dist,              # dist. of correct alignment deviations
+                    incor_dist,            # dist. of incorrect alignment deviations
+                    result_test_q,         # result queue
+                    sam_ofh=input_sam_fh)  # SAM output filehandle
+                othread.run()
 
-        logging.info('Initializing threads, queues and FIFOs')
-        
-        # Read through all the input read files and direct all reads to the
-        # appropriate queue
-        upto = args.upto or sys.maxint
-        num_reads, num_unp, num_pair = 0, 0, 0
-        for (rd1, rd2) in iter(create_input(args)):
-            aligner.put(rd1, rd2)
-            num_reads += 1
-            if rd2 is None:
-                num_unp += 1
-            else:
-                num_pair += 1
-            if num_reads >= upto:
-                break
-            if not othread.is_alive():
-                logging.error('Output thread died! - leaving input loop early.')
-                break
-        aligner.done()
-        
-        logging.info('Fed %d input reads (%d unpaired, %d pairs) to aligner' % (num_reads, num_unp, num_pair))
-        logging.debug('Waiting for aligner to finish')
-        while aligner.pipe.poll() is None:
-            time.sleep(0.5)
-        while othread.is_alive():
-            othread.join(0.5)
-        logging.debug('Aligner process and output thread finished')
+            temp_man.update_peak()
+            temp_man.remove_group('input sam')
+            tim.end_timer('Parsing input read alignments')
+        else:
+            # Create the thread that eavesdrops on output from aligner
+            othread = AlignmentReader(
+                args,
+                aligner.outQ,          # SAM queue
+                test_data,             # Dataset to gather alignments into
+                dists,                 # empirical dists
+                ref,                   # reference genome
+                alignment_class,       # class to instantiate for alignment
+                cor_dist,              # dist. of correct alignment deviations
+                incor_dist,            # dist. of incorrect alignment deviations
+                result_test_q,         # result queue
+                sam_ofh=input_sam_fh)  # SAM output filehandle
+            othread.daemon = True
+            othread.start()
+            logging.info('Initializing threads, queues and FIFOs')
+
+            logging.debug('Waiting for wrapped aligner to finish')
+            while aligner.pipe.poll() is None:
+                time.sleep(0.5)
+            while othread.is_alive():
+                othread.join(0.5)
+            logging.debug('Aligner process and output thread finished')
+
         othread_result = result_test_q.get()
         if not othread_result:
             raise RuntimeError('Aligner output monitoring thread encountered error')
-        
-        logging.info('Finished aligning input reads')
+
         if input_sam_fh is not None:
-            logging.info('  Input read alignments written to "%s"' % sam_fn)
+            logging.info('  Input alignments written to "%s"' % sam_fn)
         
         # Writing test dataset
         if args.write_test_data or args.write_all:
@@ -763,11 +780,7 @@ def go(args, aligner_args):
                     for k, v in sorted(hist.iteritems()):
                         fh.write('%d,%d\n' % (k, v))
                 logging.info('%s-alignment distances written to "%s"' % (long_name, test_dist_fn))
-        
-        # Stop timing interval for alignment phase 1
-        al1_ival = time.clock() - st
-        st = time.clock()
-        
+
         # ##################################################
         # ALIGN SIMULATED DATA
         # ##################################################
@@ -800,116 +813,207 @@ def go(args, aligner_args):
             if aligner.supportsMix() and dists.has_pairs() and dists.has_unpaired_reads():
                 # Do both unpaired and paired simualted reads in one round
                 both, lab = True, 'both paired-end and unpaired'
-            
+
+            def simulate(simw, aligner=None, format='tab6'):
+                """ Need to re-think this to accomodate the case where we're
+                    writing to a file instead of directly to aligner """
+                write_training_reads = args.write_training_reads or args.write_all
+                training_out_fn, training_out_fh = {}, {}
+                if write_training_reads or args.use_temporary_files:
+                    types = []
+                    if paired or both:
+                        types.extend(['conc', 'disc', 'bad_end'])
+                    if not paired or both:
+                        types.append('unp')
+                    for t in types:
+                        fn_base = 'training_%s.%s' % (t, format)
+                        fn = os.path.join(args.output_directory, fn_base)
+                        if not write_training_reads:
+                            fn = temp_man.get_filename(fn_base, 'tandem reads')
+                        training_out_fn[t] = fn
+                        training_out_fh[t] = open(fn, 'w')
+
+                logging.info('  Simulating reads')
+                n_simread, typ_count = 0, defaultdict(int)
+                for t, rdp1, rdp2 in simw.simulate_batch(args.sim_fraction, args.sim_unp_min,
+                                                         args.sim_conc_min, args.sim_disc_min,
+                                                         args.sim_bad_end_min,
+                                                         bias=args.low_score_bias):
+                    if t in training_out_fh:
+                        if format == 'tab6':
+                            training_out_fh[t].write(Read.to_tab6(rdp1, rdp2) + '\n')
+                        elif format == 'interleaved_fastq':
+                            training_out_fh[t].write(Read.to_interleaved_fastq(rdp1, rdp2) + '\n')
+                        else:
+                            raise RuntimeError('Bad training read output format "%s"' % format)
+                    if aligner is not None:
+                        aligner.put(rdp1, rdp2)
+                    typ_count[t] += 1
+                    n_simread += 1
+                    if (n_simread % 20000) == 0:
+                        logging.info('    simulated %d reads (%d conc, %d disc, %d bad-end, %d unp)' %
+                                     (n_simread, typ_count['conc'], typ_count['disc'],
+                                      typ_count['bad_end'], typ_count['unp']))
+
+                for t in training_out_fh.iterkeys():
+                    training_out_fh[t].close()
+                    logging.info('  Training reads written to "%s"' % training_out_fn[t])
+
+                logging.info('  Finished simulating reads (%d conc, %d disc, %d bad_end, %d unp)' %
+                             (typ_count['conc'], typ_count['disc'], typ_count['bad_end'], typ_count['unp']))
+
+                return typ_count, training_out_fn
+
             simw = FragmentSimSerial2(args.ref, dists)
 
-            logging.info('Opening aligner process')
-            aligner = aligner_class(align_cmd, args.index, pairsOnly=paired)
-            sam_fn = os.path.join(args.output_directory, 'training.sam')
-            training_sam_fh = open(sam_fn, 'w') if (args.write_training_sam or args.write_all) else None
-            cor_dist, incor_dist = defaultdict(int), defaultdict(int)
-            
-            # Create thread that eavesdrops on output from aligner with simulated input
-            logging.info('  Opening output-parsing thread (%s)' % lab)
-            result_training_q = Queue()
-            othread = AlignmentReader(
-                args,
-                aligner.outQ,
-                training_data,
-                None,
-                ref,
-                alignment_class,
-                cor_dist,
-                incor_dist,
-                result_training_q,
-                sam_ofh=training_sam_fh)
-            othread.daemon = True
-            othread.start()
-            assert othread.is_alive()
-            
-            # Simulate concordant paired-end reads
-            write_training_reads = args.write_training_reads or args.write_all
-            training_out_fn, training_out_fh = {}, {}
-            if write_training_reads:
-                types = []
-                if paired or both:
-                    types.extend(['conc', 'disc', 'bad_end'])
-                if not paired or both:
-                    types.append('unp')
-                for typ in types:
-                    training_out_fn[typ] = fn = os.path.join(args.output_directory, 'training_%s.tab6' % typ)
-                    training_out_fh[typ] = open(fn, 'w')
+            if args.use_temporary_files:
+                tim.start_timer('Simulating tandem reads')
+                logging.info('Simulating tandem reads (%s)' % lab)
+                preferred_format = aligner.preferred_paired_format() if (paired or both) \
+                    else aligner.preferred_unpaired_format()
+                typ_sim_count, training_out_fn = simulate(simw, format=preferred_format)
+                logging.info('Finished simulating tandem reads')
+                tim.end_timer('Simulating tandem reads')
 
-            logging.info('  Simulating reads')
-            n_simread, typ_count = 0, defaultdict(int)
-            for typ, rdp1, rdp2 in simw.simulate_batch(args.sim_fraction, args.sim_unp_min,
-                                                       args.sim_conc_min, args.sim_disc_min,
-                                                       args.sim_bad_end_min,
-                                                       bias=args.low_score_bias):
-                if write_training_reads:
-                    training_out_fh[typ].write(Read.to_tab6(rdp1, rdp2) + '\n')
-                aligner.put(rdp1, rdp2)
-                typ_count[typ] += 1
-                n_simread += 1
-                if (n_simread % 10000) == 0:
-                    logging.info('    simulated %d reads (%d conc, %d disc, %d bad-end, %d unp)' %
-                                 (n_simread, typ_count['conc'], typ_count['disc'],
-                                  typ_count['bad_end'], typ_count['unp']))
+                logging.info('Aligning tandem reads (%s)' % lab)
+                sam_fn_base = 'training.sam'
+                if paired and not both:
+                    sam_fn_base = 'training_paired.sam'
+                elif not both:
+                    sam_fn_base = 'training_unpaired.sam'
 
-            logging.info('  Finished simulating reads (%d conc, %d disc, %d bad_end, %d unp)' %
-                         (typ_count['conc'], typ_count['disc'], typ_count['bad_end'], typ_count['unp']))
-            aligner.done()
-            
-            logging.debug('Waiting for aligner (%s) to finish' % lab)
-            while aligner.pipe.poll() is None:
-                time.sleep(0.5)
-            while othread.is_alive():
-                othread.join(0.5)
-            logging.debug('aligner process finished')
-            othread_result = result_training_q.get()
-            if not othread_result:
-                raise RuntimeError('Aligner output monitoring thread encountered error')
-            logging.info('Finished simulating and aligning training reads')
+                if args.write_training_sam:
+                    sam_fn = os.path.join(args.output_directory, sam_fn_base)
+                else:
+                    sam_fn = temp_man.get_filename(sam_fn_base, 'tandem sam')
+
+                unpaired_arg = [training_out_fn['unp']] if 'unp' in training_out_fn else None
+                paired_combined_arg = None
+                if 'conc' in training_out_fn or 'disc' in training_out_fn:
+                    paired_combined_arg = []
+                    for t in ['conc', 'disc']:
+                        if t in training_out_fn:
+                            paired_combined_arg.append(training_out_fn[t])
+
+                aligner = aligner_class(align_cmd, args.index,
+                                        unpaired=unpaired_arg, paired_combined=paired_combined_arg,
+                                        sam=sam_fn, format=preferred_format)
+                cor_dist, incor_dist = defaultdict(int), defaultdict(int)
+
+                while aligner.pipe.poll() is None:
+                    time.sleep(0.5)
+                while othread.is_alive():
+                    othread.join(0.5)
+                logging.debug('Finished aligning tandem reads')
+
+                # remove temporary reads
+                temp_man.update_peak()
+                temp_man.remove_group('tandem reads')
+
+                logging.info('Parsing tandem alignments (%s)' % lab)
+                tim.start_timer('Parsing tandem alignments')
+                with open(sam_fn, 'r') as sam_fh:
+                    result_training_q = Queue()
+                    reader = AlignmentReader(
+                        args,
+                        sam_fh,
+                        training_data,
+                        None,
+                        ref,
+                        alignment_class,
+                        cor_dist,
+                        incor_dist,
+                        result_training_q)
+                    reader.run()
+                    typ_align_count, sc_diffs = reader.typ_hist, reader.sc_diffs
+
+                # remove temporary alignments
+                temp_man.update_peak()
+                temp_man.remove_group('tandem sam')
+
+                othread_result = result_training_q.get()
+                if not othread_result:
+                    raise RuntimeError('Tandem alignment parser encountered error')
+                logging.info('Finished parsing tandem alignments')
+                tim.end_timer('Parsing tandem alignments')
+            else:
+
+                logging.info('Opening aligner process')
+                aligner = aligner_class(align_cmd, args.index, pairsOnly=paired)
+                sam_fn = os.path.join(args.output_directory, 'training.sam')
+                training_sam_fh = open(sam_fn, 'w') if (args.write_training_sam or args.write_all) else None
+                cor_dist, incor_dist = defaultdict(int), defaultdict(int)
+
+                # Create thread that eavesdrops on output from aligner with simulated input
+                logging.info('  Opening output-parsing thread (%s)' % lab)
+                result_training_q = Queue()
+                othread = AlignmentReader(
+                    args,
+                    aligner.outQ,
+                    training_data,
+                    None,
+                    ref,
+                    alignment_class,
+                    cor_dist,
+                    incor_dist,
+                    result_training_q,
+                    sam_ofh=training_sam_fh)
+                othread.daemon = True
+                othread.start()
+                assert othread.is_alive()
+
+                typ_sim_count, training_out_fn = simulate(simw, aligner, format='tab6')
+                aligner.done()
+
+                logging.debug('Waiting for aligner (%s) to finish' % lab)
+                while aligner.pipe.poll() is None:
+                    time.sleep(0.5)
+                while othread.is_alive():
+                    othread.join(0.5)
+                logging.debug('aligner process finished')
+                othread_result = result_training_q.get()
+                if not othread_result:
+                    raise RuntimeError('Aligner output monitoring thread encountered error')
+                logging.info('Finished simulating and aligning training reads')
+
+                typ_align_count, sc_diffs = othread.typ_hist, othread.sc_diffs
 
             # Check the fraction of simualted reads that were aligned and
             # where we got an alignment of the expected type
             logging.info('Tally of how many of each simualted type aligned as that type:')
-            for typ, cnt in typ_count.iteritems():
+            for typ, cnt in typ_sim_count.iteritems():
                 if cnt == 0:
                     continue
-                if typ not in othread.typ_hist:
+                if typ not in typ_align_count:
                     logging.warning('  %s: simulated:%d but ALIGNED NONE' % (typ, cnt))
                 else:
-                    func = logging.warning if (cnt / float(othread.typ_hist[typ])) < 0.3 else logging.info
+                    func = logging.warning if (cnt / float(typ_align_count[typ])) < 0.3 else logging.info
                     func('  %s: simulated:%d aligned:%d (%0.2f%%)' %
-                         (typ, cnt, othread.typ_hist[typ], 100.0 * othread.typ_hist[typ] / cnt))
-
-            for typ in training_out_fh.iterkeys():
-                training_out_fh[typ].close()
-                logging.info('  Training reads written to "%s"' % training_out_fn[typ])
+                         (typ, cnt, typ_align_count[typ], 100.0 * typ_align_count[typ] / cnt))
 
             if both:
                 break
         
-        # Stop timing interval for alignment phase 2
-        al2_ival = time.clock() - st
-    
-        logging.info('Score difference (expected - actual) histogram:')
-        for k, v in sorted(othread.sc_diffs.iteritems()):
-            logging.info('  %d: %d' % (k, v))
-        
-        if args.write_training_data or args.write_all:
-            # Writing training data
-            training_csv_fn_prefix = os.path.join(args.output_directory, 'training')
-            training_data.save(training_csv_fn_prefix, compress=args.compress_output)
-            logging.info('Training data (CSV format) written to "%s*"' % training_csv_fn_prefix)
-        
-        if setup_ival is not None:
-            logging.info('Setup running time: %0.3f secs' % setup_ival)
-        if al1_ival is not None:
-            logging.info('Alignment (real reads): %0.3f secs' % al1_ival)
-        if al2_ival is not None:
-            logging.info('Alignment (simulated reads): %0.3f secs' % al2_ival)
+    logging.info('Score difference (expected - actual) histogram:')
+    for k, v in sorted(sc_diffs.iteritems()):
+        logging.info('  %d: %d' % (k, v))
+
+    tim.start_timer('Writing training data')
+    if args.write_training_data or args.write_all:
+        # Writing training data
+        training_csv_fn_prefix = os.path.join(args.output_directory, 'training')
+        training_data.save(training_csv_fn_prefix, compress=args.compress_output)
+        logging.info('Training data (CSV format) written to "%s*"' % training_csv_fn_prefix)
+    tim.end_timer('Writing training data')
+
+    logging.info('Peak temporary file size %0.2fMB' % (temp_man.peak_size / (1024.0 * 1024)))
+
+    tim.end_timer('Overall')
+    for ln in str(tim).split('\n'):
+        logging.info(ln)
+    if args.write_timings or args.write_all:
+        with open(os.path.join(args.output_directory, 'timing.tsv'), 'w') as fh:
+            fh.write(str(tim))
 
 if __name__ == "__main__":
     
@@ -1008,10 +1112,20 @@ if __name__ == "__main__":
                         help='Write distances between true/actual alignments.')
     parser.add_argument('--write-training-distances', action='store_const', const=True, default=False,
                         help='Write distances between true/actual alignments.')
+    parser.add_argument('--write-timings', action='store_const', const=True, default=False,
+                        help='Write timing info to "timing.tsv".')
     parser.add_argument('--write-all', action='store_const', const=True, default=False,
                         help='Same as specifying all --write-* options')
     parser.add_argument('--compress-output', action='store_const', const=True, default=False,
                         help='gzip all output files')
+
+    # Resource usage
+    parser.add_argument('--use-concurrency', action='store_const', const=True, default=False,
+                        help='Use pipes instead of temporary files.  Reduces disk usage '
+                             'but requires more memory.')
+    parser.add_argument('--use-temporary-files', action='store_const', const=True, default=True,
+                        help='Use temporary files instead of pipes.  Reduces peak memory footprint '
+                             'but requires more disk space.')
 
     if '--version' in sys.argv:
         print 'Tandem simulator, version ' + VERSION

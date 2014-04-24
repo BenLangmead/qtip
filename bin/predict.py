@@ -1073,7 +1073,7 @@ if __name__ == "__main__":
     # What to generate
     parser.add_argument('--subsampling-fraction', metavar='float', type=float, default=1.0,
                         help='Subsample the training down to this fraction before fitting model')
-    parser.add_argument('--subsampling-series', metavar='floats', type=str, required=True,
+    parser.add_argument('--subsampling-series', metavar='floats', type=str,
                         help='Comma separated list of subsampling fractions to try')
     parser.add_argument('--subsampling-replicates', metavar='int', type=int, default=1,
                         help='Number of times to repeat fiting/prediction for each subsampling fraction')

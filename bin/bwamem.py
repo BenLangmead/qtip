@@ -14,19 +14,26 @@ try:
 except ImportError:
     from queue import Queue  # python 3.x
 
+
 class BwaMem(Aligner):
     
-    ''' Encapsulates a bwa mem process.  Note: I've disabled '''
+    """ Encapsulates a BWA-MEM process.  The input can be a FASTQ
+        file, or a Queue onto which the caller enqueues reads.
+        Similarly, output can be a SAM file, or a Queue from which the
+        caller dequeues SAM records.  All records are textual; parsing
+        is up to the user. """
     
     def __init__(self,
                  cmd,
                  index,
                  unpaired=None,
                  paired=None,
+                 paired_combined=None,
                  pairsOnly=False,
                  sam=None,
-                 quiet=False):
-        ''' Create new process.
+                 quiet=False,
+                 format=None):
+        """ Create new process.
             
             Inputs:
             
@@ -41,66 +48,84 @@ class BwaMem(Aligner):
             'sam' is a filename where output SAM records will be
             stored.  If 'sam' is none, SAM records will be added to
             the outQ.
-        '''
+        """
         if index is None:
             raise RuntimeError('Must specify --index when aligner is bwa mem')
-        cmdToks = cmd.split()
         options = []
-        popenStdin, popenStdout, popenStderr = None, None, None
+        popen_stdin, popen_stdout, popen_stderr = None, None, None
         self.inQ, self.outQ = None, None
         # Compose input arguments
         if unpaired is not None and len(unpaired) >= 1:
             raise RuntimeError('bwa mem can\'t handle more than one input file at a time')
         if paired is not None and len(paired) >= 1:
             raise RuntimeError('bwa mem can\'t handle more than one input file at a time')
-        if unpaired is not None and paired is not None:
+        if paired_combined is not None and len(paired_combined) >= 1:
+            raise RuntimeError('bwa mem can\'t handle more than one input file at a time')
+        if unpaired is not None and (paired is not None or paired_combined is not None):
             raise RuntimeError('bwa mem can\'t handle unpaired and paired-end inputs at the same time')
-        inputArgs = []
+        input_args = []
         if unpaired is not None:
-            inputArgs = [unpaired[0]]
+            input_args = [unpaired[0]]
         if paired is not None:
             assert len(paired[0]) == 2
-            inputArgs = [paired[0][0], paired[0][1]]
-        if unpaired is None and paired is None:
-            inputArgs = ['-']
-            popenStdin = PIPE
+            input_args = [paired[0][0], paired[0][1]]
+        if paired_combined is not None:
+            options.append('-p')
+            input_args = [paired_combined[0]]
+        if unpaired is None and paired is None and paired_combined is None:
+            input_args = ['-']
+            popen_stdin = PIPE
+            self.input_is_queued = True
         # Compose output arguments
-        outputArgs = []
+        output_args = []
         if sam is not None:
-            outputArgs.extend(['>', sam])
+            output_args.extend(['>', sam])
         else:
-            popenStdout = PIPE
+            self.output_is_queued = True
+            popen_stdout = PIPE
         # Tell bwa mem whether to expected paired-end interleaved input
         if pairsOnly:
             options.append('-p')
         # Put all the arguments together
         cmd += ' '
-        cmd += ' '.join(options + [index] + inputArgs + outputArgs)
+        cmd += ' '.join(options + [index] + input_args + output_args)
         logging.info('bwa mem command: ' + cmd)
         if quiet:
-            popenStderr = open(os.devnull, 'w')
-        ON_POSIX = 'posix' in sys.builtin_module_names
-        self.pipe = Popen(\
-            cmd, shell=True,
-            stdin=popenStdin, stdout=popenStdout, stderr=popenStderr,
-            bufsize=-1, close_fds=ON_POSIX)
+            popen_stderr = open(os.devnull, 'w')
+        self.pipe = Popen(cmd, shell=True,
+                          stdin=popen_stdin, stdout=popen_stdout, stderr=popen_stderr,
+                          bufsize=-1, close_fds='posix' in sys.builtin_module_names)
         # Create queue threads, if necessary
         timeout = 0.2
-        if unpaired is None and paired is None:
+        if self.input_is_queued:
             self.inQ = Queue()
             self._inThread = Thread(target=q2fh, args=(self.inQ, self.pipe.stdin, timeout))
-            self._inThread.daemon = True # thread dies with the program
+            self._inThread.daemon = True  # thread dies with the program
             self._inThread.start()
-        if sam is None:
+        if self.output_is_queued:
             self.outQ = Queue()
             self._outThread = Thread(target=fh2q, args=(self.pipe.stdout, self.outQ, timeout))
-            self._outThread.daemon = True # thread dies with the program
+            self._outThread.daemon = True  # thread dies with the program
             self._outThread.start()
-    
-    def put(self, rd1, rd2=None):
-        self.inQ.put(Read.to_interleaved_fastq(rd1, rd2, truncate_name=True) + '\n')
-    
+
+    @staticmethod
+    def format_read(rd1, rd2=None, truncate_name=True):
+        return Read.to_interleaved_fastq(rd1, rd2, truncate_name=truncate_name) + '\n'
+
+    def put(self, rd1, rd2=None, truncate_name=True):
+        assert self.input_is_queued
+        self.inQ.put(self.format_read(rd1, rd2, truncate_name=truncate_name))
+
+    @staticmethod
+    def preferred_unpaired_format():
+        return 'fastq'
+
+    @staticmethod
+    def preferred_paired_format():
+        return 'interleaved_fastq'
+
     def done(self):
+        assert self.input_is_queued
         self.inQ.put(None)
     
     def supportsMix(self):

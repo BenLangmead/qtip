@@ -48,7 +48,7 @@ def q2fh(q, fh, timeout=0.2):
 
 
 def fh2q(fh, q, timeout=0.2):
-    """ Get strings from 'out' filehandle and add them to 'queue'.  We
+    """ Get strings from filehandle and add them to 'queue'.  We
         enqueue None last, to indicate no more inputs. """
     for ln in fh:
         while True:

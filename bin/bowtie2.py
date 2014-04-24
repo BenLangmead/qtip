@@ -14,23 +14,26 @@ try:
 except ImportError:
     from queue import Queue  # python 3.x
 
+
 class Bowtie2(Aligner):
     
-    ''' Encapsulates a Bowtie 2 process.  The input can be a FASTQ
+    """ Encapsulates a Bowtie 2 process.  The input can be a FASTQ
         file, or a Queue onto which the caller enqueues reads.
         Similarly, output can be a SAM file, or a Queue from which the
         caller dequeues SAM records.  All records are textual; parsing
-        is up to the user. '''
+        is up to the user. """
     
     def __init__(self,
                  cmd,
                  index,
                  unpaired=None,
                  paired=None,
+                 paired_combined=None,
                  pairsOnly=False,
                  sam=None,
-                 quiet=False):
-        ''' Create new process.
+                 quiet=False,
+                 format=None):
+        """ Create new process.
             
             Inputs:
             
@@ -45,61 +48,85 @@ class Bowtie2(Aligner):
             'sam' is a filename where output SAM records will be
             stored.  If 'sam' is none, SAM records will be added to
             the outQ.
-        '''
+        """
         if index is None:
             raise RuntimeError('Must specify --index when aligner is Bowtie 2')
-        cmdToks = cmd.split()
-        popenStdin, popenStdout, popenStderr = None, None, None
+        cmd_toks = cmd.split()
+        popen_stdin, popen_stdout, popen_stderr = None, None, None
         self.inQ, self.outQ = None, None
         # Make sure input arguments haven't been specified already
-        for tok in ['-U', '-1', '-2']: assert tok not in cmdToks
+        for tok in ['-U', '-1', '-2']:
+            assert tok not in cmd_toks
         # Compose input arguments
-        inputArgs = []
+        self.input_is_queued = False
+        self.output_is_queued = False
+        input_args = []
         if unpaired is not None:
-            inputArgs.extend(['-U', ','.join(unpaired)])
+            input_args.append(('--%s' % format) if format is not None else '-U')
+            input_args.append(','.join(unpaired))
         if paired is not None:
-            inputArgs.extend(['-1', ','.join(map(lambda x: x[0], paired))])
-            inputArgs.extend(['-2', ','.join(map(lambda x: x[1], paired))])
-        if unpaired is None and paired is None:
-            inputArgs.extend(['--tab6', '-'])
-            popenStdin = PIPE
+            assert len(input_args) > 0
+            if len(input_args[0]) == 1:
+                raise RuntimeError()
+            else:
+                input_args.extend(['-1', ','.join(map(lambda x: x[0], paired))])
+                input_args.extend(['-2', ','.join(map(lambda x: x[1], paired))])
+        if paired_combined is not None:
+            input_args.extend(['--tab6', ','.join(paired_combined)])
+        if unpaired is None and paired is None and paired_combined is None:
+            input_args.extend(['--tab6', '-'])
+            popen_stdin = PIPE
+            self.input_is_queued = True
         # Make sure output arguments haven't been specified already
-        assert '-S' not in cmdToks
+        assert '-S' not in cmd_toks
         # Compose output arguments
-        outputArgs = []
+        output_args = []
         if sam is not None:
-            outputArgs.extend(['-S', sam])
+            output_args.extend(['-S', sam])
         else:
-            popenStdout = PIPE
-        indexArgs = ['-x', index]
+            self.output_is_queued = True
+            popen_stdout = PIPE
+        index_args = ['-x', index]
         # Put all the arguments together
         cmd += ' '
-        cmd += ' '.join(inputArgs + outputArgs + indexArgs)
+        cmd += ' '.join(input_args + output_args + index_args)
         logging.info('Bowtie 2 command: ' + cmd)
         if quiet:
-            popenStderr = open(os.devnull, 'w')
-        ON_POSIX = 'posix' in sys.builtin_module_names
-        self.pipe = Popen(\
-            cmd, shell=True,
-            stdin=popenStdin, stdout=popenStdout, stderr=popenStderr,
-            bufsize=-1, close_fds=ON_POSIX)
+            popen_stderr = open(os.devnull, 'w')
+        self.pipe = Popen(cmd, shell=True,
+                          stdin=popen_stdin, stdout=popen_stdout, stderr=popen_stderr,
+                          bufsize=-1, close_fds='posix' in sys.builtin_module_names)
         # Create queue threads, if necessary
         timeout = 0.2
-        if unpaired is None and paired is None:
+        if self.input_is_queued:
             self.inQ = Queue()
             self._inThread = Thread(target=q2fh, args=(self.inQ, self.pipe.stdin, timeout))
-            self._inThread.daemon = True # thread dies with the program
+            self._inThread.daemon = True  # thread dies with the program
             self._inThread.start()
-        if sam is None:
+        if self.output_is_queued:
             self.outQ = Queue()
             self._outThread = Thread(target=fh2q, args=(self.pipe.stdout, self.outQ, timeout))
-            self._outThread.daemon = True # thread dies with the program
+            self._outThread.daemon = True  # thread dies with the program
             self._outThread.start()
-    
-    def put(self, rd1, rd2=None):
-        self.inQ.put(Read.to_tab6(rd1, rd2, truncate_name=True) + '\n')
-    
+
+    @staticmethod
+    def format_read(rd1, rd2=None, truncate_name=True):
+        return Read.to_tab6(rd1, rd2, truncate_name=truncate_name) + '\n'
+
+    def put(self, rd1, rd2=None, truncate_name=True):
+        assert self.input_is_queued
+        self.inQ.put(self.format_read(rd1, rd2, truncate_name=truncate_name))
+
+    @staticmethod
+    def preferred_unpaired_format():
+        return 'tab6'
+
+    @staticmethod
+    def preferred_paired_format():
+        return 'tab6'
+
     def done(self):
+        assert self.input_is_queued
         self.inQ.put(None)
     
     def supportsMix(self):
