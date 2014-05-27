@@ -1,5 +1,5 @@
 """
-Given a directory with
+Given a directory with output from ts.py, predict new MAPQs.
 """
 
 __author__ = 'langmead'
@@ -9,14 +9,13 @@ import os
 import sys
 import math
 import random
-import itertools
 import matplotlib.pyplot as plt
 import numpy as np
 import logging
 import gc
 import cPickle
 from sklearn import cross_validation
-from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor, AdaBoostRegressor, GradientBoostingRegressor
+from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor, GradientBoostingRegressor
 from collections import defaultdict, Counter
 
 
@@ -123,8 +122,9 @@ def tally_cor_per(level, cor):
 
 
 def ranking_error(pcor, cor, rounded=False):
-    """
-    """
+    """ Return the ranking error given a list of pcors and a parallel list of
+        correct/incorrect booleans.  Round off to nearest MAPQ first if
+        rounded=True.  """
     assert len(pcor) == len(cor)
     if rounded:
         pcor = round_pcor_iter(pcor)
@@ -759,24 +759,25 @@ class MapqFit:
         return np.maximum(np.minimum(pcor_test, max_pcor), 0.)
 
     @staticmethod
-    def _fit(model_gen, x_train, y_train, dataset_shortname, verbose=False):
+    def _fit(mf_gen, x_train, y_train, dataset_shortname):
         """ Use cross validation to pick the best model from a
-            collection of possible models (iterator model_gen) """
+            collection of possible models (model_family) """
+        mf = mf_gen()
         score_avgs, score_stds = [], []
-        best_model = None
-        for model, name in model_gen:
-            scores = cross_validation.cross_val_score(model, x_train, y_train)
+        while True:
+            params, pred = mf.next_predictor()
+            if pred is None:
+                break
+            scores = cross_validation.cross_val_score(pred, x_train, y_train)
             score_avg, score_std = float(np.mean(scores)), float(np.std(scores))
-            if len(score_avgs) == 0 or score_avg > max(score_avgs):
-                if verbose:
-                    logging.info("%s, avg=%0.3f, std=%0.3f, %s *" % (dataset_shortname, score_avg, score_std, name))
-                best_model = model
-            else:
-                if verbose:
-                    logging.info("%s, avg=%0.3f, std=%0.3f, %s" % (dataset_shortname, score_avg, score_std, name))
+            logging.debug("%s, avg=%0.3f, std=%0.3f, %s" % (dataset_shortname, score_avg, score_std, str(params)))
             score_avgs.append(score_avg)
             score_stds.append(score_std)
-        return best_model, score_avgs, score_stds
+            mf.set_score(score_avg)
+        best_params, best_pred = mf.best_predictor()
+        logging.debug("BEST: %s, avg=%0.3f, %s" % (dataset_shortname, max(score_avgs), str(best_params)))
+        assert best_pred is not None
+        return best_pred, best_params, score_avgs, score_stds
 
     def __init__(self, dr, model_gen, sample_fraction=1.0,
                  sample_fractions=None,
@@ -832,9 +833,10 @@ class MapqFit:
             log_msg('  Now has %d rows' % x_train.shape[0])
 
             # use cross-validation to pick a model
-            self.trained_models[dataset_shortname], avgs, stds = \
-                self._fit(model_gen, x_train, y_train, dataset_shortname, verbose=verbose)
+            self.trained_models[dataset_shortname], params, avgs, stds = \
+                self._fit(model_gen, x_train, y_train, dataset_shortname)
 
+            self.trained_params = params
             self.crossval_avg[dataset_shortname] = max(avgs)
 
             # fit all the training data with the model
@@ -886,53 +888,125 @@ class MapqFit:
         log_msg('Done')
 
 
-def random_forest_models():
+class ModelFamily(object):
+    """ Encapsulates a model family and a simple interface for naively
+        searching the space of hyperparameters. """
+
+    def __init__(self, new_predictor, params):
+        """
+        new_predictor: function that takes set of params and returns
+                       new predictor with those params
+        params: list of lists
+        """
+        self.new_predictor = new_predictor
+        self.params = params
+        self.center = tuple([int(round(len(x)/2)) for x in params])
+        self.scores = {}
+        self.last_params = None
+        self.neighborhood_scores = None
+        self._setup_neighborhood(self.center)
+
+    def _setup_neighborhood(self, center):
+        self.neighborhood_scores = {}
+        for i in xrange(len(self.params)):
+            if center[i] > 0:
+                neighbor = list(center[:])
+                neighbor[i] -= 1
+                neighbor = tuple(neighbor)
+                self.neighborhood_scores[neighbor] = self.scores.get(neighbor, None)
+            if center[i] < len(self.params[i])-1:
+                neighbor = list(center[:])
+                neighbor[i] += 1
+                neighbor = tuple(neighbor)
+                self.neighborhood_scores[neighbor] = self.scores.get(neighbor, None)
+
+    def _best_neighbor(self):
+        assert not self._has_unexplored_neighbors()
+        assert len(self.neighborhood_scores) > 0
+        prioritized = sorted([(v, k) for k, v in self.neighborhood_scores.iteritems()])
+        return prioritized[-1][0], prioritized[-1][1]  # highest cross-val score
+
+    def _has_unexplored_neighbors(self):
+        return any(map(lambda x: x is None, self.neighborhood_scores.itervalues()))
+
+    def _get_unexplored_neighbor(self):
+        for k, v in self.neighborhood_scores.iteritems():
+            if v is None:
+                return k
+        raise RuntimeError('_get_unexplored_neighbor called with no unexplored neighbors')
+
+    def _idxs_to_params(self, idxs):
+        return [self.params[i][j] for i, j in enumerate(idxs)]
+
+    def next_predictor(self):
+        if self.center not in self.scores:
+            self.last_params = self.center
+            return self._idxs_to_params(self.center), self.new_predictor(self.center)
+        while True:
+            if self._has_unexplored_neighbors():
+                # more neighbors to be explored
+                params = self._get_unexplored_neighbor()
+                if params in self.scores:
+                    self.neighborhood_scores[params] = self.scores[params]
+                    continue
+                self.last_params = params
+                return self._idxs_to_params(params), self.new_predictor(params)
+            else:
+                # just finished exploring neighborhood
+                assert self.center in self.scores
+                best_score, best_neighbor = self._best_neighbor()
+                if best_score > self.scores[self.center]:
+                    # improved on center
+                    self.center = best_neighbor
+                    self._setup_neighborhood(self.center)
+                    continue
+                else:
+                    # didn't improve on best!
+                    self.last_params = None
+                    return None, None
+
+    def set_score(self, score):
+        assert self.last_params is not None
+        assert self.last_params not in self.scores
+        self.scores[self.last_params] = score
+
+    def best_predictor(self):
+        assert len(self.scores) > 0
+        prioritized = sorted([(v, k) for k, v in self.scores.iteritems()])
+        return self._idxs_to_params(prioritized[-1][1]), self.new_predictor(prioritized[-1][1])
+
+
+def random_forest_models(random_seed=33):
     # These perform OK but not as well as the extremely random trees
-    ret = []
-    for ntrees in xrange(5, 100, 10):
-        for max_depth in [3, 4, 5]:
-            name = "RF(%d,%d)" % (ntrees, max_depth)
-            ret.append((RandomForestRegressor(n_estimators=ntrees, max_depth=max_depth,
-                                              random_state=33, max_features='auto'), name))
-    return ret
+    def _gen(params):
+        return RandomForestRegressor(n_estimators=params[0], max_depth=params[1],
+                                     random_state=random_seed, max_features='auto')
+    return lambda: ModelFamily(_gen, [range(5, 100, 10), range(3, 6)])
 
 
-def extra_trees_models():
+def extra_trees_models(random_seed=33):
     # These perform quite well
-    ret = []
-    for ntrees in xrange(5, 40, 10):
-        for max_depth in xrange(4, 12):
-            name = "Ex(%d,%d)" % (ntrees, max_depth)
-            ret.append((ExtraTreesRegressor(n_estimators=ntrees, max_depth=max_depth,
-                                            random_state=33, max_features='auto'), name))
-    return ret
+    def _gen(params):
+        return ExtraTreesRegressor(n_estimators=params[0], max_depth=params[1],
+                                   random_state=random_seed, max_features='auto')
+    return lambda: ModelFamily(_gen, [range(5, 85, 5), range(3, 15)])
 
 
-def gradient_boosting_models():
+def gradient_boosting_models(random_seed=33):
     # These perform OK but not as well as the extremely random trees
-    ret = []
-    #for loss in ['ls', 'lad', 'huber', 'quantile']:
-    for loss in ['ls']:
-        for learning_rate in [0.1, 0.2, 0.3, 0.5, 0.75, 1.0]:
-            for ntrees, max_depth in itertools.product(range(5, 40, 10), range(2, 6)):
-                name = "GB(%d, %d, %0.2f, %s)" % (ntrees, max_depth, learning_rate, loss)
-                ret.append((GradientBoostingRegressor(n_estimators=ntrees, max_depth=max_depth,
-                                                      random_state=33, max_features='auto',
-                                                      loss=loss, learning_rate=learning_rate), name))
-    return ret
+    def _gen(params):
+        return GradientBoostingRegressor(n_estimators=params[0], max_depth=params[1],
+                                         learning_rate=params[2], random_state=random_seed,
+                                         max_features='auto', loss='ls')
+    return lambda: ModelFamily(_gen, [range(5, 40, 10), range(2, 6), [0.1, 0.2, 0.3, 0.5, 0.75, 1.0]])
 
 
-def adaboost_models():
+def adaboost_models(random_seed=33):
     # These seem to perform quite poorly
-    ret = []
-    #for loss in ['linear', 'square']:
-    for loss in ['linear']:
-        for learning_rate in [1.0, 1.5, 2.0]:
-            for n_estimators in [10, 15, 20, 25, 30, 35, 40]:
-                name = 'Adaboost(%d, %d, %s)' % (n_estimators, learning_rate, loss)
-                ret.append((AdaBoostRegressor(n_estimators=n_estimators,
-                                              learning_rate=learning_rate, loss=loss), name))
-    return ret
+    def _gen(params):
+        return GradientBoostingRegressor(n_estimators=params[0], learning_rate=params[1],
+                                         loss='linear', random_state=random_seed)
+    return lambda: ModelFamily(_gen, [[10, 15, 20, 25, 30, 35, 40], [1.0, 1.5, 2.0]])
 
 
 def model_family(args):
@@ -1025,7 +1099,8 @@ def go(args):
                        'mse_err': [x.mse_err for x in pred],
                        'mse_err_round': [x.mse_err_round for x in pred],
                        'mapq_avg': [x.mapq_avg for x in pred],
-                       'mapq_std': [x.mapq_std for x in pred]} for pred in preds]
+                       'mapq_std': [x.mapq_std for x in pred],
+                       'params': [str(x.best_params) for x in pred]} for pred in preds]
         dfs = [pandas.DataFrame.from_dict(perf_dict) for perf_dict in perf_dicts]
         for i, df in enumerate(dfs):
             df.to_csv(os.path.join(odir, 'subsampling_series_%d.tsv' % (i+1)), sep='\t', index=False)
@@ -1094,11 +1169,32 @@ if __name__ == "__main__":
 
     # Other options
     parser.add_argument('--seed', metavar='int', type=int, default=6277, help='Pseudo-random seed')
+    parser.add_argument('--test', action='store_const', const=True, default=False, help='Run unit tests')
     parser.add_argument('--verbose', action='store_const', const=True, default=False, help='Be talkative')
     parser.add_argument('--profile', action='store_const', const=True, default=False, help='Output profiling data')
 
     if '--version' in sys.argv:
         print 'Tandem predictor, version ' + VERSION
+        sys.exit(0)
+
+    if '--test' in sys.argv:
+        import unittest
+
+        class Test(unittest.TestCase):
+            def test_model_family(self):
+                def model_gen(params):
+                    assert len(params) == 3
+                    return lambda: -sum(map(lambda x: x**2, params))
+                mf = ModelFamily(model_gen, [[-2, -1, 0, 1, 2, 3, 4], [-5, -4, -3, -2, -1, 0], [-1, 0, 10]])
+                while True:
+                    params, fn = mf.next_predictor()
+                    if fn is None:
+                        break
+                    mf.set_score(fn())
+                best_params, best_pred = mf.best_predictor()
+                self.assertEqual(0, best_pred())
+
+        unittest.main(argv=[sys.argv[0]])
         sys.exit(0)
 
     myargs = parser.parse_args()
