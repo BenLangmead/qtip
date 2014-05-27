@@ -1010,7 +1010,8 @@ def go(args, aligner_args):
 
     tim.end_timer('Overall')
     for ln in str(tim).split('\n'):
-        logging.info(ln)
+        if len(ln) > 0:
+            logging.info(ln)
     if args.write_timings or args.write_all:
         with open(os.path.join(args.output_directory, 'timing.tsv'), 'w') as fh:
             fh.write(str(tim))
