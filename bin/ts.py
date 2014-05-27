@@ -814,7 +814,7 @@ def go(args, aligner_args):
                 # Do both unpaired and paired simualted reads in one round
                 both, lab = True, 'both paired-end and unpaired'
 
-            def simulate(simw, aligner=None, format='tab6'):
+            def simulate(simw, aligner=None, frmt='tab6'):
                 """ Need to re-think this to accomodate the case where we're
                     writing to a file instead of directly to aligner """
                 write_training_reads = args.write_training_reads or args.write_all
@@ -826,7 +826,7 @@ def go(args, aligner_args):
                     if not paired or both:
                         types.append('unp')
                     for t in types:
-                        fn_base = 'training_%s.%s' % (t, format)
+                        fn_base = 'training_%s.%s' % (t, frmt)
                         fn = os.path.join(args.output_directory, fn_base)
                         if not write_training_reads:
                             fn = temp_man.get_filename(fn_base, 'tandem reads')
@@ -840,12 +840,15 @@ def go(args, aligner_args):
                                                          args.sim_bad_end_min,
                                                          bias=args.low_score_bias):
                     if t in training_out_fh:
-                        if format == 'tab6':
+                        if frmt == 'tab6':
                             training_out_fh[t].write(Read.to_tab6(rdp1, rdp2) + '\n')
-                        elif format == 'interleaved_fastq':
+                        elif frmt == 'interleaved_fastq':
                             training_out_fh[t].write(Read.to_interleaved_fastq(rdp1, rdp2) + '\n')
+                        elif frmt == 'fastq':
+                            assert rdp2 is None
+                            training_out_fh[t].write(Read.to_fastq(rdp1) + '\n')
                         else:
-                            raise RuntimeError('Bad training read output format "%s"' % format)
+                            raise RuntimeError('Bad training read output format "%s"' % frmt)
                     if aligner is not None:
                         aligner.put(rdp1, rdp2)
                     typ_count[t] += 1
@@ -869,9 +872,9 @@ def go(args, aligner_args):
             if args.use_temporary_files:
                 tim.start_timer('Simulating tandem reads')
                 logging.info('Simulating tandem reads (%s)' % lab)
-                preferred_format = aligner.preferred_paired_format() if (paired or both) \
+                frmt = aligner.preferred_paired_format() if (paired or both) \
                     else aligner.preferred_unpaired_format()
-                typ_sim_count, training_out_fn = simulate(simw, format=preferred_format)
+                typ_sim_count, training_out_fn = simulate(simw, frmt=frmt)
                 logging.info('Finished simulating tandem reads')
                 tim.end_timer('Simulating tandem reads')
 
@@ -894,10 +897,20 @@ def go(args, aligner_args):
                     for t in ['conc', 'disc']:
                         if t in training_out_fn:
                             paired_combined_arg.append(training_out_fn[t])
+                    if len(paired_combined_arg) > 1:
+                        # new file
+                        fn_base = 'training_concdisc.%s' % frmt
+                        fn = temp_man.get_filename(fn_base, 'tandem reads')
+                        with open(fn, 'w') as fh:
+                            for ifn in paired_combined_arg:
+                                with open(ifn) as ifh:
+                                    for ln in ifh:
+                                        fh.write(ln)
+                        paired_combined_arg = [fn]
 
                 aligner = aligner_class(align_cmd, args.index,
                                         unpaired=unpaired_arg, paired_combined=paired_combined_arg,
-                                        sam=sam_fn, format=preferred_format)
+                                        sam=sam_fn, format=frmt)
                 cor_dist, incor_dist = defaultdict(int), defaultdict(int)
 
                 while aligner.pipe.poll() is None:
@@ -962,7 +975,7 @@ def go(args, aligner_args):
                 othread.start()
                 assert othread.is_alive()
 
-                typ_sim_count, training_out_fn = simulate(simw, aligner, format='tab6')
+                typ_sim_count, training_out_fn = simulate(simw, aligner, frmt='tab6')
                 aligner.done()
 
                 logging.debug('Waiting for aligner (%s) to finish' % lab)
@@ -1057,8 +1070,6 @@ if __name__ == "__main__":
     parser.add_argument('--sim-bad-end-min', metavar='int', type=int, default=10000, required=False,
                         help='Number of simulated pairs with-one-bad-end will be no less than this number.')
 
-    parser.add_argument('--upto', metavar='int', type=int, default=None, required=False,
-                        help='Stop after this many input reads')
     parser.add_argument('--max-allowed-fraglen', metavar='int', type=int, default=100000, required=False,
                         help='When simulating fragments, observed fragments longer than this will be'
                              'truncated to this length')
