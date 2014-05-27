@@ -989,7 +989,7 @@ def extra_trees_models(random_seed=33):
     def _gen(params):
         return ExtraTreesRegressor(n_estimators=params[0], max_depth=params[1],
                                    random_state=random_seed, max_features='auto')
-    return lambda: ModelFamily(_gen, [range(5, 85, 5), range(3, 15)])
+    return lambda: ModelFamily(_gen, [range(5, 105, 5), range(3, 20)])
 
 
 def gradient_boosting_models(random_seed=33):
@@ -1068,6 +1068,7 @@ def go(args):
         ss_odir = os.path.join(odir, 'subsampled')
         fractions = []
         preds = [list() for _ in xrange(args.subsampling_replicates)]
+        fits = [list() for _ in xrange(args.subsampling_replicates)]
         for fraction in map(float, args.subsampling_series.split(',')):
             logging.info('  Fraction=%0.3f' % fraction)
             for repl in xrange(1, args.subsampling_replicates+1):
@@ -1088,6 +1089,7 @@ def go(args):
                         logging.info('      Serializing fit object')
                         with open(my_fit_fn, 'wb') as ofh:
                             cPickle.dump(ss_fit, ofh, 2)
+                fits[repl-1].append(ss_fit)
                 preds[repl-1].append(ss_fit.pred_overall)
                 logging.info('      Making plots')
                 make_plots(ss_fit.pred_overall, my_odir, args, prefix='        ')
@@ -1100,7 +1102,7 @@ def go(args):
                        'mse_err_round': [x.mse_err_round for x in pred],
                        'mapq_avg': [x.mapq_avg for x in pred],
                        'mapq_std': [x.mapq_std for x in pred],
-                       'params': [str(x.best_params) for x in pred]} for pred in preds]
+                       'params': [str(x.trained_params) for x in fit]} for pred, fit in zip(preds, fits)]
         dfs = [pandas.DataFrame.from_dict(perf_dict) for perf_dict in perf_dicts]
         for i, df in enumerate(dfs):
             df.to_csv(os.path.join(odir, 'subsampling_series_%d.tsv' % (i+1)), sep='\t', index=False)
