@@ -57,12 +57,14 @@ class BwaMem(Aligner):
         # Compose input arguments
         if unpaired is not None and len(unpaired) >= 1:
             raise RuntimeError('bwa mem can\'t handle more than one input file at a time')
-        if paired is not None and len(paired) >= 1:
+        if paired is not None and len(paired) > 1:
             raise RuntimeError('bwa mem can\'t handle more than one input file at a time')
         if paired_combined is not None and len(paired_combined) >= 1:
             raise RuntimeError('bwa mem can\'t handle more than one input file at a time')
         if unpaired is not None and (paired is not None or paired_combined is not None):
             raise RuntimeError('bwa mem can\'t handle unpaired and paired-end inputs at the same time')
+        self.input_is_queued = False
+        self.output_is_queued = False
         input_args = []
         if unpaired is not None:
             input_args = [unpaired[0]]
