@@ -466,7 +466,7 @@ def plot_subsampling_series(seriess, labs=None, colors=None):
     ax3.legend(loc=1)
     ax3.grid(True)
 
-    return fig
+    plt.close()
 
 
 def plot_fit(model, x_lim=(0.0, 1.0), y_lim=(0.0, 1.0), dx=0.01, dy=0.01, zmin=0.0, zmax=60.0):
@@ -1041,16 +1041,26 @@ def make_plots(pred, odir, args, prefix=''):
         assert pred.correct is not None
         plot_drop_rate(pred.pcor, pred.correct, pcor2=pred.pcor_orig, log2ize=False, rasterize=args.rasterize).savefig(
             os.path.join(odir, 'drop_rate.' + fmat))
+        plt.close()
+        assert len(plt.get_fignums()) == 0
         plot_drop_rate(pred.pcor, pred.correct, pcor2=pred.pcor_orig, log2ize=True, rasterize=args.rasterize).savefig(
             os.path.join(odir, 'drop_rate_log2.' + fmat))
+        plt.close()
+        assert len(plt.get_fignums()) == 0
         plot_drop_rate_difference(pred.pcor, pred.pcor_orig, pred.correct, log2ize=False, rasterize=args.rasterize).savefig(
             os.path.join(odir, 'drop_rate_diff.' + fmat))
+        plt.close()
+        assert len(plt.get_fignums()) == 0
         plot_drop_rate_difference(pred.pcor, pred.pcor_orig, pred.correct, log2ize=True, rasterize=args.rasterize).savefig(
             os.path.join(odir, 'drop_rate_diff_log2.' + fmat))
+        plt.close()
+        assert len(plt.get_fignums()) == 0
     if args.plot_mapq_buckets or args.plot_all:
         logging.info(prefix + 'Making MAPQ bucket plots')
         bucket_error_plot([pred.mapq, pred.mapq_orig], ['Predicted', 'Original'], ['b', 'g'], pred.correct).savefig(
             os.path.join(odir, 'mapq_buckets.' + fmat))
+        plt.close()
+        assert len(plt.get_fignums()) == 0
 
 
 def go(args):
@@ -1107,6 +1117,8 @@ def go(args):
         for i, df in enumerate(dfs):
             df.to_csv(os.path.join(odir, 'subsampling_series_%d.tsv' % (i+1)), sep='\t', index=False)
         plot_subsampling_series(dfs).savefig(os.path.join(odir, 'subsampling_series.' + args.plot_format))
+        plt.close()
+        assert len(plt.get_fignums()) == 0
 
     fit_fn = os.path.join(odir, 'fit.pkl')
     if os.path.exists(fit_fn) and not args.overwrite_fit:
