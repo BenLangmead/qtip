@@ -1076,10 +1076,18 @@ def go(args):
     if args.subsampling_series is not None:
         logging.info('Doing subsampling series')
         ss_odir = os.path.join(odir, 'subsampled')
-        fractions = []
-        preds = [list() for _ in xrange(args.subsampling_replicates)]
-        fits = [list() for _ in xrange(args.subsampling_replicates)]
-        for fraction in map(float, args.subsampling_series.split(',')):
+        # outermost: replicates
+        # inner: fractions
+        fractions = map(float, args.subsampling_series.split(','))
+        perf_dicts = [{'fraction': [],
+                       'rank_err': [],
+                       'rank_err_round': [],
+                       'mse_err': [],
+                       'mse_err_round': [],
+                       'mapq_avg': [],
+                       'mapq_std': [],
+                       'params': []} for _ in xrange(args.subsampling_replicates)]
+        for fraction in fractions:
             logging.info('  Fraction=%0.3f' % fraction)
             for repl in xrange(1, args.subsampling_replicates+1):
                 my_seed = hash(str(args.seed + repl))
@@ -1099,20 +1107,21 @@ def go(args):
                         logging.info('      Serializing fit object')
                         with open(my_fit_fn, 'wb') as ofh:
                             cPickle.dump(ss_fit, ofh, 2)
-                fits[repl-1].append(ss_fit)
-                preds[repl-1].append(ss_fit.pred_overall)
                 logging.info('      Making plots')
                 make_plots(ss_fit.pred_overall, my_odir, args, prefix='        ')
+                perf_dicts[repl-1]['fraction'].append(fraction)
+                perf_dicts[repl-1]['rank_err'].append(ss_fit.pred_overall.rank_err)
+                perf_dicts[repl-1]['rank_err_round'].append(ss_fit.pred_overall.rank_err_round)
+                perf_dicts[repl-1]['mse_err'].append(ss_fit.pred_overall.mse_err)
+                perf_dicts[repl-1]['mse_err_round'].append(ss_fit.pred_overall.mse_err_round)
+                perf_dicts[repl-1]['mapq_avg'].append(ss_fit.pred_overall.mapq_avg)
+                perf_dicts[repl-1]['mapq_std'].append(ss_fit.pred_overall.mapq_std)
+                perf_dicts[repl-1]['params'].append(str(ss_fit.trained_params))
+                del ss_fit
+                gc.collect()
             gc.collect()
-            fractions.append(fraction)
-        perf_dicts = [{'fraction': fractions,
-                       'rank_err': [x.rank_err for x in pred],
-                       'rank_err_round': [x.rank_err_round for x in pred],
-                       'mse_err': [x.mse_err for x in pred],
-                       'mse_err_round': [x.mse_err_round for x in pred],
-                       'mapq_avg': [x.mapq_avg for x in pred],
-                       'mapq_std': [x.mapq_std for x in pred],
-                       'params': [str(x.trained_params) for x in fit]} for pred, fit in zip(preds, fits)]
+        for pd in perf_dicts:
+            print pd
         dfs = [pandas.DataFrame.from_dict(perf_dict) for perf_dict in perf_dicts]
         for i, df in enumerate(dfs):
             df.to_csv(os.path.join(odir, 'subsampling_series_%d.tsv' % (i+1)), sep='\t', index=False)
