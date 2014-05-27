@@ -466,7 +466,7 @@ def plot_subsampling_series(seriess, labs=None, colors=None):
     ax3.legend(loc=1)
     ax3.grid(True)
 
-    plt.close()
+    return fig
 
 
 def plot_fit(model, x_lim=(0.0, 1.0), y_lim=(0.0, 1.0), dx=0.01, dy=0.01, zmin=0.0, zmax=60.0):
