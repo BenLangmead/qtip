@@ -876,7 +876,6 @@ def go(args, aligner_args):
                     else aligner.preferred_unpaired_format()
                 typ_sim_count, training_out_fn = simulate(simw, frmt=frmt)
                 logging.info('Finished simulating tandem reads')
-                tim.end_timer('Simulating tandem reads')
 
                 logging.info('Aligning tandem reads (%s)' % lab)
                 sam_fn_base = 'training.sam'
@@ -908,6 +907,9 @@ def go(args, aligner_args):
                                         fh.write(ln)
                         paired_combined_arg = [fn]
 
+                tim.end_timer('Simulating tandem reads')
+                tim.start_timer('Aligning tandem reads')
+
                 aligner = aligner_class(align_cmd, args.index,
                                         unpaired=unpaired_arg, paired_combined=paired_combined_arg,
                                         sam=sam_fn, format=frmt)
@@ -919,11 +921,13 @@ def go(args, aligner_args):
                     othread.join(0.5)
                 logging.debug('Finished aligning tandem reads')
 
+
                 # remove temporary reads
                 temp_man.update_peak()
                 temp_man.remove_group('tandem reads')
 
                 logging.info('Parsing tandem alignments (%s)' % lab)
+                tim.end_timer('Aligning tandem reads')
                 tim.start_timer('Parsing tandem alignments')
                 with open(sam_fn, 'r') as sam_fh:
                     result_training_q = Queue()

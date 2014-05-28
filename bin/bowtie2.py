@@ -3,6 +3,7 @@ import logging
 import re
 import string
 import sys
+from operator import itemgetter
 from subprocess import Popen, PIPE
 from read import Read, Alignment
 from threading import Thread
@@ -61,20 +62,30 @@ class Bowtie2(Aligner):
         self.input_is_queued = False
         self.output_is_queued = False
         input_args = []
+        # Some of the Bowtie 2's format-related parameters take an
+        # argument (e.g. -U, -1, -2, --tab5, --tab6) and some don't
+        # (-f, -q, -r, -c)
+        if format in ['fastq', 'fasta', 'raw']:
+            if format == 'fastq':
+                input_args.append('-q')
+            elif format == 'fastq':
+                input_args.append('-f')
+            elif format == 'raw':
+                input_args.append('-r')
+            format = None
         if unpaired is not None:
             input_args.append(('--%s' % format) if format is not None else '-U')
             input_args.append(','.join(unpaired))
         if paired is not None:
-            assert len(input_args) > 0
-            if len(input_args[0]) == 1:
-                raise RuntimeError()
-            else:
-                input_args.extend(['-1', ','.join(map(lambda x: x[0], paired))])
-                input_args.extend(['-2', ','.join(map(lambda x: x[1], paired))])
+            assert format not in ['tab5', 'tab6', '12']
+            input_args.extend(['-1', ','.join(map(itemgetter(0), paired))])
+            input_args.extend(['-2', ','.join(map(itemgetter(1), paired))])
         if paired_combined is not None:
-            input_args.extend(['--tab6', ','.join(paired_combined)])
+            assert format is not None
+            input_args.extend(['--%s' % format, ','.join(paired_combined)])
         if unpaired is None and paired is None and paired_combined is None:
-            input_args.extend(['--tab6', '-'])
+            assert format is not None
+            input_args.extend(['--%s' % format, '-'])
             popen_stdin = PIPE
             self.input_is_queued = True
         # Make sure output arguments haven't been specified already
