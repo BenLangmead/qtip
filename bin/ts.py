@@ -47,7 +47,6 @@ from string import maketrans
 import random
 import time
 import logging
-import gzip
 import errno
 import tempfile
 import numpy as np
@@ -61,13 +60,14 @@ from threading import Thread
 
 # Modules that are part of the tandem simulator
 import simulators
-from samples import Dataset
+from samples import DatasetOnDisk
 from randutil import ReservoirSampler, WeightedRandomGenerator
 from simplesim import FragmentSimSerial2
 from read import Read, Alignment
 from bowtie2 import AlignmentBowtie2, Bowtie2
 from bwamem import AlignmentBwaMem, BwaMem
 from reference import ReferenceIndexed, ReferenceOOB
+from tempman import TemporaryFileManager
 
 VERSION = '0.1.0'
 
@@ -576,38 +576,6 @@ class AlignmentReader(Thread):
             self.result_q.put(False)
 
 
-class TemporaryFileManager():
-
-    def __init__(self):
-        self.dir = tempfile.mkdtemp()
-        self.files = set()
-        self.groups = defaultdict(list)
-        self.peak_size = 0
-
-    def get_filename(self, fn_basename, group=''):
-        """ Return filename for new temporary file in temp dir """
-        if fn_basename in self.files:
-            raise RuntimeError('Temporary file with name "%s" already exists' % fn_basename)
-        self.groups[group].append(fn_basename)
-        self.files.add(fn_basename)
-        return os.path.join(self.dir, fn_basename)
-
-    def remove_group(self, group):
-        """ Remove all the temporary files belonging to the named group """
-        for fn_basename in self.groups[group]:
-            self.files.remove(fn_basename)
-            os.remove(os.path.join(self.dir, fn_basename))
-        del self.groups[group]
-
-    def size(self):
-        """ Return total size of all the files in the temp dir """
-        return sum(os.path.getsize(os.path.join(self.dir, f)) for f in self.files)
-
-    def update_peak(self):
-        """ Update peak size of temporary files """
-        self.peak_size = max(self.peak_size, self.size())
-
-
 class Timing(object):
 
     def __init__(self):
@@ -711,7 +679,7 @@ def go(args, aligner_args):
             logging.debug('Aligner finished')
             tim.end_timer('Aligning input reads')
 
-        test_data = Dataset()
+        test_data = DatasetOnDisk('test_data', temp_man)
         dists = Dists(args.max_allowed_fraglen)
         cor_dist, incor_dist = defaultdict(int), defaultdict(int)
         
@@ -765,11 +733,13 @@ def go(args, aligner_args):
 
         if input_sam_fh is not None:
             logging.info('  Input alignments written to "%s"' % sam_fn)
-        
+
+        test_data.finalize()
+
         # Writing test dataset
         if args.write_test_data or args.write_all:
             test_csv_fn_prefix = os.path.join(args.output_directory, 'test')
-            test_data.save(test_csv_fn_prefix, compress=args.compress_output)
+            test_data.save(test_csv_fn_prefix)
             logging.info('Test data (CSV format) written to "%s*"' % test_csv_fn_prefix)
         
         # Writing correct/incorrect distances
@@ -803,7 +773,7 @@ def go(args, aligner_args):
         if iters == 2:
             logging.info('Aligner does not accept unpaired/paired mix; training will have 2 rounds')
 
-        training_data = Dataset()
+        training_data = DatasetOnDisk('training_data', temp_man)
         for paired, lab in [(True, 'paired-end'), (False, 'unpaired')]:
             both = False
             if paired and not dists.has_pairs():
@@ -889,7 +859,12 @@ def go(args, aligner_args):
                 else:
                     sam_fn = temp_man.get_filename(sam_fn_base, 'tandem sam')
 
-                unpaired_arg = [training_out_fn['unp']] if 'unp' in training_out_fn else None
+                unpaired_arg = None
+                if 'unp' in training_out_fn or 'bad_end' in training_out_fn:
+                    unpaired_arg = []
+                    for t in ['unp', 'bad_end']:
+                        if t in training_out_fn:
+                            unpaired_arg.append(training_out_fn[t])
                 paired_combined_arg = None
                 if 'conc' in training_out_fn or 'disc' in training_out_fn:
                     paired_combined_arg = []
@@ -1015,11 +990,13 @@ def go(args, aligner_args):
     for k, v in sorted(sc_diffs.iteritems()):
         logging.info('  %d: %d' % (k, v))
 
+    training_data.finalize()
+
     tim.start_timer('Writing training data')
     if args.write_training_data or args.write_all:
         # Writing training data
         training_csv_fn_prefix = os.path.join(args.output_directory, 'training')
-        training_data.save(training_csv_fn_prefix, compress=args.compress_output)
+        training_data.save(training_csv_fn_prefix)
         logging.info('Training data (CSV format) written to "%s*"' % training_csv_fn_prefix)
     tim.end_timer('Writing training data')
 

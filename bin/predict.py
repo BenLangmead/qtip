@@ -14,6 +14,7 @@ import numpy as np
 import logging
 import gc
 import cPickle
+from itertools import imap
 from sklearn import cross_validation
 from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor, GradientBoostingRegressor
 from collections import defaultdict, Counter
@@ -48,25 +49,75 @@ def round_pcor_iter(pcor):
     return mapq_to_pcor_iter(map(round, (pcor_to_mapq_iter(pcor))))
 
 
-def read_dataset(prefix):
-    """ Read in training and test data having with given path prefix. """
-    dfs = {}
-    for name, suf, paired in [('u', '_unp.csv', False), ('d', '_disc.csv', True),
-                              ('c', '_conc.csv', True), ('b', '_bad_end.csv', False)]:
-        fn = prefix + suf
+class DatasetReader(object):
+
+    #            short name   suffix
+    datasets = [('u',         '_unp.csv'),
+                ('d',         '_disc.csv'),
+                ('c',         '_conc.csv'),
+                ('b',         '_bad_end.csv')]
+
+    class Normalizers(object):
+
+        def __init__(self):
+            self.minv = None
+            self.maxv = None
+            self.minv_1 = None
+            self.maxv_1 = None
+            self.minv_2 = None
+            self.maxv_2 = None
+            self.fraglen_mean = None
+            self.fraglen_sd = None
+
+    def __init__(self, prefix, learn_normalizers=False, normalizers=None):
+        self.prefix = prefix
+        self.normalizers = {}
+        self.dfs = {}
+        self.readers = {}
+        if learn_normalizers:
+            for sn, suf in self.datasets:
+                fn = self.prefix + suf
+                if self._fn_exists(fn):
+                    self.dfs[sn] = self._fn_to_iterator(fn, chunksize=None)
+
+                    def _new_iter(_sn):
+                        def _inner():
+                            return iter([self.dfs[_sn]])
+                        return _inner
+
+                    self.readers[sn] = _new_iter(sn)
+            self._extract_normalizers(self.dfs)
+        elif normalizers is not None:
+            self.normalizers = normalizers.copy()
+            for sn, suf in self.datasets:
+                fn = self.prefix + suf
+                if self._fn_exists(fn):
+
+                    def _new_iter(_fn):
+                        def _inner():
+                            return self._fn_to_iterator(_fn)
+                        return _inner
+
+                    self.readers[sn] = _new_iter(fn)
+        else:
+            raise RuntimeError('Either learn_normalizers must be true or normalizers must be specified')
+
+    @staticmethod
+    def _fn_exists(fn):
+        return any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2']))
+
+    @staticmethod
+    def _fn_to_iterator(fn, chunksize=20000):
         if os.path.exists(fn):
-            dfs[name] = pandas.io.parsers.read_csv(fn, quoting=2)
+            return pandas.io.parsers.read_csv(fn, quoting=2, chunksize=chunksize)
         elif os.path.exists(fn + '.gz'):
-            dfs[name] = pandas.io.parsers.read_csv(fn + '.gz', quoting=2, compression='gzip')
+            return pandas.io.parsers.read_csv(fn + '.gz', quoting=2, chunksize=chunksize, compression='gzip')
         elif os.path.exists(fn + '.bz2'):
-            dfs[name] = pandas.io.parsers.read_csv(fn + '.bz2', quoting=2, compression='bz2')
+            return pandas.io.parsers.read_csv(fn + '.bz2', quoting=2, chunksize=chunksize, compression='bz2')
         else:
             raise RuntimeError('No such file: "%s"' % fn)
 
-    for df in dfs.itervalues():
-        if df['correct'].count() == len(df['correct']):
-            df['correct'] = df['correct'].map(lambda x: 1 if x == 'T' else 0)
-
+    @staticmethod
     def _standardize(df, nm, best_nm, secbest_nm, mn, diff):
         df[nm] = (df[best_nm] - df[secbest_nm]) / diff
         df[nm] = df[nm].fillna(np.nanmax(df[nm])).fillna(0)
@@ -75,39 +126,134 @@ def read_dataset(prefix):
         assert not any([math.isnan(x) for x in df[nm]])
         assert not any([math.isnan(x) for x in df[best_nm]])
 
-    for df in [dfs['u'], dfs['b']]:
-        # TODO: set minv/maxv properly if not defined
-        if df.shape[0] == 0:
-            continue
-        df['minv'] = df['minv'].fillna(df['best'].min())
-        df['maxv'] = df['maxv'].fillna(df['best'].max())
-        _standardize(df, 'diff', 'best', 'secbest', df.minv, df.maxv - df.minv)
+    def _extract_normalizers(self, dfs):
+        for sn, df in dfs.iteritems():
+            if df is None:
+                continue
+            if sn == 'c':
+                norm_conc = self.normalizers['c'] = self.Normalizers()
+                norm_conc.minv_1 = df['best1_1'].min()
+                norm_conc.maxv_1 = df['best1_1'].max()
+                norm_conc.minv_2 = df['best1_2'].min()
+                norm_conc.maxv_2 = df['best1_2'].max()
+                norm_conc.fraglen_mean = df['fraglen'].mean()
+                norm_conc.fraglen_sd = df['fraglen'].std()
+            elif sn == 'd':
+                norm_disc = self.normalizers['d'] = self.Normalizers()
+                norm_disc.minv_1 = df['best1_1'].min()
+                norm_disc.maxv_1 = df['best1_1'].max()
+            elif sn in 'bu':
+                norm = self.normalizers[sn] = self.Normalizers()
+                norm.minv = df['best1'].min()
+                norm.maxv = df['best1'].max()
+            else:
+                raise RuntimeError('Bad shortname: "%s"' % sn)
 
-    for df in [dfs['d']]:
-        if df.shape[0] == 0:
-            continue
-        df['minv1'] = df['minv1'].fillna(df['best1'].min())
-        df['maxv1'] = df['maxv1'].fillna(df['best1'].max())
-        _standardize(df, 'diff1', 'best1', 'secbest1', df.minv1, df.maxv1 - df.minv1)
+    def _has_normalizers(self, sn):
+        return sn in self.normalizers
 
-    for df in [dfs['c']]:
-        # TODO: set minv1/maxv1/minv2/maxv2 properly if not defined
-        if df.shape[0] == 0:
-            continue
-        df['minv1'] = df['minv1'].fillna(df['best1'].min())
-        df['maxv1'] = df['maxv1'].fillna(df['best1'].max())
-        df['minv2'] = df['minv2'].fillna(df['best2'].min())
-        df['maxv2'] = df['maxv2'].fillna(df['best2'].max())
-        _standardize(df, 'diff1', 'best1', 'secbest1', df.minv1, df.maxv1 - df.minv1)
-        _standardize(df, 'diff2', 'best2', 'secbest2', df.minv2, df.maxv2 - df.minv2)
-        minconc, maxconc = df.minv1 + df.minv2, df.maxv1 + df.maxv2
-        _standardize(df, 'diff_conc', 'bestconc', 'secbestconc', minconc, maxconc - minconc)
-        df['best_min12'] = df[['best1', 'best2']].min(axis=1)
-        df['diff_min12'] = df[['diff1', 'diff2']].min(axis=1)
-        df['diff_min12conc'] = df[['diff1', 'diff2', 'diff_conc']].min(axis=1)
-        df['fraglen_z'] = ((df['fraglen'] - df['fraglen'].mean()) / df['fraglen'].std()).abs()
+    def _postprocess_data_frame(self, df, sn):
 
-    return dfs
+        if df.shape[0] == 0:
+            return
+
+        assert self._has_normalizers(sn)
+        norm = self.normalizers[sn]
+
+        # Turn the correct column into 0/1
+        if df['correct'].count() == len(df['correct']):
+            df['correct'] = df['correct'].map(lambda x: 1 if x == 'T' else 0)
+
+        if sn in 'c':
+            # normalize alignment scores
+            df['minv_1'] = df['minv_1'].fillna(norm.minv_1)
+            df['maxv_1'] = df['maxv_1'].fillna(norm.maxv_1)
+            df['minv_2'] = df['minv_2'].fillna(norm.minv_2)
+            df['maxv_2'] = df['maxv_2'].fillna(norm.maxv_2)
+            self._standardize(df, 'diff_1', 'best1_1', 'best2_1', df['minv_1'], df['maxv_1'] - df['minv_1'])
+            self._standardize(df, 'diff_2', 'best1_2', 'best2_2', df['minv_2'], df['maxv_2'] - df['minv_2'])
+
+            # normalize concordant alignment scores
+            minconc, maxconc = norm.minv_1 + norm.minv_2, norm.maxv_1 + norm.maxv_2
+            self._standardize(df, 'diff_conc', 'best1conc', 'best2conc', minconc, maxconc - minconc)
+
+            df['best_min12'] = df[['best1_1', 'best1_2']].min(axis=1)
+            df['diff_min12'] = df[['diff_1', 'diff_2']].min(axis=1)
+            df['diff_min12conc'] = df[['diff_1', 'diff_2', 'diff_conc']].min(axis=1)
+            df['fraglen_z'] = ((df['fraglen'] - norm.fraglen_mean) / norm.fraglen_mean).abs()
+
+        elif sn == 'd':
+            df['minv_1'] = df['minv_1'].fillna(norm.minv_1)
+            df['maxv_1'] = df['maxv_1'].fillna(norm.maxv_1)
+            self._standardize(df, 'diff_1', 'best1_1', 'best2_1', df['minv_1'], df['maxv_1'] - df['minv_1'])
+
+        else:
+            assert sn in 'ub'
+            df['minv'] = df['minv'].fillna(norm.minv)
+            df['maxv'] = df['maxv'].fillna(norm.maxv)
+            self._standardize(df, 'diff', 'best1', 'best2', df['minv'], df['maxv'] - df['minv'])
+
+        return df
+
+    def dataset_iter(self, sn):
+        assert sn in self.readers
+        return imap(lambda x: self._postprocess_data_frame(x, sn), self.readers[sn]())
+
+    def __contains__(self, o):
+        return o in self.readers
+
+
+# def read_dataset(prefix):
+#     """ Read in training and test data having with given path prefix. """
+#     dfs = {}
+#     for name, suf, paired in [('u', '_unp.csv', False), ('d', '_disc.csv', True),
+#                               ('c', '_conc.csv', True), ('b', '_bad_end.csv', False)]:
+#         fn = prefix + suf
+#         if os.path.exists(fn):
+#             dfs[name] = pandas.io.parsers.read_csv(fn, quoting=2)
+#         elif os.path.exists(fn + '.gz'):
+#             dfs[name] = pandas.io.parsers.read_csv(fn + '.gz', quoting=2, compression='gzip')
+#         elif os.path.exists(fn + '.bz2'):
+#             dfs[name] = pandas.io.parsers.read_csv(fn + '.bz2', quoting=2, compression='bz2')
+#         else:
+#             raise RuntimeError('No such file: "%s"' % fn)
+#
+#
+#
+#     for df in [dfs['u'], dfs['b']]:
+#         # TODO: set minv/maxv properly if not defined
+#         if df.shape[0] == 0:
+#             continue
+#         df['minv'] = df['minv'].fillna(df['best'].min())
+#         df['maxv'] = df['maxv'].fillna(df['best'].max())
+#         _standardize(df, 'diff', 'best', 'secbest', df.minv, df.maxv - df.minv)
+#
+#     for df in [dfs['d']]:
+#         if df.shape[0] == 0:
+#             continue
+#         df['minv1'] = df['minv1'].fillna(df['best1'].min())
+#         df['maxv1'] = df['maxv1'].fillna(df['best1'].max())
+#         _standardize(df, 'diff1', 'best1', 'secbest1', df.minv1, df.maxv1 - df.minv1)
+#
+#     for df in [dfs['c']]:
+#         # TODO: set minv1/maxv1/minv2/maxv2 properly if not defined
+#         if df.shape[0] == 0:
+#             continue
+#         df['minv1'] = df['minv1'].fillna(df['best1'].min())
+#         df['maxv1'] = df['maxv1'].fillna(df['best1'].max())
+#         df['minv2'] = df['minv2'].fillna(df['best2'].min())
+#         df['maxv2'] = df['maxv2'].fillna(df['best2'].max())
+#         _standardize(df, 'diff1', 'best1', 'secbest1', df.minv1, df.maxv1 - df.minv1)
+#         _standardize(df, 'diff2', 'best2', 'secbest2', df.minv2, df.maxv2 - df.minv2)
+#
+#         minconc, maxconc = df.minv1 + df.minv2, df.maxv1 + df.maxv2
+#         _standardize(df, 'diff_conc', 'bestconc', 'secbestconc', minconc, maxconc - minconc)
+#         df['best_min12'] = df[['best1', 'best2']].min(axis=1)
+#         df['diff_min12'] = df[['diff1', 'diff2']].min(axis=1)
+#         df['diff_min12conc'] = df[['diff1', 'diff2', 'diff_conc']].min(axis=1)
+#         df['fraglen_z'] = ((df['fraglen'] - df['fraglen'].mean()) / df['fraglen'].std()).abs()
+#
+#     return dfs
 
 
 def tally_cor_per(level, cor):
@@ -671,20 +817,20 @@ class MapqFit:
             alignments are correct. """
         if shortname == 'c':
             # extract relevant paired-end features from training data
-            labs = ['best1',  # score of best alignment for mate
-                    'best2',  # score of best alignment for opposite mate
-                    'diff1',  # difference for mate
-                    'diff2',  # difference for opposite mate
+            labs = ['best1_1',  # score of best alignment for mate
+                    'best1_2',  # score of best alignment for opposite mate
+                    'diff_1',  # difference for mate
+                    'diff_2',  # difference for opposite mate
                     'diff_conc',  # concordant difference
                     'fraglen_z']  # # stddevs diff for fraglen
-            mapq_header = 'mapq1'
+            mapq_header = 'mapq_1'
         elif shortname == 'd':
             # extract relevant discordant paired-end features
-            labs = ['best1', 'diff1']
-            mapq_header = 'mapq1'
+            labs = ['best1_1', 'diff_1']
+            mapq_header = 'mapq_1'
         else:
             # extract relevant unpaired features
-            labs = ['best', 'diff']
+            labs = ['best1', 'diff']
             mapq_header = 'mapq'
         for lab in labs:
             assert not np.isnan(data[lab]).any()
@@ -796,8 +942,8 @@ class MapqFit:
 
         # read datasets
         log_msg('Reading datasets')
-        self.train_dfs = train_dfs = read_dataset(os.path.join(dr, 'training'))
-        self.test_dfs = test_dfs = read_dataset(os.path.join(dr, 'test'))
+        self.train_dfs = train_dfs = DatasetReader(os.path.join(dr, 'training'), learn_normalizers=True)
+        self.test_dfs = test_dfs = DatasetReader(os.path.join(dr, 'test'), normalizers=self.train_dfs.normalizers)
 
         self.trained_models = {}
         self.crossval_avg = {}
@@ -810,37 +956,40 @@ class MapqFit:
         self.pred_overall_train = MapqPredictions()
         self.pred_train = {}
 
-        for dataset_shortname, dataset_name, paired in self.datasets:
+        for ds, ds_long, paired in self.datasets:
 
-            train = train_dfs[dataset_shortname]
+            if ds not in train_dfs:
+                continue
+
+            train = pandas.concat([x for x in train_dfs.dataset_iter(ds)])
             if train.shape[0] == 0:
                 continue
 
-            log_msg('Fitting %s training data' % dataset_name)
+            log_msg('Fitting %s training data' % ds_long)
 
             # seed pseudo-random generators
             random.seed(random_seed)
             np.random.seed(random_seed)
 
             # extract features, convert to matrix
-            x_train, mapq_orig_train, y_train = self._df_to_mat(train, dataset_shortname)
+            x_train, mapq_orig_train, y_train = self._df_to_mat(train, ds)
 
             # optionally downsample
-            frac = sample_fractions[dataset_shortname] if dataset_shortname in sample_fractions else sample_fraction
-            log_msg('Sampling %0.2f%% of %d rows of %s training data' % (100.0 * frac, train.shape[0], dataset_name))
+            frac = sample_fractions[ds] if ds in sample_fractions else sample_fraction
+            log_msg('Sampling %0.2f%% of %d rows of %s training data' % (100.0 * frac, train.shape[0], ds_long))
             x_train, mapq_orig_train, y_train = \
                 self._downsample(x_train, mapq_orig_train, y_train, frac)
             log_msg('  Now has %d rows' % x_train.shape[0])
 
             # use cross-validation to pick a model
-            self.trained_models[dataset_shortname], params, avgs, stds = \
-                self._fit(model_gen, x_train, y_train, dataset_shortname)
+            self.trained_models[ds], params, avgs, stds = \
+                self._fit(model_gen, x_train, y_train, ds)
 
             self.trained_params = params
-            self.crossval_avg[dataset_shortname] = max(avgs)
+            self.crossval_avg[ds] = max(avgs)
 
             # fit all the training data with the model
-            self.trained_models[dataset_shortname].fit(x_train, y_train)
+            self.trained_models[ds].fit(x_train, y_train)
 
             names = None
             names_colname = 'name1' if paired else 'name'
@@ -850,28 +999,33 @@ class MapqFit:
                 if training and not predict_training:
                     continue
 
-                log_msg('Making %s predictions for %s data' % (dataset_name, 'training' if training else 'test'))
+                log_msg('Making %s predictions for %s data' % (ds_long, 'training' if training else 'test'))
 
                 # set up some variables based on training/test
-                test = train_dfs[dataset_shortname] if training else test_dfs[dataset_shortname]
+                test = train_dfs.dataset_iter(ds) if training else test_dfs.dataset_iter(ds)
                 pred_overall = self.pred_overall_train if training else self.pred_overall
                 pred = self.pred_train if training else self.pred
-                pred[dataset_shortname] = MapqPredictions()
+                pred[ds] = MapqPredictions()
 
-                # get test matrix
-                x_test, mapq_orig_test, y_test = self._df_to_mat(test, dataset_shortname)
-                y_test = np.array(map(lambda x: x == 1, test.correct))
+                nchunk, nrows = 0, 0
+                for test_chunk in test:
+                    nchunk += 1
+                    log_msg('  Making predictions for chunk %d, %d rows' % (nchunk, test_chunk.shape[0]))
 
-                # predict
-                pcor = self.trained_models[dataset_shortname].predict(x_test)  # make predictions
-                pcor = np.array(self.postprocess_predictions(pcor, dataset_name))
-                if keep_names and names_colname in test:
-                    names = test[names_colname]
-                data = None
-                if keep_data:
-                    data = x_test.tolist()
-                for pr in [pred_overall, pred[dataset_shortname]]:
-                    pr.add_pcors(pcor, mapq_orig_test, dataset_shortname, names=names, data=data, correct=y_test)
+                    # get test matrix
+                    x_test, mapq_orig_test, y_test = self._df_to_mat(test_chunk, ds)
+                    y_test = np.array(map(lambda c: c == 1, test_chunk.correct))
+
+                    # predict
+                    pcor = self.trained_models[ds].predict(x_test)  # make predictions
+                    pcor = np.array(self.postprocess_predictions(pcor, ds_long))
+                    if keep_names and names_colname in test_chunk:
+                        names = test_chunk[names_colname]
+                    data = None
+                    if keep_data:
+                        data = x_test.tolist()
+                    for prd in [pred_overall, pred[ds]]:
+                        prd.add_pcors(pcor, mapq_orig_test, ds, names=names, data=data, correct=y_test)
 
         # finalize the predictions
         log_msg('Finalizing results for overall test data (%d alignments)' % len(self.pred_overall.pcor))
@@ -1120,8 +1274,6 @@ def go(args):
                 del ss_fit
                 gc.collect()
             gc.collect()
-        for pd in perf_dicts:
-            print pd
         dfs = [pandas.DataFrame.from_dict(perf_dict) for perf_dict in perf_dicts]
         for i, df in enumerate(dfs):
             df.to_csv(os.path.join(odir, 'subsampling_series_%d.tsv' % (i+1)), sep='\t', index=False)
@@ -1137,7 +1289,6 @@ def go(args):
     else:
         logging.info('Fitting and making predictions')
         fit = MapqFit(args.input_directory, fam, args.subsampling_fraction, verbose=args.verbose, random_seed=args.seed)
-        print fit.summary()
         if args.serialize_fit:
             logging.info('Serializing fit object')
             with open(fit_fn, 'wb') as ofh:

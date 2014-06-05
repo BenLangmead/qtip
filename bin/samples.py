@@ -55,16 +55,19 @@ For concordantly-aligned paired-end examples:
     simulated input data)
 """
 
+import shutil
 import os
-import csv
 from read import Alignment
-from itertools import izip
+from pandas import DataFrame, read_csv
 
 try:
     import numpypy as np
 except ImportError:
     pass
-import numpy as np
+
+
+def _str_or_na(n):
+    return 'NA' if n is None else str(n)
 
 
 class UnpairedTuple(object):
@@ -84,8 +87,7 @@ class UnpairedTuple(object):
         self.best2sc = best2sc          # 2nd-best score
         self.mapq = mapq                # original mapq
 
-    def __iter__(self):
-        return iter([self.rdname, self.bestsc, self.best2sc, self.minv, self.maxv, self.rdlen, self.mapq, self.ordlen])
+    csv_names = ['name', 'best1', 'best2', 'minv', 'maxv', 'rdlen', 'mapq', 'ordlen']
     
     @classmethod
     def from_alignment(cls, al, ordlen=0):
@@ -98,32 +100,19 @@ class UnpairedTuple(object):
             assert hasattr(al, 'maxValid')
             min_valid, max_valid = al.minValid, al.maxValid
         return cls(al.name, len(al), min_valid, max_valid, al.bestScore, secbest, al.mapq, ordlen)
-    
+
     @classmethod
-    def to_data_frame(cls, ptups, cor=None):
-        """ Convert the paired-end tuples to a pandas DataFrame """
-        from pandas import DataFrame
-        names, rdlen, best1, best2, minv, maxv, mapq, ordlen = [], [], [], [], [], [], [], []
-        for ptup in ptups:
-            names.append(ptup.rdname)
-            best1.append(ptup.bestsc)
-            best2.append(ptup.best2sc)
-            minv.append(ptup.minv)
-            maxv.append(ptup.maxv)
-            rdlen.append(ptup.rdlen)
-            mapq.append(ptup.mapq)
-            ordlen.append(ptup.ordlen)
-        df = DataFrame.from_items([('name', names)
-                                   ('best1', best1),
-                                   ('best2', best2),
-                                   ('minv', minv),
-                                   ('maxv', maxv),
-                                   ('rdlen', rdlen),
-                                   ('mapq', mapq),
-                                   ('ordlen', ordlen)])
-        if cor is not None:
-            df['correct'] = np.where(cor, 1, 0)
-        return df
+    def append_csv_header(cls, fh):
+        fh.write(','.join(cls.csv_names + ['correct']) + '\n')
+
+    def append_csv(self, fh, correct=None):
+        correct_str = 'NA'
+        if correct is not None:
+            correct_str = 'T' if correct else 'F'
+        fh.write('%s,%d,%s,%s,%s,%d,%d,%s,%s\n' % (self.rdname, self.bestsc, _str_or_na(self.best2sc),
+                                                   _str_or_na(self.minv), _str_or_na(self.maxv),
+                                                   self.rdlen, self.mapq, _str_or_na(self.ordlen),
+                                                   correct_str))
 
 
 class PairedTuple(object):
@@ -153,11 +142,10 @@ class PairedTuple(object):
         self.best2concsc = best2concsc  # 2nd-best concordant
         self.fraglen = fraglen          # fragment length
 
-    def __iter__(self):
-        return iter([self.rdname1, self.bestsc1, self.best2sc1, self.minv1, self.maxv1, self.rdlen1, self.mapq1,
-                     self.rdname2, self.bestsc2, self.best2sc2, self.minv2, self.maxv2, self.rdlen2, self.mapq2,
-                     self.bestconcsc, self.best2concsc, self.fraglen])
-    
+    csv_names = ['name_1', 'best1_1', 'best2_1', 'minv_1', 'maxv_1', 'rdlen_1', 'mapq_1',
+                 'name_2', 'best1_2', 'best2_2', 'minv_2', 'maxv_2', 'rdlen_2', 'mapq_2',
+                 'best1conc', 'best2conc', 'fraglen']
+
     @classmethod
     def from_alignments(cls, al1, al2):
         """ Create unpaired training/test tuple from pair of Alignments """
@@ -188,195 +176,118 @@ class PairedTuple(object):
                    Alignment.fragment_length(al1, al2))
 
     @classmethod
-    def columnize(cls, ptups):
-        rdname_1, rdname_2 = [], []
-        rdlen_1, rdlen_2 = [], []
-        best1_1, best1_2 = [], []
-        best2_1, best2_2 = [], []
-        minv_1, maxv_1, minv_2, maxv_2 = [], [], [], []
-        mapq_1, mapq_2 = [], []
-        best1conc, best2conc = [], []
-        fraglen = []
-        for ptup in ptups:
-            rdname_1.append(ptup.rdname1)
-            rdname_2.append(ptup.rdname2)
-            best1_1.append(ptup.bestsc1)
-            best1_2.append(ptup.bestsc2)
-            best2_1.append(ptup.best2sc1)
-            best2_2.append(ptup.best2sc2)
-            rdlen_1.append(ptup.rdlen1)
-            rdlen_2.append(ptup.rdlen2)
-            mapq_1.append(ptup.mapq1)
-            mapq_2.append(ptup.mapq2)
-            best1conc.append(ptup.bestconcsc)
-            best2conc.append(ptup.best2concsc)
-            minv_1.append(ptup.minv1)
-            minv_2.append(ptup.minv2)
-            maxv_1.append(ptup.maxv1)
-            maxv_2.append(ptup.maxv2)
-            fraglen.append(ptup.fraglen)
-        return rdname_1, best1_1, best2_1, minv_1, maxv_1, rdlen_1, mapq_1,\
-            rdname_2, best1_2, best2_2, minv_2, maxv_2, rdlen_2, mapq_2,\
-            best1conc, best2conc, fraglen
+    def append_csv_header(cls, fh):
+        fh.write(','.join(cls.csv_names + ['correct']) + '\n')
 
-    @classmethod
-    def to_data_frames(cls, ptups, cor=None):
-        """ Convert the paired-end tuples to a pandas DataFrame """
-        from pandas import DataFrame
-        rdname_1, best1_1, best2_1, minv_1, maxv_1, rdlen_1, mapq_1,\
-            rdname_2, best1_2, best2_2, minv_2, maxv_2, rdlen_2, mapq_2,\
-            best1conc, best2conc, fraglen = PairedTuple.columnize(ptups)
-        df = DataFrame.from_items([('name_1', rdname_1),
-                                   ('best1_1', best1_1),
-                                   ('best2_1', best2_1),
-                                   ('minv_1', minv_1),
-                                   ('maxv_1', maxv_1),
-                                   ('rdlen_1', rdlen_1),
-                                   ('mapq_1', mapq_1),
-                                   ('name_2', rdname_2),
-                                   ('best1_2', best1_2),
-                                   ('best2_2', best2_2),
-                                   ('minv_2', minv_2),
-                                   ('maxv_2', maxv_2),
-                                   ('rdlen_2', rdlen_2),
-                                   ('mapq_2', mapq_2),
-                                   ('best1conc', best1conc),
-                                   ('best2conc', best2conc),
-                                   ('fraglen', fraglen)])
-        if cor is not None:
-            df['correct'] = cor
-        return df
+    def append_csv(self, fh, correct=None):
+        correct_str = 'NA'
+        if correct is not None:
+            correct_str = 'T' if correct else 'F'
+        fh.write('%s,%d,%s,%s,%s,%d,%d,%s,%d,%s,%s,%s,%d,%d,%s,%s,%d,%s\n' %
+                 (self.rdname1, self.bestsc1, _str_or_na(self.best2sc1),
+                  _str_or_na(self.minv1), _str_or_na(self.maxv1), self.rdlen1, self.mapq1,
+                  self.rdname2, self.bestsc2, _str_or_na(self.best2sc2),
+                  _str_or_na(self.minv2), _str_or_na(self.maxv2), self.rdlen2, self.mapq2,
+                  _str_or_na(self.bestconcsc), _str_or_na(self.best2concsc), self.fraglen, correct_str))
 
 
-class Dataset(object):
-    
+class DatasetOnDisk(object):
+
     """ Encapsulates a collection of training or test data.  Training data is
         labeled, test data not.  Right now this is being stored row-wise.
         This works well for saving and loading the rows to/from a CSV file.
         But it doesn't work so well for other things we'd like to do, like
         rescaling. """
-    
-    def __init__(self):
+
+    def __init__(self, name, temp_man):
         # Data for individual reads and mates.  Tuples are (rdlen, minValid,
         # maxValid, bestSc, scDiff)
-        self.data_unp, self.lab_unp = [], []
+        self.data_unp, self.data_unp_fn = None, None
         # Data for concordant pairs.  Tuples are two tuples as described above,
         # one for each mate, plus the fragment length.  Label says whether the
         # first mate's alignment is correct.
-        self.data_conc, self.lab_conc = [], []
+        self.data_conc, self.data_conc_fn = None, None
         # Data for discordant pairs.
-        self.data_disc, self.lab_disc = [], []
+        self.data_disc, self.data_disc_fn = None, None
         # Data for bad ends
-        self.data_bad_end, self.lab_bad_end = [], []
+        self.data_bad_end, self.data_bad_end_fn = None, None
+        self._len = 0  # total # alignments added
+        self.name = name  # dataset name
+        self.temp_man = temp_man  # temporary file allocator
 
     def __len__(self):
-        """ Return number of alignments added so far """
-        return len(self.data_unp) + len(self.data_conc) + len(self.data_disc) + len(self.data_bad_end)
-    
+        """ Return # alignments added so far """
+        return self._len
+
     def add_concordant(self, al1, al2, correct1, correct2):
         """ Add a concordant paired-end alignment to our dataset. """
         assert al1.concordant and al2.concordant
         rec1 = PairedTuple.from_alignments(al1, al2)
         rec2 = PairedTuple.from_alignments(al2, al1)
-        for rec in [rec1, rec2]:
-            self.data_conc.append(rec)
-        self.lab_conc.extend([correct1, correct2])
+        if self.data_conc is None:
+            self.data_conc_fn = self.temp_man.get_filename('%s_data_conc.csv' % self.name, 'dataset %s' % self.name)
+            self.data_conc = open(self.data_conc_fn, 'w')
+            PairedTuple.append_csv_header(self.data_conc)
+        for rec, correct in zip([rec1, rec2], [correct1, correct2]):
+            rec.append_csv(self.data_conc, correct)
 
     def add_discordant(self, al1, al2, correct1, correct2):
         """ Add a discordant paired-end alignment to our dataset. """
         assert al1.discordant and al2.discordant
         rec1 = PairedTuple.from_alignments(al1, al2)
         rec2 = PairedTuple.from_alignments(al2, al1)
-        for rec in [rec1, rec2]:
-            self.data_disc.append(rec)
-        self.lab_disc.extend([correct1, correct2])
+        if self.data_disc is None:
+            self.data_disc_fn = self.temp_man.get_filename('%s_data_disc.csv' % self.name, 'dataset %s' % self.name)
+            self.data_disc = open(self.data_disc_fn, 'w')
+            PairedTuple.append_csv_header(self.data_disc)
+        for rec, correct in zip([rec1, rec2], [correct1, correct2]):
+            rec.append_csv(self.data_disc, correct)
 
     def add_bad_end(self, al, unaligned, correct):
         """ Add a discordant paired-end alignment to our dataset. """
         assert al.paired
-        self.data_bad_end.append(UnpairedTuple.from_alignment(al, len(unaligned.seq)))
-        self.lab_bad_end.append(correct)
+        self.none = self.data_bad_end is None
+        if self.none:
+            self.data_bad_end_fn = self.temp_man.get_filename('%s_data_bad_end.csv' % self.name, 'dataset %s' % self.name)
+            self.data_bad_end = open(self.data_bad_end_fn, 'w')
+            UnpairedTuple.append_csv_header(self.data_bad_end)
+        UnpairedTuple.from_alignment(al, len(unaligned.seq)).append_csv(self.data_bad_end, correct)
 
     def add_unpaired(self, al, correct):
         """ Add an alignment for a simulated unpaired read to our dataset. """
-        self.data_unp.append(UnpairedTuple.from_alignment(al))
-        self.lab_unp.append(correct)
+        if self.data_unp is None:
+            self.data_unp_fn = self.temp_man.get_filename('%s_data_unp.csv' % self.name, 'dataset %s' % self.name)
+            self.data_unp = open(self.data_unp_fn, 'w')
+            UnpairedTuple.append_csv_header(self.data_unp)
+        UnpairedTuple.from_alignment(al).append_csv(self.data_unp, correct)
 
-    def save(self, fnprefix, compress=True):
+    def save(self, fnprefix):
         """ Save a file that we can load from R using read.csv with
             default arguments """
-        fnmap = {'_unp': (self.data_unp, self.lab_unp, False),
-                 '_conc': (self.data_conc, self.lab_conc, True),
-                 '_disc': (self.data_disc, self.lab_disc, True),
-                 '_bad_end': (self.data_bad_end, self.lab_bad_end, False)}
-        for lab, p in fnmap.iteritems():
-            data, corrects, paired = p
-            fn = fnprefix + lab + '.csv'
-            if compress:
-                import gzip
-                fh = gzip.open(fn + '.gz', 'w')
-            else:
-                fh = open(fn, 'w')
-            if paired:
-                fh.write(','.join(['name1', 'best1', 'secbest1', 'minv1', 'maxv1', 'len1', 'mapq1',
-                                   'name2', 'best2', 'secbest2', 'minv2', 'maxv2', 'len2', 'mapq2',
-                                   'bestconc', 'secbestconc', 'fraglen', 'correct']) + '\n')
-            else:
-                fh.write(','.join(['name', 'best', 'secbest', 'minv', 'maxv', 'len', 'mapq',
-                                   'olen', 'correct']) + '\n')
-            for tup, correct in izip(data, corrects):
-                correct_str = 'NA'
-                if correct is not None:
-                    correct_str = 'T' if correct else 'F'
-                tup = map(lambda x: 'NA' if x is None else str(x), tup)
-                tup.append(correct_str)
-                fh.write(','.join(tup) + '\n')
-            fh.close()
+        if self.data_unp_fn is not None:
+            shutil.copyfile(self.data_unp_fn, fnprefix + '_unp.csv')
+        if self.data_bad_end_fn is not None:
+            shutil.copyfile(self.data_bad_end_fn, fnprefix + '_bad_end.csv')
+        if self.data_conc_fn is not None:
+            shutil.copyfile(self.data_conc_fn, fnprefix + '_conc.csv')
+        if self.data_disc_fn is not None:
+            shutil.copyfile(self.data_disc_fn, fnprefix + '_disc.csv')
 
-    def load(self, fnprefix):
-        fnmap = {'_unp': (self.data_unp, self.lab_unp, False),
-                 '_conc': (self.data_conc, self.lab_conc, True),
-                 '_disc': (self.data_disc, self.lab_disc, True),
-                 '_bad_end': (self.data_bad_end, self.lab_bad_end, False)}
-        for lab, p in fnmap.iteritems():
-            data, corrects, paired = p
-            fn = fnprefix + lab + '.csv'
-            if os.path.exists(fn + '.gz'):
-                import gzip
-                fh = gzip.open(fn + '.gz')
-            else:
-                fh = open(fn)
+    @staticmethod
+    def _from_file(fn, names):
+        if fn is not None and os.path.exists(fn):
+            return read_csv(fn, names=names)
+        else:
+            return DataFrame.from_dict(dict.fromkeys(names, []))
 
-            def int_or_none(s):
-                return None if s == 'NA' else int(s)
-
-            if paired:
-                for toks in csv.reader(fh):
-                    assert 18 == len(toks)
-                    if 'name1' == toks[0]:
-                        continue  # skip header
-                    # Note: pandas csv parser is much faster
-                    rdname1, best1, secbest1, minv1, maxv1, ln1, mapq1 = map(int_or_none, toks[0:7])
-                    rdname2, best2, secbest2, minv2, maxv2, ln2, mapq2 = map(int_or_none, toks[7:14])
-                    bestconc, secbestconc, fraglen = map(int_or_none, toks[14:17])
-                    data.append(PairedTuple(rdname1, ln1, minv1, maxv1, best1, secbest1, mapq1,
-                                            rdname2, ln2, minv2, maxv2, best2, secbest2, mapq2,
-                                            bestconc, secbestconc, fraglen))
-                    corrects.append(toks[-1] == 'T')
-            else:
-                for toks in csv.reader(fh):
-                    assert 8 == len(toks)
-                    if 'name' == toks[0]:
-                        continue  # skip header
-                    # Note: pandas csv parser is much faster
-                    rdname, best, secbest, minv, maxv, ln, mapq, oln = map(int_or_none, toks[:8])
-                    data.append(UnpairedTuple(rdname, ln, minv, maxv, best, secbest, mapq, oln))
-                    corrects.append(toks[-1] == 'T')
-            fh.close()
+    def finalize(self):
+        for fh in [self.data_conc, self.data_bad_end, self.data_disc, self.data_unp]:
+            if fh is not None:
+                fh.close()
 
     def to_data_frames(self):
         """ Convert dataset to tuple of 3 pandas DataFrames. """
-        return (UnpairedTuple.to_data_frame(self.data_unp, self.lab_unp),
-                PairedTuple.to_data_frames(self.data_conc, self.lab_conc),
-                PairedTuple.to_data_frames(self.data_disc, self.lab_disc),
-                UnpairedTuple.to_data_frames(self.data_bad_end, self.lab_bad_end))
+        return (self._from_file(self.data_conc_fn, PairedTuple.csv_names),
+                self._from_file(self.data_disc_fn, PairedTuple.csv_names),
+                self._from_file(self.data_unp_fn, UnpairedTuple.csv_names),
+                self._from_file(self.data_bad_end_fn, UnpairedTuple.csv_names))
