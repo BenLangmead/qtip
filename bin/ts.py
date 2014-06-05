@@ -1041,8 +1041,6 @@ if __name__ == "__main__":
     parser.add_argument('--pickle-ref', metavar='path', type=str,
                         help='Pickle FASTA input for speed, or use pickled version if it exists already.  Pickled '
                              'version is stored at given path')
-    parser.add_argument('--alignability-wig', metavar='path', type=str, nargs='+',
-                        help='.wig files with alignability info')
     parser.add_argument('--U', metavar='path', type=str, nargs='+', help='Unpaired read files')
     parser.add_argument('--m1', metavar='path', type=str, nargs='+',
                         help='Mate 1 files; must be specified in same order as --m2')
@@ -1095,12 +1093,6 @@ if __name__ == "__main__":
 
     # For when input is itself simulated, so we can output a Dataset with the
     # 'correct' column filled in properly 
-    parser.add_argument('--input-from-mason', action='store_const', const=True, default=False,
-                        help='Input reads were simulated from Mason')
-    parser.add_argument('--input-from-wgsim', action='store_const', const=True, default=False,
-                        help='Input reads were simulated from wgsim')
-    parser.add_argument('--input-from-grinder', action='store_const', const=True, default=False,
-                        help='Input reads were simulated from Grinder')
     parser.add_argument('--correct-chromosomes', metavar='list', type=str, nargs='+',
                         help='Label test data originating from any of these chromosomes as "correct."  Useful for '
                              'tests on real-world data where it is known that the data came from a parituclar '

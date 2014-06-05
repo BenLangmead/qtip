@@ -254,95 +254,6 @@ class FragmentSimSerial2(object):
                         yield typ, rdp1, rdp2
 
 
-class SequenceSimulatorSerialStratifiedAlignability(object):
-
-    def _estimate_length(self):
-        return sum([os.path.getsize(fn) for fn in self.fasta_filenames])
-
-    def __init__(self, fasta_filenames, alignability):
-        self.__re = re.compile('[^ACGTacgt]')
-        self.alignability = alignability
-        self.fasta_filenames = fasta_filenames
-        self.total_length = self._estimate_length() * 0.9
-
-    def simulate_batch(self, num_target, max_length, chunk_size=10*1024):
-        last_ref_id, ala_iter = None, None
-        freq, num_strata = self.alignability.frequencies, self.alignability.max_strata
-        per_stratum_target = num_target / num_strata
-        num = 0
-        num_in_strata = [0] * num_strata
-        last_seq = ''
-        ala, poss = [0] * chunk_size, []
-        for i in xrange(0, num_strata):
-            poss.append([0] * chunk_size)
-        for ref_id, offset, seq in iter_fasta_chunks_fast(self.fasta_filenames, chunk_size=chunk_size):
-            if last_ref_id is None or ref_id != last_ref_id:
-                if not self.alignability.has_ref_id(ref_id):
-                    continue  # skip refs for which we don't also have alignability
-                self.alignability.load_ref_id(ref_id)
-                ala_cursor = 0
-                while self.alignability.records[ala_cursor][1] <= offset:
-                    ala_cursor += 1
-                last_ref_id = ref_id
-                ln = max_length - 1
-            else:
-                ln = min(max_length-1, len(last_seq))
-                seq = last_seq[-ln:] + seq
-                offset -= ln
-            actual_length = len(seq) - ln
-            assert actual_length <= len(seq) - (max_length - 1)
-            last_seq = seq
-
-            # Populate stratum_hist
-            stratum_hist = defaultdict(int)
-            ref_cursor = offset
-            n_left = actual_length
-            ala_cursor_orig = ala_cursor
-            while ala_cursor < len(self.alignability.records) and n_left > 0:
-                st, en, stratum = self.alignability.records[ala_cursor]
-                diff = min(en - ref_cursor, n_left)
-                stratum_hist[stratum] += diff
-                if diff == en - ref_cursor:
-                    ala_cursor += 1
-                ref_cursor += diff
-                n_left -= diff
-            assert n_left == 0 or ala_cursor == len(self.alignability.records)
-
-            tot_covs = [numpy.random.binomial(per_stratum_target, 1.0 * stratum_hist[s] / freq[s]) for s in xrange(num_strata)]
-            if not any(tot_covs):
-                continue
-
-            # Populate poss
-            ref_cursor = offset
-            n_left = actual_length
-            ala_cursor = ala_cursor_orig
-            stratum_cursor = [0] * num_strata
-            while ala_cursor < len(self.alignability.records) and n_left > 0:
-                st, en, stratum = self.alignability.records[ala_cursor]
-                diff = min(en - ref_cursor, n_left)
-                poss[stratum][stratum_cursor[stratum]:stratum_cursor[stratum] + diff] = xrange(ref_cursor - offset, ref_cursor - offset + diff)
-                stratum_cursor[stratum] += diff
-                if diff == en - ref_cursor:
-                    ala_cursor += 1
-                ref_cursor += diff
-                n_left -= diff
-            assert n_left == 0 or ala_cursor == len(self.alignability.records)
-
-            for stratum, tot_cov in enumerate(tot_covs):
-                if tot_cov == 0:
-                    continue
-                for pos_i in numpy.random.random_integers(0, stratum_hist[stratum]-1, tot_cov):
-                    i = poss[stratum][pos_i]
-                    substr = seq[i:i+max_length]
-                    if len(substr) < max_length:
-                        continue
-                    if self.__re.search(substr):
-                        continue
-                    num += 1
-                    num_in_strata[stratum] += 1
-                    yield ref_id, offset + i, substr
-
-
 class SequenceSimulator(object):
     """ Encapsulates a Reference and allows user to sample fragments of
         specified length.  Simulated fragments are not permitted to overlap a
@@ -449,7 +360,6 @@ if __name__ == "__main__":
     import argparse
     from shutil import rmtree
     from tempfile import mkdtemp
-    from alignability import AlignabilityStratifiedIndexed
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--test', action='store_const', const=True, default=False, help='Do unit tests')
@@ -551,78 +461,5 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
                 for ref_id, _, _ in simreads:
                     tot[ref_id] += 1
                 self.assertGreater(tot['short_name1'], tot['short_name2'])
-
-        class TestSequenceSimulatorSerialStratifiedAlignability(unittest.TestCase):
-
-            def setUp(self):
-                self.tmpdir = mkdtemp()
-                self.fa_fn_1 = os.path.join(self.tmpdir, 'tmp1.fa')
-                with open(self.fa_fn_1, 'w') as fh:
-                    fh.write('''>short_name1 with some stuff after whitespace
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
->short_name2 with some stuff after whitespace
-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
->short_name3 with some stuff after whitespace
-ACACACACACACACACACACACACACACACACACACACACACACACACACACACACACAC
-ACACACACACACACACACACACACACACACACACACACACACACACACACACACACACAC
->short_name4 with some stuff after whitespace
-ATATATATATATATATATATATATATATATATATATATATATATATATATATATATATAT
-ATATATATATATATATATATATATATATATATATATATATATATATATATATATATATAT
->short_name5 with some stuff after whitespace
-AGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAG
-AGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAG
->short_name6 with some stuff after whitespace
-CGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCG
-CGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCG
-''')
-                self.wig_fn_1 = os.path.join(self.tmpdir, 'tmp1.wig')
-                with open(self.wig_fn_1, 'w') as fh:
-                    # first record intentionall does not extend to the
-                    # beginning or end of short_name1
-                    fh.write('''# comment
-short_name1 100   1100   1
-short_name2 0   300   0.5
-short_name3 0   120   0.3
-short_name4 0   120   0.2
-short_name5 0   120   0.08
-short_name6 0   110   0.03
-''')
-
-            def tearDown(self):
-                rmtree(self.tmpdir)
-
-            def test_1(self):
-                ala = AlignabilityStratifiedIndexed([self.wig_fn_1], max_strata=6)
-                sssa = SequenceSimulatorSerialStratifiedAlignability([self.fa_fn_1], ala)
-                simreads = [x for x in sssa.simulate_batch(3000, 50, chunk_size=100)]
-                self.assertGreater(len(simreads), 2000)
-                tot = defaultdict(int)
-                for ref_id, _, _ in simreads:
-                    tot[ref_id] += 1
-                for d in xrange(1, 7):
-                    self.assertTrue(400 < tot['short_name%d' % d] < 600)
 
         unittest.main(argv=[sys.argv[0]])
