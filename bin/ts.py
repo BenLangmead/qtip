@@ -875,39 +875,34 @@ def go(args, aligner_args):
                 tim.end_timer('Simulating tandem reads')
                 tim.start_timer('Aligning tandem reads')
 
+                def _wait_for_aligner(_al):
+                    while _al.pipe.poll() is None:
+                        time.sleep(0.5)
+
                 sam_fn = temp_man.get_filename('training.sam', 'tandem sam')
                 if aligner.supportsMix():
                     aligner = aligner_class(align_cmd, args.index,
                                             unpaired=unpaired_arg, paired_combined=paired_combined_arg,
                                             sam=sam_fn, format=frmt)
+
+                    _wait_for_aligner(aligner)
+                    logging.debug('Finished aligning unpaired tandem reads')
                 else:
-                    paired_sam = temp_man.get_filename('training_paired', 'tandem sam')
-                    unpaired_sam = temp_man.get_filename('training_unpaired', 'tandem sam')
+                    paired_sam = temp_man.get_filename('training_paired.sam', 'tandem sam')
+                    unpaired_sam = temp_man.get_filename('training_unpaired.sam', 'tandem sam')
 
                     if unpaired_arg is not None:
                         aligner = aligner_class(align_cmd, args.index,
                                                 unpaired=unpaired_arg, paired_combined=None,
                                                 sam=unpaired_sam, format=frmt)
-
-                        cor_dist, incor_dist = defaultdict(int), defaultdict(int)
-
-                        while aligner.pipe.poll() is None:
-                            time.sleep(0.5)
-                        while othread.is_alive():
-                            othread.join(0.5)
+                        _wait_for_aligner(aligner)
                         logging.debug('Finished aligning unpaired tandem reads')
 
                     if paired_combined_arg is not None:
                         aligner = aligner_class(align_cmd, args.index,
                                                 unpaired=None, paired_combined=paired_combined_arg,
                                                 sam=paired_sam, format=frmt)
-
-                        cor_dist, incor_dist = defaultdict(int), defaultdict(int)
-
-                        while aligner.pipe.poll() is None:
-                            time.sleep(0.5)
-                        while othread.is_alive():
-                            othread.join(0.5)
+                        _wait_for_aligner(aligner)
                         logging.debug('Finished aligning paired-end tandem reads')
 
                     logging.debug('Concatenating unpaired and paired-end files')
@@ -920,6 +915,8 @@ def go(args, aligner_args):
                 # remove temporary reads
                 temp_man.update_peak()
                 temp_man.remove_group('tandem reads')
+
+                cor_dist, incor_dist = defaultdict(int), defaultdict(int)
 
                 logging.info('Parsing tandem alignments (%s)' % lab)
                 tim.end_timer('Aligning tandem reads')
