@@ -888,10 +888,9 @@ def go(args, aligner_args):
                     _wait_for_aligner(aligner)
                     logging.debug('Finished aligning unpaired tandem reads')
                 else:
-                    paired_sam = temp_man.get_filename('training_paired.sam', 'tandem sam')
-                    unpaired_sam = temp_man.get_filename('training_unpaired.sam', 'tandem sam')
-
+                    paired_sam, unpaired_sam = None, None
                     if unpaired_arg is not None:
+                        unpaired_sam = temp_man.get_filename('training_unpaired.sam', 'tandem sam')
                         aligner = aligner_class(align_cmd, args.index,
                                                 unpaired=unpaired_arg, paired_combined=None,
                                                 sam=unpaired_sam, format=frmt)
@@ -899,6 +898,7 @@ def go(args, aligner_args):
                         logging.debug('Finished aligning unpaired tandem reads')
 
                     if paired_combined_arg is not None:
+                        paired_sam = temp_man.get_filename('training_paired.sam', 'tandem sam')
                         aligner = aligner_class(align_cmd, args.index,
                                                 unpaired=None, paired_combined=paired_combined_arg,
                                                 sam=paired_sam, format=frmt)
@@ -908,9 +908,10 @@ def go(args, aligner_args):
                     logging.debug('Concatenating unpaired and paired-end files')
                     with open(sam_fn, 'w') as ofh:
                         for fn in [paired_sam, unpaired_sam]:
-                            with open(fn) as fh:
-                                for ln in fh:
-                                    ofh.write(ln)
+                            if fn is not None:
+                                with open(fn) as fh:
+                                    for ln in fh:
+                                        ofh.write(ln)
 
                 # remove temporary reads
                 temp_man.update_peak()
