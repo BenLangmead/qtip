@@ -1164,16 +1164,16 @@ def adaboost_models(random_seed=33):
 
 
 def model_family(args):
-    if args.model_family == 'RandomForest':
+    if args['model_family'] == 'RandomForest':
         return random_forest_models()
-    elif args.model_family == 'ExtraTrees':
+    elif args['model_family'] == 'ExtraTrees':
         return extra_trees_models()
-    elif args.model_family == 'GradientBoosting':
+    elif args['model_family'] == 'GradientBoosting':
         return gradient_boosting_models()
-    elif args.model_family == 'AdaBoost':
+    elif args['model_family'] == 'AdaBoost':
         return adaboost_models()
     else:
-        raise RuntimeError('Bad value for --model-family: "%s"' % args.model_family)
+        raise RuntimeError('Bad value for --model-family: "%s"' % args['model_family'])
 
 
 def mkdir_quiet(dr):
@@ -1189,27 +1189,27 @@ def mkdir_quiet(dr):
 
 def make_plots(pred, odir, args, prefix=''):
     mkdir_quiet(odir)
-    fmat = args.plot_format
-    if args.plot_cum_incorrect or args.plot_all:
+    fmat = args['plot_format']
+    if args['plot_cum_incorrect'] or args['plot_all']:
         logging.info(prefix + 'Making cumulative-incorrect plots')
         assert pred.correct is not None
-        plot_drop_rate(pred.pcor, pred.correct, pcor2=pred.pcor_orig, log2ize=False, rasterize=args.rasterize).savefig(
+        plot_drop_rate(pred.pcor, pred.correct, pcor2=pred.pcor_orig, log2ize=False).savefig(
             os.path.join(odir, 'drop_rate.' + fmat))
         plt.close()
         assert len(plt.get_fignums()) == 0
-        plot_drop_rate(pred.pcor, pred.correct, pcor2=pred.pcor_orig, log2ize=True, rasterize=args.rasterize).savefig(
+        plot_drop_rate(pred.pcor, pred.correct, pcor2=pred.pcor_orig, log2ize=True).savefig(
             os.path.join(odir, 'drop_rate_log2.' + fmat))
         plt.close()
         assert len(plt.get_fignums()) == 0
-        plot_drop_rate_difference(pred.pcor, pred.pcor_orig, pred.correct, log2ize=False, rasterize=args.rasterize).savefig(
+        plot_drop_rate_difference(pred.pcor, pred.pcor_orig, pred.correct, log2ize=False).savefig(
             os.path.join(odir, 'drop_rate_diff.' + fmat))
         plt.close()
         assert len(plt.get_fignums()) == 0
-        plot_drop_rate_difference(pred.pcor, pred.pcor_orig, pred.correct, log2ize=True, rasterize=args.rasterize).savefig(
+        plot_drop_rate_difference(pred.pcor, pred.pcor_orig, pred.correct, log2ize=True).savefig(
             os.path.join(odir, 'drop_rate_diff_log2.' + fmat))
         plt.close()
         assert len(plt.get_fignums()) == 0
-    if args.plot_mapq_buckets or args.plot_all:
+    if args['plot_mapq_buckets'] or args['plot_all']:
         logging.info(prefix + 'Making MAPQ bucket plots')
         bucket_error_plot([pred.mapq, pred.mapq_orig], ['Predicted', 'Original'], ['b', 'g'], pred.correct).savefig(
             os.path.join(odir, 'mapq_buckets.' + fmat))
@@ -1224,15 +1224,15 @@ def go(args):
     logging.info('Instantiating model family')
     fam = model_family(args)
 
-    odir = args.output_directory
+    odir = args['output_directory']
     mkdir_quiet(odir)
 
-    if args.subsampling_series is not None:
+    if args['subsampling_series'] is not None:
         logging.info('Doing subsampling series')
         ss_odir = os.path.join(odir, 'subsampled')
         # outermost: replicates
         # inner: fractions
-        fractions = map(float, args.subsampling_series.split(','))
+        fractions = map(float, args['subsampling_series'].split(','))
         perf_dicts = [{'fraction': [],
                        'rank_err': [],
                        'rank_err_round': [],
@@ -1240,24 +1240,24 @@ def go(args):
                        'mse_err_round': [],
                        'mapq_avg': [],
                        'mapq_std': [],
-                       'params': []} for _ in xrange(args.subsampling_replicates)]
+                       'params': []} for _ in xrange(args['subsampling_replicates'])]
         for fraction in fractions:
             logging.info('  Fraction=%0.3f' % fraction)
-            for repl in xrange(1, args.subsampling_replicates+1):
-                my_seed = hash(str(args.seed + repl))
+            for repl in xrange(1, args['subsampling_replicates']+1):
+                my_seed = hash(str(args['seed'] + repl))
                 gc.collect()
                 logging.info('    Replicate=%d' % repl)
                 my_odir = os.path.join(ss_odir, '%0.3f' % fraction, str(repl))
                 mkdir_quiet(my_odir)
                 my_fit_fn = os.path.join(my_odir, 'fit.pkl')
-                if os.path.exists(my_fit_fn) and not args.overwrite_fit:
+                if os.path.exists(my_fit_fn) and not args['overwrite_fit']:
                     logging.info('      Loading predictions from file')
                     with open(my_fit_fn, 'rb') as fh:
                         ss_fit = cPickle.load(fh)
                 else:
                     logging.info('      Fitting and making predictions')
-                    ss_fit = MapqFit(args.input_directory, fam, fraction, verbose=args.verbose, random_seed=my_seed)
-                    if args.serialize_fit:
+                    ss_fit = MapqFit(args['input_directory'], fam, fraction, verbose=args['verbose'], random_seed=my_seed)
+                    if args['serialize_fit']:
                         logging.info('      Serializing fit object')
                         with open(my_fit_fn, 'wb') as ofh:
                             cPickle.dump(ss_fit, ofh, 2)
@@ -1277,19 +1277,20 @@ def go(args):
         dfs = [pandas.DataFrame.from_dict(perf_dict) for perf_dict in perf_dicts]
         for i, df in enumerate(dfs):
             df.to_csv(os.path.join(odir, 'subsampling_series_%d.tsv' % (i+1)), sep='\t', index=False)
-        plot_subsampling_series(dfs).savefig(os.path.join(odir, 'subsampling_series.' + args.plot_format))
+        plot_subsampling_series(dfs).savefig(os.path.join(odir, 'subsampling_series.' + args['plot_format']))
         plt.close()
         assert len(plt.get_fignums()) == 0
 
     fit_fn = os.path.join(odir, 'fit.pkl')
-    if os.path.exists(fit_fn) and not args.overwrite_fit:
+    if os.path.exists(fit_fn) and not args['overwrite_fit']:
         logging.info('Loading fit from file')
         with open(fit_fn, 'rb') as fh:
             fit = cPickle.load(fh)
     else:
         logging.info('Fitting and making predictions')
-        fit = MapqFit(args.input_directory, fam, args.subsampling_fraction, verbose=args.verbose, random_seed=args.seed)
-        if args.serialize_fit:
+        fit = MapqFit(args['input_directory'], fam, args['subsampling_fraction'], verbose=args['verbose'],
+                      random_seed=args['seed'])
+        if args['serialize_fit']:
             logging.info('Serializing fit object')
             with open(fit_fn, 'wb') as ofh:
                 cPickle.dump(fit, ofh, 2)
@@ -1298,11 +1299,26 @@ def go(args):
     make_plots(fit.pred_overall, odir, args, prefix='  ')
     logging.info('Done')
 
-if __name__ == "__main__":
-    import argparse
 
-    parser = argparse.ArgumentParser(description='Fit model, make predictions.')
+def go_profile(args):
+    pr = None
+    if args['profile']:
+        import cProfile
+        import pstats
+        import StringIO
+        pr = cProfile.Profile()
+        pr.enable()
+    go(args)
+    if args['profile']:
+        pr.disable()
+        s = StringIO.StringIO()
+        sortby = 'tottime'
+        ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+        ps.print_stats(30)
+        print s.getvalue()
 
+
+def add_predict_args(parser):
     # Output-related options
     parser.add_argument('--input-directory', metavar='path', type=str, required=True,
                         help='Directory with output from tandem simulator')
@@ -1336,19 +1352,22 @@ if __name__ == "__main__":
     parser.add_argument('--plot-format', metavar='format', type=str, default='png',
                         help='Extension (and image format) for plot: {pdf, png, eps, jpg, ...}')
 
-    # Plotting options
-    # This doesn't seem to help anything!
-    parser.add_argument('--rasterize', action='store_const', const=True, default=False,
-                        help='Rasterize complicated lines and curves in plots')
+
+if __name__ == "__main__":
+    import argparse
+
+    _parser = argparse.ArgumentParser(description='Fit model, make predictions.')
+
+    add_predict_args(_parser)
 
     # Other options
-    parser.add_argument('--seed', metavar='int', type=int, default=6277, help='Pseudo-random seed')
-    parser.add_argument('--test', action='store_const', const=True, default=False, help='Run unit tests')
-    parser.add_argument('--verbose', action='store_const', const=True, default=False, help='Be talkative')
-    parser.add_argument('--profile', action='store_const', const=True, default=False, help='Output profiling data')
+    _parser.add_argument('--seed', metavar='int', type=int, default=6277, help='Pseudo-random seed')
+    _parser.add_argument('--test', action='store_const', const=True, default=False, help='Run unit tests')
+    _parser.add_argument('--verbose', action='store_const', const=True, default=False, help='Be talkative')
+    _parser.add_argument('--profile', action='store_const', const=True, default=False, help='Output profiling data')
 
     if '--version' in sys.argv:
-        print 'Tandem predictor, version ' + VERSION
+        print 'Qsim predictor, version ' + VERSION
         sys.exit(0)
 
     if '--test' in sys.argv:
@@ -1371,20 +1390,6 @@ if __name__ == "__main__":
         unittest.main(argv=[sys.argv[0]])
         sys.exit(0)
 
-    myargs = parser.parse_args()
+    myargs = _parser.parse_args()
 
-    pr = None
-    if myargs.profile:
-        import cProfile
-        import pstats
-        import StringIO
-        pr = cProfile.Profile()
-        pr.enable()
-    go(myargs)
-    if myargs.profile:
-        pr.disable()
-        s = StringIO.StringIO()
-        sortby = 'tottime'
-        ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-        ps.print_stats(30)
-        print s.getvalue()
+    go_profile(vars(myargs))

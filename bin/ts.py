@@ -48,7 +48,6 @@ import random
 import time
 import logging
 import errno
-import tempfile
 import numpy as np
 from collections import defaultdict
 from traceback import print_tb
@@ -79,6 +78,7 @@ def revcomp(s):
 
 
 class ReadTemplate(object):
+    """ Info about an aligned read we can use to generate others like it """
     def __init__(self, sc, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen):
         self.sc = sc
         self.fw = fw
@@ -95,6 +95,8 @@ class ReadTemplate(object):
 
 
 class PairTemplate(object):
+
+    """ Info about an aligned pair we can use to generate others like it """
     def __init__(self, rt1, rt2, fraglen, upstream1):
         self.rt1 = rt1
         self.rt2 = rt2
@@ -238,49 +240,6 @@ class ScorePairDist(object):
             self.avg_fraglen = np.mean([x[3] for x in self.res])
 
 
-class Dist(object):
-    """ Basically a histogram. """
-    
-    def __init__(self):
-        self.hist = defaultdict(int)
-        self.tot = 0
-        self.changed = True
-        self.gen = None
-        self.max, self.min = None, None
-    
-    def __str__(self):
-        """ Return string representation of histogram """
-        return str(self.hist)
-    
-    def __len__(self):
-        """ Return the number of items added to the histogram """
-        return self.tot
-    
-    def empty(self):
-        """ Return true iff there are no elements in the histogram """
-        return len(self) == 0
-    
-    def draw(self):
-        """ Draw an element from the histogram """
-        if len(self) == 0:
-            raise RuntimeError("Attempt to draw from empty empirical distribution")
-        if self.changed:
-            self.gen = WeightedRandomGenerator(self.hist)
-            self.changed = False
-        return self.gen.next()
-    
-    def add(self, key):
-        """ Add new element to the histogram """
-        self.hist[key] += 1
-        self.tot += 1
-        self.changed = True
-        # keep track of min and max
-        if self.max is None or key > self.max:
-            self.max = key
-        if self.min is None or key < self.min:
-            self.min = key
-
-
 class Dists(object):
     
     """ Encapsulates the distributions that we capture from real data.
@@ -363,11 +322,11 @@ class Dists(object):
 def is_correct(al, args):
     """ Return true if the given alignment is both simulated and "correct" --
         i.e. in or very near it's true point of origin """
-    if args.correct_chromosomes is not None:
+    if args['correct_chromosomes'] is not None:
         al_refid_trimmed = al.refid.split()[0]
-        return (al_refid_trimmed in args.correct_chromosomes), 0
+        return (al_refid_trimmed in args['correct_chromosomes']), 0
     elif simulators.isExtendedWgsim(al.name):
-        return simulators.correctExtendedWgsim(al, args.wiggle)
+        return simulators.correctExtendedWgsim(al, args['wiggle'])
     else:
         return None, 0
 
@@ -473,7 +432,7 @@ class AlignmentReader(Thread):
                         # Check reference id, orientation
                         if refid == al.refid and fw == al.orientation():
                             # Check offset
-                            correct = abs(refoff - al.pos) < args.wiggle
+                            correct = abs(refoff - al.pos) < args['wiggle']
                         assert training_nm in ['unp', 'conc', 'disc', 'bad_end', 'bad_end2']
                         # Add to training dataset
                         if training_nm == 'unp':
@@ -514,7 +473,7 @@ class AlignmentReader(Thread):
                             if not al.concordant and not al.discordant:
                                 # bad-end
                                 correct, dist = is_correct(al, args)
-                                if not correct and dist < 20 * args.wiggle:
+                                if not correct and dist < 20 * args['wiggle']:
                                     self.dist_hist_incor[dist] += 1
                                 elif correct:
                                     self.dist_hist_cor[dist] += 1
@@ -522,11 +481,11 @@ class AlignmentReader(Thread):
                             else:
                                 correct1, dist1 = is_correct(mate1, args)
                                 correct2, dist2 = is_correct(mate2, args)
-                                if not correct1 and dist1 < 20 * args.wiggle:
+                                if not correct1 and dist1 < 20 * args['wiggle']:
                                     self.dist_hist_incor[dist1] += 1
                                 elif correct1:
                                     self.dist_hist_cor[dist1] += 1
-                                if not correct2 and dist2 < 20 * args.wiggle:
+                                if not correct2 and dist2 < 20 * args['wiggle']:
                                     self.dist_hist_incor[dist2] += 1
                                 elif correct2:
                                     self.dist_hist_cor[dist2] += 1
@@ -537,7 +496,7 @@ class AlignmentReader(Thread):
                         elif not al.paired:
                             # For unpaired reads
                             correct, dist = is_correct(al, args)
-                            if not correct and dist < 20 * args.wiggle:
+                            if not correct and dist < 20 * args['wiggle']:
                                 self.dist_hist_incor[dist] += 1
                             elif correct:
                                 self.dist_hist_cor[dist] += 1
@@ -599,80 +558,79 @@ class Timing(object):
 def go(args, aligner_args):
     """ Main driver for tandem simulator """
 
-    random.seed(args.seed)
-    np.random.seed(args.seed)
+    random.seed(args['seed'])
+    np.random.seed(args['seed'])
 
     tim = Timing()
     tim.start_timer('Overall')
 
     # Set up logger
     logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', datefmt='%m/%d/%y-%H:%M:%S',
-                        level=logging.DEBUG if args.verbose else logging.INFO)
+                        level=logging.DEBUG if args['verbose'] else logging.INFO)
 
     # Create output directory if needed
-    if not os.path.isdir(args.output_directory):
+    if not os.path.isdir(args['output_directory']):
         try:
-            os.makedirs(args.output_directory)
+            os.makedirs(args['output_directory'])
         except OSError as exception:
             if exception.errno != errno.EEXIST:
                 raise
 
-    if args.U is not None and args.m1 is not None:
+    if args['U'] is not None and args['m1'] is not None:
         raise RuntimeError('Input must consist of only unpaired or only paired-end reads')
     
-    # Construct command to invoke aligner
+    # Construct command to invoke aligner - right now we only support Bowtie 2 and BWA-MEM
     aligner_class, alignment_class = Bowtie2, AlignmentBowtie2
     align_cmd = None
-    if args.aligner == 'bowtie2':
+    if args['aligner'] == 'bowtie2':
         align_cmd = 'bowtie2 '
-        if args.bt2_exe is not None:
-            align_cmd = args.bt2_exe + " "
+        if args['bt2_exe'] is not None:
+            align_cmd = args['bt2_exe'] + " "
         align_cmd += ' '.join(aligner_args)
         align_cmd += ' --reorder --sam-no-qname-trunc --mapq-extra'
-    elif args.aligner == 'bwa-mem':
+    elif args['aligner'] == 'bwa-mem':
         align_cmd = 'bwa mem '
-        if args.bwa_exe is not None:
-            align_cmd = args.bwa_exe + ' mem '
+        if args['bwa_exe'] is not None:
+            align_cmd = args['bwa_exe'] + ' mem '
         align_cmd += ' '.join(aligner_args)
         aligner_class, alignment_class = BwaMem, AlignmentBwaMem
-    elif args.aligner is not None:
-        raise RuntimeError('Aligner not supported: "%s"' % args.aligner)
+    elif args['aligner'] is not None:
+        raise RuntimeError('Aligner not supported: "%s"' % args['aligner'])
 
+    # for storing temp files and keep track of how big they get
     temp_man = TemporaryFileManager()
 
     logging.info('Loading reference data')
-    with ReferenceIndexed(args.ref) as ref:
+    with ReferenceIndexed(args['ref']) as ref:
     
         # ##################################################
         # ALIGN REAL DATA (or read in alignments from SAM)
         # ##################################################
 
-        unpaired_arg = args.U
-        paired_arg = None
-        if args.m1 is not None:
-            paired_arg = zip(args.m1, args.m2)
+        unpaired_arg = args['U']
+        paired_arg = None if args['m1'] is None else zip(args['m1'], args['m2'])
 
         input_sam_fh = None
-        write_input_sam = args.write_input_sam or args.write_all
         sam_arg = None
-        sam_fn = os.path.join(args.output_directory, 'input.sam')
-        if not write_input_sam:
-            sam_fn = temp_man.get_filename('input.sam', 'input sam')
 
-        if args.use_temporary_files:
+        # we're going to write alignment SAM somewhere, either to the output
+        # directory (if requested) or to a temporary file
+        sam_fn = os.path.join(args['output_directory'], 'input.sam')
+
+        if not args['use_concurrency']:
             sam_arg = sam_fn
         else:
-            input_sam_fh = open(sam_fn, 'w') if write_input_sam else None
+            input_sam_fh = open(sam_fn, 'w')
 
-        if args.use_temporary_files:
+        if not args['use_concurrency']:
             tim.start_timer('Aligning input reads')
 
         logging.info('Command for aligning input data: "%s"' % align_cmd)
-        aligner = aligner_class(align_cmd, args.index,
+        aligner = aligner_class(align_cmd, args['index'],
                                 unpaired=unpaired_arg, paired=paired_arg,
                                 sam=sam_arg)
 
-        if args.use_temporary_files:
+        if not args['use_concurrency']:
             logging.debug('Waiting for aligner to finish')
             while aligner.pipe.poll() is None:
                 time.sleep(0.5)
@@ -680,11 +638,11 @@ def go(args, aligner_args):
             tim.end_timer('Aligning input reads')
 
         test_data = DatasetOnDisk('test_data', temp_man)
-        dists = Dists(args.max_allowed_fraglen)
+        dists = Dists(args['max_allowed_fraglen'])
         cor_dist, incor_dist = defaultdict(int), defaultdict(int)
         
         result_test_q = Queue()
-        if args.use_temporary_files:
+        if not args['use_concurrency']:
             tim.start_timer('Parsing input read alignments')
             with open(sam_fn, 'r') as sam_fh:
                 othread = AlignmentReader(
@@ -737,15 +695,15 @@ def go(args, aligner_args):
         test_data.finalize()
 
         # Writing test dataset
-        if args.write_test_data or args.write_all:
-            test_csv_fn_prefix = os.path.join(args.output_directory, 'test')
+        if args['write_test_data'] or args['write_all']:
+            test_csv_fn_prefix = os.path.join(args['output_directory'], 'test')
             test_data.save(test_csv_fn_prefix)
             logging.info('Test data (CSV format) written to "%s*"' % test_csv_fn_prefix)
         
         # Writing correct/incorrect distances
-        if args.write_test_distances or args.write_all:
+        if args['write_test_distances'] or args['write_all']:
             for short_name, long_name, hist in [('cor', 'Correct', cor_dist), ('incor', 'Incorrect', incor_dist)]:
-                test_dist_fn = os.path.join(args.output_directory, 'test_%s_dists.csv' % short_name)
+                test_dist_fn = os.path.join(args['output_directory'], 'test_%s_dists.csv' % short_name)
                 with open(test_dist_fn, 'w') as fh:
                     for k, v in sorted(hist.iteritems()):
                         fh.write('%d,%d\n' % (k, v))
@@ -787,9 +745,9 @@ def go(args, aligner_args):
             def simulate(simw, aligner=None, frmt='tab6'):
                 """ Need to re-think this to accomodate the case where we're
                     writing to a file instead of directly to aligner """
-                write_training_reads = args.write_training_reads or args.write_all
+                write_training_reads = args['write_training_reads'] or args['write_all']
                 training_out_fn, training_out_fh = {}, {}
-                if write_training_reads or args.use_temporary_files:
+                if write_training_reads or not args['use_concurrency']:
                     types = []
                     if paired or both:
                         types.extend(['conc', 'disc', 'bad_end'])
@@ -797,7 +755,7 @@ def go(args, aligner_args):
                         types.append('unp')
                     for t in types:
                         fn_base = 'training_%s.%s' % (t, frmt)
-                        fn = os.path.join(args.output_directory, fn_base)
+                        fn = os.path.join(args['output_directory'], fn_base)
                         if not write_training_reads:
                             fn = temp_man.get_filename(fn_base, 'tandem reads')
                         training_out_fn[t] = fn
@@ -805,10 +763,10 @@ def go(args, aligner_args):
 
                 logging.info('  Simulating reads')
                 n_simread, typ_count = 0, defaultdict(int)
-                for t, rdp1, rdp2 in simw.simulate_batch(args.sim_fraction, args.sim_unp_min,
-                                                         args.sim_conc_min, args.sim_disc_min,
-                                                         args.sim_bad_end_min,
-                                                         bias=args.low_score_bias):
+                for t, rdp1, rdp2 in simw.simulate_batch(args['sim_fraction'], args['sim_unp_min'],
+                                                         args['sim_conc_min'], args['sim_disc_min'],
+                                                         args['sim_bad_end_min'],
+                                                         bias=args['low_score_bias']):
                     if t in training_out_fh:
                         if frmt == 'tab6':
                             training_out_fh[t].write(Read.to_tab6(rdp1, rdp2) + '\n')
@@ -837,17 +795,20 @@ def go(args, aligner_args):
 
                 return typ_count, training_out_fn
 
-            simw = FragmentSimSerial2(args.ref, dists)
+            # TODO: optional random-access simulator
+            simw = FragmentSimSerial2(args['ref'], dists)
 
-            if args.use_temporary_files:
+            if not args['use_concurrency']:
+
+                #
+                # Simulate
+                #
+
                 tim.start_timer('Simulating tandem reads')
                 logging.info('Simulating tandem reads (%s)' % lab)
                 frmt = aligner.preferred_paired_format() if (paired or both) \
                     else aligner.preferred_unpaired_format()
                 typ_sim_count, training_out_fn = simulate(simw, frmt=frmt)
-                logging.info('Finished simulating tandem reads')
-
-                logging.info('Aligning tandem reads (%s)' % lab)
 
                 unpaired_arg = None
                 if 'unp' in training_out_fn or 'bad_end' in training_out_fn:
@@ -872,7 +833,14 @@ def go(args, aligner_args):
                                         fh.write(ln)
                         paired_combined_arg = [fn]
 
+                logging.info('Finished simulating tandem reads')
                 tim.end_timer('Simulating tandem reads')
+
+                #
+                # Align
+                #
+
+                logging.info('Aligning tandem reads (%s)' % lab)
                 tim.start_timer('Aligning tandem reads')
 
                 def _wait_for_aligner(_al):
@@ -881,7 +849,7 @@ def go(args, aligner_args):
 
                 sam_fn = temp_man.get_filename('training.sam', 'tandem sam')
                 if aligner.supportsMix():
-                    aligner = aligner_class(align_cmd, args.index,
+                    aligner = aligner_class(align_cmd, args['index'],
                                             unpaired=unpaired_arg, paired_combined=paired_combined_arg,
                                             sam=sam_fn, format=frmt)
 
@@ -891,7 +859,7 @@ def go(args, aligner_args):
                     paired_sam, unpaired_sam = None, None
                     if unpaired_arg is not None:
                         unpaired_sam = temp_man.get_filename('training_unpaired.sam', 'tandem sam')
-                        aligner = aligner_class(align_cmd, args.index,
+                        aligner = aligner_class(align_cmd, args['index'],
                                                 unpaired=unpaired_arg, paired_combined=None,
                                                 sam=unpaired_sam, format=frmt)
                         _wait_for_aligner(aligner)
@@ -899,7 +867,7 @@ def go(args, aligner_args):
 
                     if paired_combined_arg is not None:
                         paired_sam = temp_man.get_filename('training_paired.sam', 'tandem sam')
-                        aligner = aligner_class(align_cmd, args.index,
+                        aligner = aligner_class(align_cmd, args['index'],
                                                 unpaired=None, paired_combined=paired_combined_arg,
                                                 sam=paired_sam, format=frmt)
                         _wait_for_aligner(aligner)
@@ -949,9 +917,9 @@ def go(args, aligner_args):
             else:
 
                 logging.info('Opening aligner process')
-                aligner = aligner_class(align_cmd, args.index, pairsOnly=paired)
-                sam_fn = os.path.join(args.output_directory, 'training.sam')
-                training_sam_fh = open(sam_fn, 'w') if (args.write_training_sam or args.write_all) else None
+                aligner = aligner_class(align_cmd, args['index'], pairsOnly=paired)
+                sam_fn = os.path.join(args['output_directory'], 'training.sam')
+                training_sam_fh = open(sam_fn, 'w') if (args['write_training_sam'] or args['write_all']) else None
                 cor_dist, incor_dist = defaultdict(int), defaultdict(int)
 
                 # Create thread that eavesdrops on output from aligner with simulated input
@@ -1011,11 +979,12 @@ def go(args, aligner_args):
     training_data.finalize()
 
     tim.start_timer('Writing training data')
-    if args.write_training_data or args.write_all:
-        # Writing training data
-        training_csv_fn_prefix = os.path.join(args.output_directory, 'training')
-        training_data.save(training_csv_fn_prefix)
-        logging.info('Training data (CSV format) written to "%s*"' % training_csv_fn_prefix)
+
+    # Writing training data
+    training_csv_fn_prefix = os.path.join(args['output_directory'], 'training')
+    training_data.save(training_csv_fn_prefix)
+    logging.info('Training data (CSV format) written to "%s*"' % training_csv_fn_prefix)
+
     tim.end_timer('Writing training data')
 
     logging.info('Peak temporary file size %0.2fMB' % (temp_man.peak_size / (1024.0 * 1024)))
@@ -1024,17 +993,12 @@ def go(args, aligner_args):
     for ln in str(tim).split('\n'):
         if len(ln) > 0:
             logging.info(ln)
-    if args.write_timings or args.write_all:
-        with open(os.path.join(args.output_directory, 'timing.tsv'), 'w') as fh:
+    if args['write_timings'] or args['write_all']:
+        with open(os.path.join(args['output_directory'], 'timing.tsv'), 'w') as fh:
             fh.write(str(tim))
 
-if __name__ == "__main__":
-    
-    import argparse
 
-    parser = argparse.ArgumentParser(
-        description='Evaluate the sensitivity of an alignment tool w/r/t given genome and set of alignment parameters.')
-
+def add_args(parser):
     # Inputs
     parser.add_argument('--ref', metavar='path', type=str, nargs='+', required=True,
                         help='FASTA file(s) containing reference genome sequences')
@@ -1085,14 +1049,8 @@ if __name__ == "__main__":
     parser.add_argument('--bwa-exe', metavar='path', type=str, help='Path to BWA exe')
     parser.add_argument('--aligner', metavar='name', default='bowtie2', type=str, help='bowtie2 or bwa-mem')
 
-    # Some basic flags
-    parser.add_argument('--test', action='store_const', const=True, default=False, help='Do unit tests')
-    parser.add_argument('--profile', action='store_const', const=True, default=False, help='Print profiling info')
-    parser.add_argument('--verbose', action='store_const', const=True, default=False, help='Be talkative')
-    parser.add_argument('--version', action='store_const', const=True, default=False, help='Print version and quit')
-
     # For when input is itself simulated, so we can output a Dataset with the
-    # 'correct' column filled in properly 
+    # 'correct' column filled in properly
     parser.add_argument('--correct-chromosomes', metavar='list', type=str, nargs='+',
                         help='Label test data originating from any of these chromosomes as "correct."  Useful for '
                              'tests on real-world data where it is known that the data came from a parituclar '
@@ -1101,16 +1059,12 @@ if __name__ == "__main__":
     # Output file-related arguments
     parser.add_argument('--output-directory', metavar='path', type=str, required=True,
                         help='Write outputs to this directory')
-    parser.add_argument('--write-input-sam', action='store_const', const=True, default=False,
-                        help='Write SAM alignments for the real input reads to "input.sam" in output directory')
     parser.add_argument('--write-training-reads', action='store_const', const=True, default=False,
                         help='Write FASTQ for the training reads to "training.fastq" in output directory')
     parser.add_argument('--write-test-data', action='store_const', const=True, default=False,
                         help='Write Dataset object for training data.  "Correct" column set to all None\'s.')
     parser.add_argument('--write-training-sam', action='store_const', const=True, default=False,
                         help='Write SAM alignments for the training reads to "training.sam" in output directory')
-    parser.add_argument('--write-training-data', action='store_const', const=True, default=False,
-                        help='Write Dataset object for training data.')
     parser.add_argument('--write-test-distances', action='store_const', const=True, default=False,
                         help='Write distances between true/actual alignments.')
     parser.add_argument('--write-training-distances', action='store_const', const=True, default=False,
@@ -1126,42 +1080,54 @@ if __name__ == "__main__":
     parser.add_argument('--use-concurrency', action='store_const', const=True, default=False,
                         help='Use pipes instead of temporary files.  Reduces disk usage '
                              'but requires more memory.')
-    parser.add_argument('--use-temporary-files', action='store_const', const=True, default=True,
-                        help='Use temporary files instead of pipes.  Reduces peak memory footprint '
-                             'but requires more disk space.')
+
+
+def go_profile(args, aligner_args):
+    if args['profile']:
+        import cProfile
+        cProfile.run('go(args, aligner_args)')
+    else:
+        go(args, aligner_args)
+
+
+def parse_aligner_parameters_from_argv(_argv):
+    argv = _argv[:]
+    aligner_args = []
+    in_args = False
+    new_argv = None
+    for i, ag in enumerate(argv):
+        if in_args:
+            aligner_args.append(ag)
+        elif ag == '--':
+            new_argv = argv[:i]
+            in_args = True
+    if new_argv is None:
+        new_argv = argv
+    return new_argv, aligner_args
+
+
+if __name__ == "__main__":
+    
+    import argparse
+
+    _parser = argparse.ArgumentParser(
+        description='Align a collection of input reads, simulate a tandem'
+                    'dataset, align the tandem dataset, and emit both the'
+                    'input read alignments and the training data derived from'
+                    'the tandem read alignments.')
 
     if '--version' in sys.argv:
         print 'Tandem simulator, version ' + VERSION
         sys.exit(0)
 
-    argv = sys.argv
-    outer_aligner_args = []
-    in_args = False
-    for i in xrange(1, len(sys.argv)):
-        if in_args:
-            outer_aligner_args.append(sys.argv[i])
-        if sys.argv[i] == '--':
-            argv = sys.argv[:i]
-            in_args = True
-    
-    outer_args = parser.parse_args(argv[1:])
-    
-    if outer_args.test:
-        
-        import unittest
-        
-        class Test(unittest.TestCase):
-            def test_1(self):
-                dst = Dist()
-                dst.add("CP")
-                dst.add("CP")
-                dst.add("DP")
-                dr = dst.draw()
-                self.assertTrue(dr == "CP" or dr == "DP")
+    add_args(_parser)
 
-        unittest.main(argv=[sys.argv[0]])
-    elif outer_args.profile:
-        import cProfile
-        cProfile.run('go(outer_args, outer_aligner_args)')
-    else:
-        go(outer_args, outer_aligner_args)
+    # Some basic flags
+    _parser.add_argument('--profile', action='store_const', const=True, default=False, help='Print profiling info')
+    _parser.add_argument('--verbose', action='store_const', const=True, default=False, help='Be talkative')
+    _parser.add_argument('--version', action='store_const', const=True, default=False, help='Print version and quit')
+
+    _argv, _aligner_args = parse_aligner_parameters_from_argv(sys.argv)
+    _args = _parser.parse_args(_argv[1:])
+
+    go_profile(vars(_args), _aligner_args)
