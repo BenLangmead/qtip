@@ -14,7 +14,7 @@ import numpy as np
 import logging
 import gc
 import cPickle
-from itertools import imap
+from itertools import imap, izip
 from sklearn import cross_validation
 from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor, GradientBoostingRegressor
 from collections import defaultdict, Counter
@@ -261,7 +261,7 @@ def tally_cor_per(level, cor):
         gathers all the correct/incorrect information for each group of equal
         predictions. """
     tally = defaultdict(lambda: [0, 0])
-    for p, c in zip(level, cor):
+    for p, c in izip(level, cor):
         c = 0 if c else 1
         tally[p][c] += 1
     return tally
