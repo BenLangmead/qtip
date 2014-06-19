@@ -23,30 +23,29 @@ from collections import defaultdict, Counter
 VERSION = '0.1.0'
 
 
+def pcor_to_mapq_np(pcor):
+    old = np.seterr(divide='ignore')
+    ret = np.abs(-10.0 * np.log10(1.0 - pcor))
+    np.seterr(**old)
+    return ret
+
+
+def mapq_to_pcor_np(mapq):
+    return 1.0 - 10.0 ** (-0.1 * mapq)
+
+
+def round_pcor_np(pcor):
+    return mapq_to_pcor_np(np.round(pcor_to_mapq_np(pcor)))
+
+
 def pcor_to_mapq(p):
     """ Convert probability correct (pcor) to mapping quality (MAPQ) """
     return abs(-10.0 * math.log10(1.0 - p)) if p < 1.0 else float('inf')
 
 
-def pcor_to_mapq_iter(p):
-    """ Apply pcor_to_mapq to every element of iterable """
-    return map(pcor_to_mapq, p)
-
-
 def mapq_to_pcor(p):
     """ Convert mapping quality (MAPQ) to probability correct (pcor) """
     return (1.0 - (10.0 ** (-0.1 * p))) if p < float('inf') else 1.0
-
-
-def mapq_to_pcor_iter(p):
-    """ Apply mapq_to_pcor to every element of iterable """
-    return map(mapq_to_pcor, p)
-
-
-def round_pcor_iter(pcor):
-    """ Modify pcor so that pcors correspond to nearest integer-rounded MAPQ """
-    assert not any(map(lambda x: x < 0.0 or x > 1.0, pcor))
-    return mapq_to_pcor_iter(map(round, (pcor_to_mapq_iter(pcor))))
 
 
 class DatasetReader(object):
@@ -82,7 +81,7 @@ class DatasetReader(object):
 
                     def _new_iter(_sn):
                         def _inner():
-                            return iter([self.dfs[_sn]])
+                            return iter([self.dfs[_sn].copy()])
                         return _inner
 
                     self.readers[sn] = _new_iter(sn)
@@ -220,7 +219,7 @@ def ranking_error(pcor, cor, rounded=False):
         rounded=True.  """
     assert len(pcor) == len(cor)
     if rounded:
-        pcor = round_pcor_iter(pcor)
+        pcor = round_pcor_np(pcor)
     tally = tally_cor_per(pcor, cor)
     err, sofar = 0, 0
     # from low-confidence to high confidence
@@ -242,7 +241,7 @@ def mse_error(pcor, cor, rounded=False):
         cors (in {0, 1}).  This is a measure of how close our predictions are
         to true correct/incorrect. """
     if rounded:
-        pcor = round_pcor_iter(pcor)
+        pcor = round_pcor_np(pcor)
     return np.mean((pcor - cor) ** 2) / np.mean((np.mean(cor) - cor) ** 2)
 
 
@@ -250,7 +249,7 @@ def cum_squared_error(pcor, cor, rounded=False):
     """ Return the cumulative squared error between pcors and cors, sorted
         from highest to lowest pcor. """
     if rounded:
-        pcor = round_pcor_iter(pcor)
+        pcor = round_pcor_np(pcor)
     pcor_order = sorted(range(len(pcor)), key=lambda x: pcor[x], reverse=True)
     pcor = np.array([pcor[x] for x in pcor_order])
     cor = np.array([cor[x] for x in pcor_order])
@@ -469,10 +468,10 @@ def quantile_error_plot(mapq_lists, labs, colors, cor, title=None, quantiles=10,
         if not already_sorted:
             sorted_order = sorted(range(n), key=lambda x: mapq_list[x])
             mapq_sorted = [mapq_list[x] for x in sorted_order]
-            pcor_sorted = np.array(mapq_to_pcor_iter(mapq_sorted))
+            pcor_sorted = np.array(mapq_to_pcor_np(mapq_sorted))
             cor_sorted = np.array([cor[x] for x in sorted_order])
         else:
-            mapq_sorted, pcor_sorted, cor_sorted = mapq_list, mapq_to_pcor_iter(mapq_list), cor
+            mapq_sorted, pcor_sorted, cor_sorted = mapq_list, mapq_to_pcor_np(mapq_list), cor
         mse_errors.append(mse_error(pcor_sorted, cor_sorted))
         partition_starts = [int(round(i*n/quantiles)) for i in xrange(quantiles+1)]
         estimated_lists.append([])
@@ -569,7 +568,7 @@ def plot_fit(model, x_lim=(0.0, 1.0), y_lim=(0.0, 1.0), dx=0.01, dy=0.01, zmin=0
     dim_y = 1 + ((y_lim[1] - y_lim[0]) / dy)
     assert grid.shape == (2, dim_x, dim_y), "%s, (2, %d, %d)" % (str(grid.shape), dim_x, dim_y)
     xy = np.column_stack([grid[0].flatten(), grid[1].flatten()])
-    z = np.array(pcor_to_mapq_iter(MapqFit.postprocess_predictions(model.predict(xy), '')), dtype=np.float32).reshape((dim_x, dim_y))
+    z = np.array(pcor_to_mapq_np(MapqFit.postprocess_predictions(model.predict(xy), '')), dtype=np.float32).reshape((dim_x, dim_y))
 
     # x and y are bounds, so z should be the value *inside* those bounds.
     # Therefore, remove the last value from the z array.
@@ -607,7 +606,7 @@ class MapqPredictions:
     def __init__(self):
         # all these lists are parallel
         self.pcor = np.array([])  # predicted pcors
-        self.mapq_orig = []  # original mapping qualities
+        self.mapq_orig = np.array([])  # original mapping qualities
         self.category = []  # categories of alignments
         self.names = None  # names of reads
         self.data = None  # data that gave rise to predictions
@@ -629,7 +628,7 @@ class MapqPredictions:
     def add_pcors(self, pcor, mapq_orig, category, names=None, data=None, correct=None):
         """ Add a new batch of predictions """
         self.pcor = np.append(self.pcor, pcor)
-        self.mapq_orig.extend(mapq_orig)
+        self.mapq_orig = np.append(self.mapq_orig, mapq_orig)
         self.category.extend([category] * len(pcor))
         if data is not None:
             if self.data is None:
@@ -671,34 +670,18 @@ class MapqPredictions:
         return pandas.DataFrame.from_dict(summ_dict)
 
     def finalize(self, verbose=False):
-
-        # put pcor, mapq, mapq_orig, pcor_orig in order by pcor
-
-        # TODO: another option is to collapse like pcors and work only with the
-        # collapsed pcors, but the code is currently rather tied to having
-        # uncollapsed pcors
-
-        #pcor_first = {}
-        #tot_cnt = 0
-        #for pc, cnt in sorted(Counter(self.pcor).iteritems()):
-        #    pcor_first[pc] = tot_cnt
-        #    tot_cnt += cnt
-
         if verbose:
             logging.info('  Histogramming pcors')
-
         self.pcor_hist = Counter(self.pcor)
 
         if verbose:
             logging.info('  Sorting data')
-
         pcor_order = np.argsort(self.pcor)
 
         if verbose:
             logging.info('  Reordering data')
-
         self.pcor = self.pcor[pcor_order]
-        self.mapq_orig = [self.mapq_orig[x] for x in pcor_order]
+        self.mapq_orig = self.mapq_orig[pcor_order]
         self.category = [self.category[x] for x in pcor_order]
         if self.data is not None:
             self.data = [self.data[x] for x in pcor_order]
@@ -707,9 +690,8 @@ class MapqPredictions:
 
         if verbose:
             logging.info('  Converting between pcor and mapq')
-
-        self.mapq = mapq = pcor_to_mapq_iter(self.pcor)
-        self.pcor_orig = pcor_orig = mapq_to_pcor_iter(self.mapq_orig)
+        self.mapq = mapq = np.abs(-10.0 * np.log10(1.0 - self.pcor))
+        self.pcor_orig = pcor_orig = 1.0 - 10.0 ** (-0.1 * self.mapq_orig)
 
         pcor, mapq_orig = self.pcor, self.mapq_orig
 
