@@ -107,7 +107,7 @@ class DatasetReader(object):
         return any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2']))
 
     @staticmethod
-    def _fn_to_iterator(fn, chunksize=20000):
+    def _fn_to_iterator(fn, chunksize=50000):
         if os.path.exists(fn):
             return pandas.io.parsers.read_csv(fn, quoting=2, chunksize=chunksize)
         elif os.path.exists(fn + '.gz'):
