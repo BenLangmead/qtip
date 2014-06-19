@@ -203,59 +203,6 @@ class DatasetReader(object):
         return o in self.readers
 
 
-# def read_dataset(prefix):
-#     """ Read in training and test data having with given path prefix. """
-#     dfs = {}
-#     for name, suf, paired in [('u', '_unp.csv', False), ('d', '_disc.csv', True),
-#                               ('c', '_conc.csv', True), ('b', '_bad_end.csv', False)]:
-#         fn = prefix + suf
-#         if os.path.exists(fn):
-#             dfs[name] = pandas.io.parsers.read_csv(fn, quoting=2)
-#         elif os.path.exists(fn + '.gz'):
-#             dfs[name] = pandas.io.parsers.read_csv(fn + '.gz', quoting=2, compression='gzip')
-#         elif os.path.exists(fn + '.bz2'):
-#             dfs[name] = pandas.io.parsers.read_csv(fn + '.bz2', quoting=2, compression='bz2')
-#         else:
-#             raise RuntimeError('No such file: "%s"' % fn)
-#
-#
-#
-#     for df in [dfs['u'], dfs['b']]:
-#         # TODO: set minv/maxv properly if not defined
-#         if df.shape[0] == 0:
-#             continue
-#         df['minv'] = df['minv'].fillna(df['best'].min())
-#         df['maxv'] = df['maxv'].fillna(df['best'].max())
-#         _standardize(df, 'diff', 'best', 'secbest', df.minv, df.maxv - df.minv)
-#
-#     for df in [dfs['d']]:
-#         if df.shape[0] == 0:
-#             continue
-#         df['minv1'] = df['minv1'].fillna(df['best1'].min())
-#         df['maxv1'] = df['maxv1'].fillna(df['best1'].max())
-#         _standardize(df, 'diff1', 'best1', 'secbest1', df.minv1, df.maxv1 - df.minv1)
-#
-#     for df in [dfs['c']]:
-#         # TODO: set minv1/maxv1/minv2/maxv2 properly if not defined
-#         if df.shape[0] == 0:
-#             continue
-#         df['minv1'] = df['minv1'].fillna(df['best1'].min())
-#         df['maxv1'] = df['maxv1'].fillna(df['best1'].max())
-#         df['minv2'] = df['minv2'].fillna(df['best2'].min())
-#         df['maxv2'] = df['maxv2'].fillna(df['best2'].max())
-#         _standardize(df, 'diff1', 'best1', 'secbest1', df.minv1, df.maxv1 - df.minv1)
-#         _standardize(df, 'diff2', 'best2', 'secbest2', df.minv2, df.maxv2 - df.minv2)
-#
-#         minconc, maxconc = df.minv1 + df.minv2, df.maxv1 + df.maxv2
-#         _standardize(df, 'diff_conc', 'bestconc', 'secbestconc', minconc, maxconc - minconc)
-#         df['best_min12'] = df[['best1', 'best2']].min(axis=1)
-#         df['diff_min12'] = df[['diff1', 'diff2']].min(axis=1)
-#         df['diff_min12conc'] = df[['diff1', 'diff2', 'diff_conc']].min(axis=1)
-#         df['fraglen_z'] = ((df['fraglen'] - df['fraglen'].mean()) / df['fraglen'].std()).abs()
-#
-#     return dfs
-
-
 def tally_cor_per(level, cor):
     """ Some predictions from our model are the same; this helper function
         gathers all the correct/incorrect information for each group of equal
@@ -655,6 +602,7 @@ def plot_fit(model, x_lim=(0.0, 1.0), y_lim=(0.0, 1.0), dx=0.01, dy=0.01, zmin=0
 
 
 class MapqPredictions:
+    """ Encpsulates mapq predictions for a dataset for evaluation purposes. """
 
     def __init__(self):
         # all these lists are parallel
@@ -727,7 +675,12 @@ class MapqPredictions:
         # put pcor, mapq, mapq_orig, pcor_orig in order by pcor
         if verbose:
             logging.info('  Sorting data')
-        pcor_order = sorted(range(len(self.pcor)), key=lambda x: self.pcor[x])
+
+        # TODO: another option is to collapse like pcors and work only with the
+        # collapsed pcors, but the code is currently rather tied to having
+        # uncollapsed pcors
+
+        pcor_order = np.argsort(self.pcor)
         self.pcor = self.pcor[pcor_order]
         self.mapq_orig = [self.mapq_orig[x] for x in pcor_order]
         self.category = [self.category[x] for x in pcor_order]
@@ -788,24 +741,6 @@ class MapqPredictions:
         self.mapq_avg, self.mapq_orig_avg = float(np.mean(mapq)), float(np.mean(mapq_orig))
         self.mapq_std, self.mapq_orig_std = float(np.std(mapq)), float(np.std(mapq_orig))
 
-    def summary(self, include_distinct=False):
-        """ Return a concise summary of prediction performance """
-        if len(self.pcor) == 0:
-            return ''
-        ret = []
-        if self.correct is not None:
-            ret.append("rerr=%0.2f,%0.2fr" % (self.rank_err, self.rank_err_round))
-            ret.append("mse=%0.2f,%0.2fr" % (self.mse_err, self.mse_err_round))
-        ret.append("q=%0.2f,%0.2f,%0.2f" % (self.mapq_avg, self.mapq_std, max(self.mapq)))
-        ret.append("end=%d,%0.2f%%" % (self.correct_end,
-                                       100.0 * self.correct_end / len(self.pcor)))
-        ret.append("cor=%d,%0.2f%%" % (self.correct_run,
-                                       100.0 * self.correct_run / len(self.pcor)))
-        if include_distinct:
-            ret.append("distinct=%d,%0.2f%%" % (len(self.pcor_hist),
-                                                100.0 * len(self.pcor_hist) / len(self.pcor)))
-        return ' '.join(ret)
-
 
 class MapqFit:
 
@@ -851,47 +786,6 @@ class MapqFit:
             y_train = np.array([y_train[i] for i in sample_indexes])
         return x_train, mapq_orig_train, y_train
 
-    def summary(self):
-        ret = []
-        if self.predict_training:
-            ret.append('train: ' + self.pred_overall_train.summary())
-        ret.append(' test: ' + self.pred_overall.summary())
-        return '\n'.join(ret)
-
-    def pcor(self):
-        """ Return list of predicted pcors (probability correct) """
-        return self.pred_overall.pcor
-
-    def pcor_orig(self):
-        """ Return list of pcors (probability correct) reported by
-            the aligner (converted from integer-rounded MAPQs) """
-        return self.pred_overall.pcor_orig
-
-    def mapq(self):
-        """ Return list of predicted MAPQs """
-        return self.pred_overall.mapq
-
-    def mapq_orig(self):
-        """ Return list of the original MAPQs reported by the aligner """
-        return self.pred_overall.mapq_orig
-
-    def correct(self):
-        """ Return list indicating which alignments are correct; None if that
-            information isn't available. """
-        return self.pred_overall.correct
-
-    def data(self):
-        """ Return list of input data given to predictor. """
-        return self.pred_overall.data
-
-    def names(self):
-        """ Return list of names. """
-        return self.pred_overall.names
-
-    def category(self):
-        """ Return list of categories. """
-        return self.pred_overall.category
-
     @staticmethod
     def postprocess_predictions(pcor_test, dataset_name, max_pcor=0.999999):
         """ Deal with pcors equal to 1.0, which cause infinite MAPQs """
@@ -905,7 +799,7 @@ class MapqFit:
         return np.maximum(np.minimum(pcor_test, max_pcor), 0.)
 
     @staticmethod
-    def _fit(mf_gen, x_train, y_train, dataset_shortname):
+    def _crossval_fit(mf_gen, x_train, y_train, dataset_shortname):
         """ Use cross validation to pick the best model from a
             collection of possible models (model_family) """
         mf = mf_gen()
@@ -925,65 +819,37 @@ class MapqFit:
         assert best_pred is not None
         return best_pred, best_params, score_avgs, score_stds
 
-    def __init__(self, dr, model_gen, sample_fraction=1.0,
-                 sample_fractions=None,
-                 random_seed=628599, predict_training=False,
-                 verbose=False, keep_names=False, keep_data=False):
+    datasets = zip('dbcu', ['Discordant', 'Bad-end', 'Concordant', 'Unpaired'], [True, False, True, False])
 
-        def log_msg(s):
-            if verbose:
-                logging.info(s)
+    def _fit(self, dfs, logger=logging.info, sample_fraction=1.0, sample_fractions=None):
 
-        self.sample_fraction = sample_fraction
-        self.random_seed = random_seed
-        self.predict_training = predict_training
         if sample_fractions is None:
             sample_fractions = {}
 
-        # read datasets
-        log_msg('Reading datasets')
-        self.train_dfs = train_dfs = DatasetReader(os.path.join(dr, 'training'), learn_normalizers=True)
-        self.test_dfs = test_dfs = DatasetReader(os.path.join(dr, 'test'), normalizers=self.train_dfs.normalizers)
-
-        self.trained_models = {}
-        self.crossval_avg = {}
-        self.crossval_std = {}
-        self.datasets = zip('dbcu',
-                            ['Discordant', 'Bad-end', 'Concordant', 'Unpaired'],
-                            [True, False, True, False])
-        self.pred_overall = MapqPredictions()
-        self.pred = {}
-        self.pred_overall_train = MapqPredictions()
-        self.pred_train = {}
-
         for ds, ds_long, paired in self.datasets:
-
-            if ds not in train_dfs:
-                continue
-
-            train = pandas.concat([x for x in train_dfs.dataset_iter(ds)])
+            if ds not in dfs:
+                continue  # empty
+            train = pandas.concat([x for x in dfs.dataset_iter(ds)])
             if train.shape[0] == 0:
-                continue
+                continue  # empty
 
-            log_msg('Fitting %s training data' % ds_long)
-
+            logger('Fitting %s training data' % ds_long)
             # seed pseudo-random generators
-            random.seed(random_seed)
-            np.random.seed(random_seed)
-
+            random.seed(self.random_seed)
+            np.random.seed(self.random_seed)
             # extract features, convert to matrix
             x_train, mapq_orig_train, y_train = self._df_to_mat(train, ds)
-
             # optionally downsample
             frac = sample_fractions[ds] if ds in sample_fractions else sample_fraction
-            log_msg('Sampling %0.2f%% of %d rows of %s training data' % (100.0 * frac, train.shape[0], ds_long))
-            x_train, mapq_orig_train, y_train = \
-                self._downsample(x_train, mapq_orig_train, y_train, frac)
-            log_msg('  Now has %d rows' % x_train.shape[0])
+            if frac < 1.0:
+                logger('Sampling %0.2f%% of %d rows of %s training data' % (100.0 * frac, train.shape[0], ds_long))
+                x_train, mapq_orig_train, y_train = \
+                    self._downsample(x_train, mapq_orig_train, y_train, frac)
+                logger('  Now has %d rows' % x_train.shape[0])
 
             # use cross-validation to pick a model
             self.trained_models[ds], params, avgs, stds = \
-                self._fit(model_gen, x_train, y_train, ds)
+                self._crossval_fit(self.model_gen, x_train, y_train, ds)
 
             self.trained_params = params
             self.crossval_avg[ds] = max(avgs)
@@ -991,55 +857,56 @@ class MapqFit:
             # fit all the training data with the model
             self.trained_models[ds].fit(x_train, y_train)
 
+    def predict(self, dfs,
+                keep_names=False, keep_data=False, keep_per_category=False, verbose=False,
+                logger=logging.info):
+
+        pred_overall = MapqPredictions()
+        pred_per_category = {}
+
+        for ds, ds_long, paired in self.datasets:
+            if ds not in dfs:
+                continue
             names = None
             names_colname = 'name1' if paired else 'name'
+            if keep_per_category:
+                pred_per_category[ds] = MapqPredictions()
+            nchunk = 0
+            for test_chunk in dfs.dataset_iter(ds):
+                nchunk += 1
+                logger('  Making predictions for chunk %d, %d rows' % (nchunk, test_chunk.shape[0]))
+                x_test, mapq_orig_test, y_test = self._df_to_mat(test_chunk, ds)
+                y_test = np.array(map(lambda c: c == 1, test_chunk.correct))
+                pcor = self.trained_models[ds].predict(x_test)  # make predictions
+                pcor = np.array(self.postprocess_predictions(pcor, ds_long))
+                if keep_names and names_colname in test_chunk:
+                    names = test_chunk[names_colname]
+                data = x_test.tolist() if keep_data else None
+                for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
+                    prd.add_pcors(pcor, mapq_orig_test, ds, names=names, data=data, correct=y_test)
 
-            for training in [False, True]:
-
-                if training and not predict_training:
-                    continue
-
-                log_msg('Making %s predictions for %s data' % (ds_long, 'training' if training else 'test'))
-
-                # set up some variables based on training/test
-                test = train_dfs.dataset_iter(ds) if training else test_dfs.dataset_iter(ds)
-                pred_overall = self.pred_overall_train if training else self.pred_overall
-                pred = self.pred_train if training else self.pred
-                pred[ds] = MapqPredictions()
-
-                nchunk, nrows = 0, 0
-                for test_chunk in test:
-                    nchunk += 1
-                    log_msg('  Making predictions for chunk %d, %d rows' % (nchunk, test_chunk.shape[0]))
-
-                    # get test matrix
-                    x_test, mapq_orig_test, y_test = self._df_to_mat(test_chunk, ds)
-                    y_test = np.array(map(lambda c: c == 1, test_chunk.correct))
-
-                    # predict
-                    pcor = self.trained_models[ds].predict(x_test)  # make predictions
-                    pcor = np.array(self.postprocess_predictions(pcor, ds_long))
-                    if keep_names and names_colname in test_chunk:
-                        names = test_chunk[names_colname]
-                    data = None
-                    if keep_data:
-                        data = x_test.tolist()
-                    for prd in [pred_overall, pred[ds]]:
-                        prd.add_pcors(pcor, mapq_orig_test, ds, names=names, data=data, correct=y_test)
-
-        # finalize the predictions
-        log_msg('Finalizing results for overall test data (%d alignments)' % len(self.pred_overall.pcor))
-        self.pred_overall.finalize(verbose=verbose)
-        for shortname, pred in self.pred.iteritems():
-            log_msg('Finalizing results for "%s" test data (%d alignments)' % (shortname, len(pred.pcor)))
+        logger('Finalizing results for overall test data (%d alignments)' % len(pred_overall.pcor))
+        pred_overall.finalize(verbose=verbose)
+        for ds, pred in pred_per_category.iteritems():
+            logger('Finalizing results for "%s" test data (%d alignments)' % (ds, len(pred.pcor)))
             pred.finalize(verbose=verbose)
-        if predict_training:
-            log_msg('Finalizing results for overall training data (%d alignments)' % len(self.pred_overall_train))
-            self.pred_overall_train.finalize(verbose=verbose)
-            for shortname, pred in self.pred_train.iteritems():
-                log_msg('Finalizing results for "%s" training data (%d alignments)' % (shortname, len(pred.pcor)))
-                pred.finalize(verbose=verbose)
-        log_msg('Done')
+        logger('Done')
+
+        if keep_per_category:
+            return pred_overall, pred_per_category
+        else:
+            return pred_overall
+
+    def __init__(self, dfs, model_gen, random_seed=628599,
+                 logger=logging.info, sample_fraction=1.0, sample_fractions=None):
+
+        self.model_gen = model_gen
+        self.random_seed = random_seed
+        self.trained_models = {}
+        self.crossval_avg = {}
+        self.crossval_std = {}
+        self.trained_params = None
+        self._fit(dfs, logger=logger, sample_fraction=sample_fraction, sample_fractions=sample_fractions)
 
 
 class ModelFamily(object):
@@ -1227,11 +1094,14 @@ def go(args):
     odir = args['output_directory']
     mkdir_quiet(odir)
 
+    logging.info('Reading datasets')
+    input_dir = args['input_directory']
+    df_training = DatasetReader(os.path.join(input_dir, 'training'), learn_normalizers=True)
+    df_test = DatasetReader(os.path.join(input_dir, 'test'), normalizers=df_training.normalizers)
+
     if args['subsampling_series'] is not None:
         logging.info('Doing subsampling series')
         ss_odir = os.path.join(odir, 'subsampled')
-        # outermost: replicates
-        # inner: fractions
         fractions = map(float, args['subsampling_series'].split(','))
         perf_dicts = [{'fraction': [],
                        'rank_err': [],
@@ -1256,20 +1126,22 @@ def go(args):
                         ss_fit = cPickle.load(fh)
                 else:
                     logging.info('      Fitting and making predictions')
-                    ss_fit = MapqFit(args['input_directory'], fam, fraction, verbose=args['verbose'], random_seed=my_seed)
+                    ss_fit = MapqFit(df_training, fam, random_seed=my_seed, logger=logging.info,
+                                     sample_fraction=fraction)
                     if args['serialize_fit']:
                         logging.info('      Serializing fit object')
                         with open(my_fit_fn, 'wb') as ofh:
                             cPickle.dump(ss_fit, ofh, 2)
+                pred_overall = ss_fit.predict(df_test, verbose=args['verbose'])
                 logging.info('      Making plots')
-                make_plots(ss_fit.pred_overall, my_odir, args, prefix='        ')
+                make_plots(pred_overall, my_odir, args, prefix='        ')
                 perf_dicts[repl-1]['fraction'].append(fraction)
-                perf_dicts[repl-1]['rank_err'].append(ss_fit.pred_overall.rank_err)
-                perf_dicts[repl-1]['rank_err_round'].append(ss_fit.pred_overall.rank_err_round)
-                perf_dicts[repl-1]['mse_err'].append(ss_fit.pred_overall.mse_err)
-                perf_dicts[repl-1]['mse_err_round'].append(ss_fit.pred_overall.mse_err_round)
-                perf_dicts[repl-1]['mapq_avg'].append(ss_fit.pred_overall.mapq_avg)
-                perf_dicts[repl-1]['mapq_std'].append(ss_fit.pred_overall.mapq_std)
+                perf_dicts[repl-1]['rank_err'].append(pred_overall.rank_err)
+                perf_dicts[repl-1]['rank_err_round'].append(pred_overall.rank_err_round)
+                perf_dicts[repl-1]['mse_err'].append(pred_overall.mse_err)
+                perf_dicts[repl-1]['mse_err_round'].append(pred_overall.mse_err_round)
+                perf_dicts[repl-1]['mapq_avg'].append(pred_overall.mapq_avg)
+                perf_dicts[repl-1]['mapq_std'].append(pred_overall.mapq_std)
                 perf_dicts[repl-1]['params'].append(str(ss_fit.trained_params))
                 del ss_fit
                 gc.collect()
@@ -1281,22 +1153,31 @@ def go(args):
         plt.close()
         assert len(plt.get_fignums()) == 0
 
+    # if the fit already exists, use it unless --overwrite-fit is specified
     fit_fn = os.path.join(odir, 'fit.pkl')
+    fit = None
     if os.path.exists(fit_fn) and not args['overwrite_fit']:
         logging.info('Loading fit from file')
         with open(fit_fn, 'rb') as fh:
             fit = cPickle.load(fh)
     else:
         logging.info('Fitting and making predictions')
-        fit = MapqFit(args['input_directory'], fam, args['subsampling_fraction'], verbose=args['verbose'],
-                      random_seed=args['seed'])
+        fit = MapqFit(df_training, fam, random_seed=my_seed, logger=logging.info)
         if args['serialize_fit']:
             logging.info('Serializing fit object')
             with open(fit_fn, 'wb') as ofh:
                 cPickle.dump(fit, ofh, 2)
 
-    logging.info('Making plots')
-    make_plots(fit.pred_overall, odir, args, prefix='  ')
+    do_plot = args['plot_cum_incorrect'] or args['plot_mapq_buckets'] or args['plot_all']
+    if do_plot:
+        logging.info('Making plots')
+        make_plots(fit.pred_overall, odir, args, prefix='  ')
+
+    do_rewrite = True
+    if do_rewrite:
+        logging.info('Rewriting SAM')
+        fit.rewrite_sam(os.path.join(input_dir, 'input.sam'), os.path.join(input_dir, 'output.sam'))
+
     logging.info('Done')
 
 
@@ -1351,6 +1232,9 @@ def add_predict_args(parser):
                         help='Like specifying all option beginning with --plot')
     parser.add_argument('--plot-format', metavar='format', type=str, default='png',
                         help='Extension (and image format) for plot: {pdf, png, eps, jpg, ...}')
+
+    parser.add_argument('--rewrite-sam', action='store_const', const=True, default=False,
+                        help='Like specifying all option beginning with --plot')
 
 
 if __name__ == "__main__":
