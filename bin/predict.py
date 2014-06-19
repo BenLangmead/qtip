@@ -673,14 +673,30 @@ class MapqPredictions:
     def finalize(self, verbose=False):
 
         # put pcor, mapq, mapq_orig, pcor_orig in order by pcor
-        if verbose:
-            logging.info('  Sorting data')
 
         # TODO: another option is to collapse like pcors and work only with the
         # collapsed pcors, but the code is currently rather tied to having
         # uncollapsed pcors
 
+        #pcor_first = {}
+        #tot_cnt = 0
+        #for pc, cnt in sorted(Counter(self.pcor).iteritems()):
+        #    pcor_first[pc] = tot_cnt
+        #    tot_cnt += cnt
+
+        if verbose:
+            logging.info('  Histogramming pcors')
+
+        self.pcor_hist = Counter(self.pcor)
+
+        if verbose:
+            logging.info('  Sorting data')
+
         pcor_order = np.argsort(self.pcor)
+
+        if verbose:
+            logging.info('  Reordering data')
+
         self.pcor = self.pcor[pcor_order]
         self.mapq_orig = [self.mapq_orig[x] for x in pcor_order]
         self.category = [self.category[x] for x in pcor_order]
@@ -689,8 +705,8 @@ class MapqPredictions:
         if self.names is not None:
             self.names = [self.names[x] for x in pcor_order]
 
-        # make pcor histogram
-        self.pcor_hist = Counter(self.pcor)
+        if verbose:
+            logging.info('  Converting between pcor and mapq')
 
         self.mapq = mapq = pcor_to_mapq_iter(self.pcor)
         self.pcor_orig = pcor_orig = mapq_to_pcor_iter(self.mapq_orig)
