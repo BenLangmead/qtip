@@ -895,6 +895,9 @@ class MapqFit:
         else:
             return pred_overall
 
+    def rewrite_sam(self, fn_in, fn_out):
+        pass
+
     def __init__(self, dfs, model_gen, random_seed=628599,
                  logger=logging.info, sample_fraction=1.0, sample_fractions=None):
 
@@ -1153,7 +1156,6 @@ def go(args):
 
     # if the fit already exists, use it unless --overwrite-fit is specified
     fit_fn = os.path.join(odir, 'fit.pkl')
-    fit = None
     if os.path.exists(fit_fn) and not args['overwrite_fit']:
         logging.info('Loading fit from file')
         with open(fit_fn, 'rb') as fh:
@@ -1165,11 +1167,6 @@ def go(args):
             logging.info('Serializing fit object')
             with open(fit_fn, 'wb') as ofh:
                 cPickle.dump(fit, ofh, 2)
-
-    do_plot = args['plot_cum_incorrect'] or args['plot_mapq_buckets'] or args['plot_all']
-    if do_plot:
-        logging.info('Making plots')
-        make_plots(fit.pred_overall, odir, args, prefix='  ')
 
     do_rewrite = True
     if do_rewrite:
