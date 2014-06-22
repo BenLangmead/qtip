@@ -179,7 +179,7 @@ class DatasetReader(object):
             df['best_min12'] = df[['best1_1', 'best1_2']].min(axis=1)
             df['diff_min12'] = df[['diff_1', 'diff_2']].min(axis=1)
             df['diff_min12conc'] = df[['diff_1', 'diff_2', 'diff_conc']].min(axis=1)
-            df['fraglen_z'] = ((df['fraglen'] - norm.fraglen_mean) / norm.fraglen_mean).abs()
+            df['fraglen_z'] = ((df['fraglen'] - norm.fraglen_mean) / norm.fraglen_sd).abs()
 
         elif sn == 'd':
             df['minv_1'] = df['minv_1'].fillna(norm.minv_1)
