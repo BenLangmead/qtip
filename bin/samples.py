@@ -71,10 +71,8 @@ def _str_or_na(n):
 
 
 class UnpairedTuple(object):
-    """ Unpaired training/test tuple.  I'm, perhaps unwisely, overloading it
-        so it can also represent a bad-end alignment.  I.e. there's an
-        optional "other end length" field that is 0 for unpaired alignments
-        and >0 for bad-end alignments. """
+    """ Unpaired training/test tuple.  An optional "other end length" field is
+        0 for unpaired alignments and >0 for bad-end alignments. """
 
     def __init__(self, rdname, rdlen, minv, maxv, bestsc, best2sc, mapq, ordlen=0):
         assert minv is None or minv <= bestsc <= maxv
@@ -87,6 +85,7 @@ class UnpairedTuple(object):
         self.best2sc = best2sc          # 2nd-best score
         self.mapq = mapq                # original mapq
 
+    # header names
     csv_names = ['name', 'best1', 'best2', 'minv', 'maxv', 'rdlen', 'mapq', 'ordlen']
     
     @classmethod
@@ -246,8 +245,7 @@ class DatasetOnDisk(object):
     def add_bad_end(self, al, unaligned, correct):
         """ Add a discordant paired-end alignment to our dataset. """
         assert al.paired
-        self.none = self.data_bad_end is None
-        if self.none:
+        if self.data_bad_end is None:
             self.data_bad_end_fn = self.temp_man.get_filename('%s_data_bad_end.csv' % self.name, 'dataset %s' % self.name)
             self.data_bad_end = open(self.data_bad_end_fn, 'w')
             UnpairedTuple.append_csv_header(self.data_bad_end)
@@ -255,6 +253,7 @@ class DatasetOnDisk(object):
 
     def add_unpaired(self, al, correct):
         """ Add an alignment for a simulated unpaired read to our dataset. """
+        assert not al.paired
         if self.data_unp is None:
             self.data_unp_fn = self.temp_man.get_filename('%s_data_unp.csv' % self.name, 'dataset %s' % self.name)
             self.data_unp = open(self.data_unp_fn, 'w')
