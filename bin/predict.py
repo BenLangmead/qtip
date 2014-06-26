@@ -1,5 +1,7 @@
 """
 Given a directory with output from ts.py, predict new MAPQs.
+
+TODO: normalizers that deal naturally with various-length reads
 """
 
 __author__ = 'langmead'
@@ -48,25 +50,37 @@ def mapq_to_pcor(p):
     return (1.0 - (10.0 ** (-0.1 * p))) if p < float('inf') else 1.0
 
 
-class DatasetReader(object):
+class Normalizers(object):
+    """ Values that help us to normalize a new dataset prior to making MAPQ
+        predictions.  "Normalize" here means that the alignment scores and
+        fragment lengths are converted to standardized units.  There is a
+        weakness here: when a new dataset contains reads of various lengths,
+        we don't necessarily want simple, scalar min/max alignment scores
+        here, since these will normalize reads of various lengths as though
+        they all live in the same range of relevant alignment scores. """
+
+    def __init__(self):
+        self.minv = None
+        self.maxv = None
+        self.minv_1 = None
+        self.maxv_1 = None
+        self.minv_2 = None
+        self.maxv_2 = None
+        self.fraglen_mean = None
+        self.fraglen_sd = None
+
+
+class AlignmentTableReader(object):
+
+    """ Reads a table of information describing alignments.  These are tables
+        output by ts.py.  Tables might describe training or test alignments.
+    """
 
     #            short name   suffix
     datasets = [('u',         '_unp.csv'),
                 ('d',         '_disc.csv'),
                 ('c',         '_conc.csv'),
                 ('b',         '_bad_end.csv')]
-
-    class Normalizers(object):
-
-        def __init__(self):
-            self.minv = None
-            self.maxv = None
-            self.minv_1 = None
-            self.maxv_1 = None
-            self.minv_2 = None
-            self.maxv_2 = None
-            self.fraglen_mean = None
-            self.fraglen_sd = None
 
     def __init__(self, prefix, learn_normalizers=False, normalizers=None):
         self.prefix = prefix
@@ -76,7 +90,7 @@ class DatasetReader(object):
         if learn_normalizers:
             for sn, suf in self.datasets:
                 fn = self.prefix + suf
-                if self._fn_exists(fn):
+                if any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2'])):
                     self.dfs[sn] = self._fn_to_iterator(fn, chunksize=None)
 
                     def _new_iter(_sn):
@@ -90,7 +104,7 @@ class DatasetReader(object):
             self.normalizers = normalizers.copy()
             for sn, suf in self.datasets:
                 fn = self.prefix + suf
-                if self._fn_exists(fn):
+                if any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2'])):
 
                     def _new_iter(_fn):
                         def _inner():
@@ -100,10 +114,6 @@ class DatasetReader(object):
                     self.readers[sn] = _new_iter(fn)
         else:
             raise RuntimeError('Either learn_normalizers must be true or normalizers must be specified')
-
-    @staticmethod
-    def _fn_exists(fn):
-        return any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2']))
 
     @staticmethod
     def _fn_to_iterator(fn, chunksize=50000):
@@ -116,21 +126,14 @@ class DatasetReader(object):
         else:
             raise RuntimeError('No such file: "%s"' % fn)
 
-    @staticmethod
-    def _standardize(df, nm, best_nm, secbest_nm, mn, diff):
-        df[nm] = (df[best_nm] - df[secbest_nm]) / diff
-        df[nm] = df[nm].fillna(np.nanmax(df[nm])).fillna(0)
-        df[best_nm] = (df[best_nm].astype(float) - mn) / diff
-        df[best_nm] = df[best_nm].fillna(np.nanmax(df[best_nm])).fillna(0)
-        assert not any([math.isnan(x) for x in df[nm]])
-        assert not any([math.isnan(x) for x in df[best_nm]])
-
     def _extract_normalizers(self, dfs):
+        """ Calculates normalization factors based on the alignment table.
+            Stores results in self.normalizers dictionary. """
         for sn, df in dfs.iteritems():
             if df is None:
                 continue
             if sn == 'c':
-                norm_conc = self.normalizers['c'] = self.Normalizers()
+                norm_conc = self.normalizers['c'] = Normalizers()
                 norm_conc.minv_1 = df['best1_1'].min()
                 norm_conc.maxv_1 = df['best1_1'].max()
                 norm_conc.minv_2 = df['best1_2'].min()
@@ -138,25 +141,33 @@ class DatasetReader(object):
                 norm_conc.fraglen_mean = df['fraglen'].mean()
                 norm_conc.fraglen_sd = df['fraglen'].std()
             elif sn == 'd':
-                norm_disc = self.normalizers['d'] = self.Normalizers()
+                norm_disc = self.normalizers['d'] = Normalizers()
                 norm_disc.minv_1 = df['best1_1'].min()
                 norm_disc.maxv_1 = df['best1_1'].max()
             elif sn in 'bu':
-                norm = self.normalizers[sn] = self.Normalizers()
+                norm = self.normalizers[sn] = Normalizers()
                 norm.minv = df['best1'].min()
                 norm.maxv = df['best1'].max()
             else:
                 raise RuntimeError('Bad shortname: "%s"' % sn)
 
-    def _has_normalizers(self, sn):
-        return sn in self.normalizers
-
     def _postprocess_data_frame(self, df, sn):
+        """ Applies normalization to a data frame containing a chunk of rows
+            from the alignment table.  Requires that we have normalizers,
+            which may or may not have been learned from this alignment table.
+        """
+        def _standardize(_df, nm, best_nm, secbest_nm, mn, diff):
+            _df[nm] = (_df[best_nm] - _df[secbest_nm]) / diff
+            _df[nm] = _df[nm].fillna(np.nanmax(_df[nm])).fillna(0)
+            _df[best_nm] = (_df[best_nm].astype(float) - mn) / diff
+            _df[best_nm] = _df[best_nm].fillna(np.nanmax(_df[best_nm])).fillna(0)
+            assert not any([math.isnan(x) for x in _df[nm]])
+            assert not any([math.isnan(x) for x in _df[best_nm]])
 
         if df.shape[0] == 0:
             return
 
-        assert self._has_normalizers(sn)
+        assert sn in self.normalizers
         norm = self.normalizers[sn]
 
         # Turn the correct column into 0/1
@@ -169,28 +180,28 @@ class DatasetReader(object):
             df['maxv_1'] = df['maxv_1'].fillna(norm.maxv_1)
             df['minv_2'] = df['minv_2'].fillna(norm.minv_2)
             df['maxv_2'] = df['maxv_2'].fillna(norm.maxv_2)
-            self._standardize(df, 'diff_1', 'best1_1', 'best2_1', df['minv_1'], df['maxv_1'] - df['minv_1'])
-            self._standardize(df, 'diff_2', 'best1_2', 'best2_2', df['minv_2'], df['maxv_2'] - df['minv_2'])
+            _standardize(df, 'diff_1', 'best1_1', 'best2_1', df['minv_1'], df['maxv_1'] - df['minv_1'])
+            _standardize(df, 'diff_2', 'best1_2', 'best2_2', df['minv_2'], df['maxv_2'] - df['minv_2'])
 
             # normalize concordant alignment scores
             minconc, maxconc = norm.minv_1 + norm.minv_2, norm.maxv_1 + norm.maxv_2
-            self._standardize(df, 'diff_conc', 'best1conc', 'best2conc', minconc, maxconc - minconc)
+            _standardize(df, 'diff_conc', 'best1conc', 'best2conc', minconc, maxconc - minconc)
 
             df['best_min12'] = df[['best1_1', 'best1_2']].min(axis=1)
             df['diff_min12'] = df[['diff_1', 'diff_2']].min(axis=1)
             df['diff_min12conc'] = df[['diff_1', 'diff_2', 'diff_conc']].min(axis=1)
-            df['fraglen_z'] = ((df['fraglen'] - norm.fraglen_mean) / norm.fraglen_mean).abs()
+            df['fraglen_z'] = ((df['fraglen'] - norm.fraglen_mean) / norm.fraglen_sd).abs()
 
         elif sn == 'd':
             df['minv_1'] = df['minv_1'].fillna(norm.minv_1)
             df['maxv_1'] = df['maxv_1'].fillna(norm.maxv_1)
-            self._standardize(df, 'diff_1', 'best1_1', 'best2_1', df['minv_1'], df['maxv_1'] - df['minv_1'])
+            _standardize(df, 'diff_1', 'best1_1', 'best2_1', df['minv_1'], df['maxv_1'] - df['minv_1'])
 
         else:
             assert sn in 'ub'
             df['minv'] = df['minv'].fillna(norm.minv)
             df['maxv'] = df['maxv'].fillna(norm.maxv)
-            self._standardize(df, 'diff', 'best1', 'best2', df['minv'], df['maxv'] - df['minv'])
+            _standardize(df, 'diff', 'best1', 'best2', df['minv'], df['maxv'] - df['minv'])
 
         return df
 
@@ -202,6 +213,49 @@ class DatasetReader(object):
         return o in self.readers
 
 
+        # if shortname == 'c':
+        #     # extract relevant paired-end features from training data
+        #     labs = ['best1_1',  # score of best alignment for mate
+        #             'best1_2',  # score of best alignment for opposite mate
+        #             'diff_1',  # difference for mate
+        #             'diff_2',  # difference for opposite mate
+        #             'diff_conc',  # concordant difference
+        #             'fraglen_z']  # # stddevs diff for fraglen
+        #     mapq_header = 'mapq_1'
+        # elif shortname == 'd':
+        #     # extract relevant discordant paired-end features
+        #     labs = ['best1_1', 'diff_1']
+        #     mapq_header = 'mapq_1'
+        # else:
+        #     # extract relevant unpaired features
+        #     labs = ['best1', 'diff']
+        #     mapq_header = 'mapq'
+
+
+def tuples_to_unpaired_matrix(tups, normalizers):
+    """ Convert a list of UnpairedTuples for unpaired alignments into a
+        matrix suitable for use with a predictor in predict.py. """
+    pass
+
+
+def tuples_to_bad_end_matrix(tups, normalizers):
+    """ Convert a list of UnpairedTuples for bad-end alignments into a
+        matrix suitable for use with a predictor in predict.py. """
+    pass
+
+
+def tuples_to_concordant_matrix(ptups, normalizers):
+    """ Convert a list of PairedTuples for concordant alignments into a matrix
+        suitable for use with a predictor in predict.py. """
+    pass
+
+
+def tuples_to_discordant_matrix(ptups, normalizers):
+    """ Convert a list of PairedTuples for discordant alignments into a matrix
+        suitable for use with a predictor in predict.py. """
+    pass
+
+
 def tally_cor_per(level, cor):
     """ Some predictions from our model are the same; this helper function
         gathers all the correct/incorrect information for each group of equal
@@ -211,6 +265,25 @@ def tally_cor_per(level, cor):
         c = 0 if c else 1
         tally[p][c] += 1
     return tally
+
+
+def auc(pcor, cor, rounded=False):
+    """ Calculate area under curve given predictions and correct/incorrect
+        information. """
+    if rounded:
+        pcor = round_pcor_np(pcor)
+    area, tot_cor, tot_incor = 0, 0, 0
+    last_tot_cor, last_tot_incor = 0, 0
+    for pcor, ci in sorted(tally_cor_per(pcor, cor).iteritems(), reverse=True):
+        tot_cor += ci[0]
+        tot_incor += ci[1]
+        cor_diff = tot_cor - last_tot_cor
+        incor_diff = tot_incor - last_tot_incor
+        if incor_diff > 0:
+            area += (0.5 * cor_diff * incor_diff)
+            area += last_tot_cor * incor_diff
+        last_tot_cor, last_tot_incor = tot_cor, tot_incor
+    return area
 
 
 def ranking_error(pcor, cor, rounded=False):
@@ -236,7 +309,7 @@ def ranking_error(pcor, cor, rounded=False):
     return err
 
 
-def mse_error(pcor, cor, rounded=False):
+def mseor(pcor, cor, rounded=False):
     """ Return the mean squared error between the pcors (in [0, 1]) and and
         cors (in {0, 1}).  This is a measure of how close our predictions are
         to true correct/incorrect. """
@@ -449,7 +522,7 @@ def quantile_error_plot(mapq_lists, labs, colors, cor, title=None, quantiles=10,
     estimated_lists = []
     actual_lists = []
     n_filtered = []
-    mse_errors = []
+    mse = []
     mx = 0
     scale = (lambda x: x)
     if log2ize:
@@ -472,7 +545,7 @@ def quantile_error_plot(mapq_lists, labs, colors, cor, title=None, quantiles=10,
             cor_sorted = np.array([cor[x] for x in sorted_order])
         else:
             mapq_sorted, pcor_sorted, cor_sorted = mapq_list, mapq_to_pcor_np(mapq_list), cor
-        mse_errors.append(mse_error(pcor_sorted, cor_sorted))
+        mse.append(mseor(pcor_sorted, cor_sorted))
         partition_starts = [int(round(i*n/quantiles)) for i in xrange(quantiles+1)]
         estimated_lists.append([])
         actual_lists.append([])
@@ -498,7 +571,7 @@ def quantile_error_plot(mapq_lists, labs, colors, cor, title=None, quantiles=10,
         axes.set_ylabel('Actual MAPQ')
     if title is not None:
         axes.set_title(title)
-    for o, a, l, c, mse in zip(estimated_lists, actual_lists, labs, colors, mse_errors):
+    for o, a, l, c, mse in zip(estimated_lists, actual_lists, labs, colors, mse):
         assert len(o) == len(a)
         a = [mx * 1.04 if m is None else m for m in a]
         axes.scatter(o, a, label='%s (MSE=%0.3f)' % (l, mse), color=c, alpha=0.5, s=60)
@@ -522,41 +595,56 @@ def plot_subsampling_series(seriess, labs=None, colors=None):
         colors = ['r', 'b', 'g', 'c', 'm'][:len(seriess)]
         assert len(colors) == len(seriess)
 
-    ax1 = fig.add_subplot(3, 1, 1)
-    min_rank_err, max_rank_err = float('inf'), 0.0
+    ax1 = fig.add_subplot(4, 1, 1)
+    min_rank_err, max_rank_err = float('inf'), float('-inf')
     for series, lab, color in zip(seriess, labs, colors):
-        ax1.plot(series.fraction, series.rank_err_round, 'o-', color=color, label=lab)
-        max_rank_err = max(max_rank_err, max(series.rank_err_round))
-        min_rank_err = min(min_rank_err, min(series.rank_err_round))
-    max_rank_err = min(2, max_rank_err)
-    ax1.set_xlabel('Fraction')
-    ax1.set_ylabel('Round rank err')
-    ax1.set_ylim([min(0.8, min_rank_err * 0.98), max(1.2, max_rank_err * 1.02)])
+        ax1.plot(series.fraction, series.rank_err_diff_round_pct, 'o-', color=color, label=lab)
+        max_rank_err = max(max_rank_err, max(series.rank_err_diff_round_pct))
+        min_rank_err = min(min_rank_err, min(series.rank_err_diff_round_pct))
+    ax1.axhline(y=0, linewidth=2, color='k')
+    ax1.set_xlabel('Subsampling fraction')
+    ax1.set_ylabel('% diff, ranking error')
+    ax1.set_ylim([min(-20.0, min_rank_err), max(20.0, max_rank_err)])
     ax1.legend(loc=1)
     ax1.grid(True)
 
-    ax2 = fig.add_subplot(3, 1, 2)
-    max_mse = 0.0
+    ax2 = fig.add_subplot(4, 1, 2)
+    min_mse, max_mse = float('inf'), float('-inf')
     for series, lab, color in zip(seriess, labs, colors):
-        ax2.plot(series.fraction, series.mse_err_round, 'o-', color=color, label=lab)
-        max_mse = max(max_mse, max(series.mse_err_round))
-    max_mse = min(2, max_mse)
-    ax2.set_xlabel('Fraction')
-    ax2.set_ylabel('MSE')
-    ax2.set_ylim([0, max(1.0, max_mse * 1.02)])
+        ax2.plot(series.fraction, series.mse_diff_round_pct, 'o-', color=color, label=lab)
+        max_mse = max(max_mse, max(series.mse_diff_round_pct))
+        min_mse = min(min_mse, min(series.mse_diff_round_pct))
+    ax2.axhline(y=0, linewidth=2, color='k')
+    ax2.set_xlabel('Subsampling fraction')
+    ax2.set_ylabel('% diff, MSE')
+    ax2.set_ylim([min(-50.0, min_mse), max(50.0, max_mse)])
     ax2.legend(loc=1)
     ax2.grid(True)
 
-    ax3 = fig.add_subplot(3, 1, 3)
-    max_mapq_avg = 0.0
+    ax3 = fig.add_subplot(4, 1, 3)
+    min_auc, max_auc = float('inf'), float('-inf')
     for series, lab, color in zip(seriess, labs, colors):
-        ax3.plot(series.fraction, series.mapq_avg, 'o-', color=color, label=lab)
-        max_mapq_avg = max(max_mapq_avg, max(series.mapq_avg))
-    ax3.set_xlabel('Fraction')
-    ax3.set_ylabel('Average MAPQ')
-    ax3.set_ylim([0., max(80., max_mapq_avg * 1.02)])
+        ax3.plot(series.fraction, series.auc_diff_round_pct, 'o-', color=color, label=lab)
+        max_auc = max(max_auc, max(series.auc_diff_round_pct))
+        min_auc = min(min_auc, min(series.auc_diff_round_pct))
+    ax3.axhline(y=0, linewidth=2, color='k')
+    ax3.set_xlabel('Subsampling fraction')
+    ax3.set_ylabel('% diff, AUC')
+    ax3.set_ylim([min(-1.1, min_auc), max(1.1, max_auc)])
     ax3.legend(loc=1)
     ax3.grid(True)
+
+    ax4 = fig.add_subplot(4, 1, 4)
+    max_mapq_avg = 0.0
+    for series, lab, color in zip(seriess, labs, colors):
+        ax4.plot(series.fraction, series.mapq_avg, 'o-', color=color, label=lab)
+        max_mapq_avg = max(max_mapq_avg, max(series.mapq_avg))
+    ax4.axhline(y=0, linewidth=2, color='k')
+    ax4.set_xlabel('Subsampling fraction')
+    ax4.set_ylabel('Average MAPQ')
+    ax4.set_ylim([0., max(80., max_mapq_avg * 1.02)])
+    ax4.legend(loc=1)
+    ax4.grid(True)
 
     return fig
 
@@ -620,10 +708,30 @@ class MapqPredictions:
         self.rank_err_orig = None
         self.rank_err = None
         self.rank_err_round = None
-        self.mse_err_orig = None
-        self.mse_err_raw = None
-        self.mse_err = None
-        self.mse_err_round = None
+        self.rank_err_raw = None
+        self.rank_err_raw_round = None
+        self.rank_err_diff = None
+        self.rank_err_diff_pct = None
+        self.rank_err_diff_round = None
+        self.rank_err_diff_round_pct = None
+        self.auc_orig = None
+        self.auc_raw = None
+        self.auc_raw_round = None
+        self.auc = None
+        self.auc_round = None
+        self.auc_diff = None
+        self.auc_diff_pct = None
+        self.auc_diff_round = None
+        self.auc_diff_round_pct = None
+        self.mse_orig = None
+        self.mse_raw = None
+        self.mse_raw_round = None
+        self.mse_diff = None
+        self.mse_diff_pct = None
+        self.mse_diff_round = None
+        self.mse_diff_round_pct = None
+        self.mse = None
+        self.mse_round = None
 
     def add_pcors(self, pcor, mapq_orig, category, names=None, data=None, correct=None):
         """ Add a new batch of predictions """
@@ -717,27 +825,121 @@ class MapqPredictions:
             if verbose:
                 logging.info('  Calculating rank error')
             self.rank_err_orig = ranking_error(pcor_orig, correct) + 1
-            self.rank_err = (ranking_error(pcor, correct) + 1) / self.rank_err_orig
-            self.rank_err_round = (ranking_error(pcor, correct, rounded=True) + 1) / self.rank_err_orig
+            self.rank_err_raw = ranking_error(pcor, correct) + 1
+            self.rank_err_raw_round = ranking_error(pcor, correct, rounded=True) + 1
+            self.rank_err_diff = self.rank_err_raw - self.rank_err_orig
+            self.rank_err_diff_pct = 100.0 * self.rank_err_diff / self.rank_err_orig
+            self.rank_err_diff_round = self.rank_err_raw_round - self.rank_err_orig
+            self.rank_err_diff_round_pct = 100.0 * self.rank_err_diff_round / self.rank_err_orig
+            self.rank_err = self.rank_err_raw / self.rank_err_orig
+            self.rank_err_round = self.rank_err_raw_round / self.rank_err_orig
             if verbose:
-                logging.info('    Done: %0.4f, %0.4fr' % (self.rank_err, self.rank_err_round))
+                logging.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.rank_err_diff_pct,
+                                                                       self.rank_err_diff_round_pct))
+
+            if verbose:
+                logging.info('  Calculating AUC')
+            self.auc_orig = auc(pcor_orig, correct)
+            self.auc_raw = auc(pcor, correct)
+            self.auc_raw_round = auc(pcor, correct, rounded=True)
+            self.auc_diff = self.auc_raw - self.auc_orig
+            self.auc_diff_pct = 100.0 * self.auc_diff / self.auc_orig
+            self.auc_diff_round = self.auc_raw_round - self.auc_orig
+            self.auc_diff_round_pct = 100.0 * self.auc_diff_round / self.auc_orig
+            self.auc = self.auc_raw / self.auc_orig
+            self.auc_round = self.auc_raw_round / self.auc_orig
+            if verbose:
+                logging.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.auc_diff_pct, self.auc_diff_round_pct))
 
             if verbose:
                 logging.info('  Calculating MSE')
-            self.mse_err_orig = mse_error(pcor_orig, correct)
-            self.mse_err_raw = mse_error(pcor, correct)
-            self.mse_err = self.mse_err_raw / self.mse_err_orig
-            self.mse_err_round = mse_error(pcor, correct, rounded=True) / self.mse_err_orig
+            self.mse_orig = mseor(pcor_orig, correct)
+            self.mse_raw = mseor(pcor, correct)
+            self.mse_raw_round = mseor(pcor, correct, rounded=True)
+            self.mse_diff = self.mse_raw - self.mse_orig
+            self.mse_diff_pct = 100.0 * self.mse_diff / self.mse_orig
+            self.mse_diff_round = self.mse_raw_round - self.mse_orig
+            self.mse_diff_round_pct = 100.0 * self.mse_diff_round / self.mse_orig
+            self.mse = self.mse_raw / self.mse_orig
+            self.mse_round = mseor(pcor, correct, rounded=True) / self.mse_orig
             if verbose:
-                logging.info('    Done: %0.4f, %0.4fr (raw:%0.4f, orig raw:%0.4f)' % \
-                             (self.mse_err, self.mse_err_round,
-                              self.mse_err_raw, self.mse_err_orig))
+                logging.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.mse_diff_pct, self.mse_diff_round_pct))
 
         # summary statistics over pcors and mapqs
         if verbose:
             logging.info('  Calculating MAPQ summaries')
         self.mapq_avg, self.mapq_orig_avg = float(np.mean(mapq)), float(np.mean(mapq_orig))
         self.mapq_std, self.mapq_orig_std = float(np.std(mapq)), float(np.std(mapq_orig))
+
+
+def parse_sam(fh, ofh, alignment_class, normalizers, fit, ival=10000):
+
+    def _rewrite(_ln, _mapq):
+        toks = _ln.split()
+        toks[4] = str(round(_mapq))
+        # TODO: could optionally include decimal MAPQ in extra field
+        ofh.write('\t'.join(toks) + '\n')
+
+    last_al, last_ln = None, None
+    nal, nignored, npair, nunp = 0, 0, 0, 0
+    for ln in fh:
+        if ln[0] == '@':
+            ofh.write(ln)
+            continue  # skip headers
+
+        # Parse SAM record
+        al = alignment_class()
+        al.parse(ln)
+        nal += 1
+        if al.flags >= 2048:
+            nignored += 1
+            ofh.write(ln)
+            continue
+        elif al.paired:
+            npair += 1
+        else:
+            nunp += 1
+
+        if (nal % ival) == 0:
+            logging.info('      # alignments parsed: %d (%d paired, %d unpaired, %d ignored)' %
+                         (nal, npair, nunp, nignored))
+
+        if al.paired and last_al is not None:
+            assert al.concordant == last_al.concordant
+            assert al.discordant == last_al.discordant
+            assert al.mate1 != last_al.mate1
+            mate1, mate2 = (al, last_al) if al.mate1 else (last_al, al)
+            ln1, ln2 = (ln, last_ln) if al.mate1 else (last_ln, ln)
+            # if only one end aligned, ensure 'al' is the one that aligned
+            if not al.is_aligned() and last_al.is_aligned():
+                al, last_al = last_al, al
+                ln, last_ln = last_ln, ln
+        else:
+            mate1, mate2 = None, None
+
+        if al.is_aligned():
+            if mate1 is not None:
+                if al.concordant:
+                    mapq1, mapq2 = fit.predict_concordant(mate1, mate2)
+                    ofh.write(_rewrite(ln1, mapq1))
+                    ofh.write(_rewrite(ln2, mapq2))
+                elif al.discordant:
+                    mapq1, mapq2 = fit.predict_discordant(mate1, mate2)
+                    ofh.write(_rewrite(ln1, mapq1))
+                    ofh.write(_rewrite(ln2, mapq2))
+                else:
+                    mapq = fit.predict_bad_end(al, last_al)
+                    ofh.write(_rewrite(ln, mapq))
+            elif not al.paired:
+                mapq = fit.predict_unpaired(al)
+                ofh.write(_rewrite(ln, mapq))
+        else:
+            ofh.write(ln)
+
+        if mate1 is None and al.paired:
+            last_al, last_ln = al, ln
+        else:
+            last_al, last_ln = None, None
 
 
 class MapqFit:
@@ -895,8 +1097,32 @@ class MapqFit:
         else:
             return pred_overall
 
+    def predict_unpaired(self, al):
+        """ Given unpaided alignment, use fit model to predict a MAPQ for it """
+        # TODO: need to normalize best, secbest the same way we normally do
+        # Many aspects:
+        # 1. Need to parse and extract raw fields from SAM
+        # 2. Need to get normalizers from the training data (should we copy
+        #    the normalizers to the MapqFit object so we don't have to keep
+        #    anything besides the picked fit?)
+        # 3.
+        assert 'u' in self.trained_models
+        secbest = al.secondBestScore
+        if hasattr(al, 'thirdBestScore'):
+            secbest = max(secbest, al.thirdBestScore)
+        x_test = [al.bestScore, secbest]
+        pcor = self.trained_models['u'].predict(x_test)  # make predictions
+
     def rewrite_sam(self, fn_in, fn_out):
-        pass
+        """ Read SAM input line by line.  Output new lines
+        """
+        with open(fn_in) as ifh:
+            with open(fn_out) as ofh:
+                for ln in ifh:
+                    if ln[0] != '@':
+                        toks = ln.split()
+
+                    ofh.write(ln)
 
     def __init__(self, dfs, model_gen, random_seed=628599,
                  logger=logging.info, sample_fraction=1.0, sample_fractions=None):
@@ -1097,18 +1323,17 @@ def go(args):
 
     logging.info('Reading datasets')
     input_dir = args['input_directory']
-    df_training = DatasetReader(os.path.join(input_dir, 'training'), learn_normalizers=True)
-    df_test = DatasetReader(os.path.join(input_dir, 'test'), normalizers=df_training.normalizers)
+    df_training = AlignmentTableReader(os.path.join(input_dir, 'training'), learn_normalizers=True)
+    df_test = AlignmentTableReader(os.path.join(input_dir, 'test'), normalizers=df_training.normalizers)
 
     if args['subsampling_series'] is not None:
         logging.info('Doing subsampling series')
         ss_odir = os.path.join(odir, 'subsampled')
         fractions = map(float, args['subsampling_series'].split(','))
         perf_dicts = [{'fraction': [],
-                       'rank_err': [],
-                       'rank_err_round': [],
-                       'mse_err': [],
-                       'mse_err_round': [],
+                       'rank_err_diff_round_pct': [],
+                       'auc_diff_round_pct': [],
+                       'mse_diff_round_pct': [],
                        'mapq_avg': [],
                        'mapq_std': [],
                        'params': []} for _ in xrange(args['subsampling_replicates'])]
@@ -1137,10 +1362,9 @@ def go(args):
                 logging.info('      Making plots')
                 make_plots(pred_overall, my_odir, args, prefix='        ')
                 perf_dicts[repl-1]['fraction'].append(fraction)
-                perf_dicts[repl-1]['rank_err'].append(pred_overall.rank_err)
-                perf_dicts[repl-1]['rank_err_round'].append(pred_overall.rank_err_round)
-                perf_dicts[repl-1]['mse_err'].append(pred_overall.mse_err)
-                perf_dicts[repl-1]['mse_err_round'].append(pred_overall.mse_err_round)
+                perf_dicts[repl-1]['rank_err_diff_round_pct'].append(pred_overall.rank_err_diff_round_pct)
+                perf_dicts[repl-1]['auc_diff_round_pct'].append(pred_overall.auc_diff_round_pct)
+                perf_dicts[repl-1]['mse_diff_round_pct'].append(pred_overall.mse_diff_round_pct)
                 perf_dicts[repl-1]['mapq_avg'].append(pred_overall.mapq_avg)
                 perf_dicts[repl-1]['mapq_std'].append(pred_overall.mapq_std)
                 perf_dicts[repl-1]['params'].append(str(ss_fit.trained_params))
@@ -1169,9 +1393,10 @@ def go(args):
                 cPickle.dump(fit, ofh, 2)
 
     do_rewrite = True
-    if do_rewrite:
-        logging.info('Rewriting SAM')
-        fit.rewrite_sam(os.path.join(input_dir, 'input.sam'), os.path.join(input_dir, 'output.sam'))
+    #if do_rewrite:
+        #logging.info('Rewriting SAM')
+        #fit.rewrite_sam(os.path.join(input_dir, 'input.sam'),
+        #                os.path.join(input_dir, 'output.sam'))
 
     logging.info('Done')
 
