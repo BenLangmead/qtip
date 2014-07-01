@@ -108,6 +108,54 @@ class PairTemplate(object):
         return self._fraglen
 
 
+class CollapsedScoreDist(object):
+
+    def __init__(self, big_k=10000, small_k=100):
+        #self.res = ReservoirSampler(big_k)
+        self.score_to_sample = {}
+        self.max_fraglen = 0
+        self.avg_fraglen = None
+        self.finalized = False
+        self.num_added = 0
+        self.tot_len = 0
+        self.num_drawn = 0
+        self.k = small_k
+
+    def draw(self, bias=1.0):
+        assert self.finalized
+        assert not self.empty()
+        self.num_drawn += 1
+        #if random.random() < bias:
+        score = random.choice(self.score_to_sample.keys())
+        tup = random.choice(self.score_to_sample[score].r)
+        fw, qual, rd_aln, rf_aln, rf_len, mate1, olen = tup
+        #else:
+        #score, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen = self.res.draw()
+        return ReadTemplate(score, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen)
+
+    def add(self, al, ref, ordlen=0):
+        sc = al.bestScore
+        rd_aln, rf_aln, rd_len, rf_len = al.stacked_alignment(align_soft_clipped=True, ref=ref)
+        self.max_fraglen = max(self.max_fraglen, rf_len)
+        self.tot_len += rf_len
+        if sc not in self.score_to_sample:
+            self.score_to_sample[sc] = ReservoirSampler(self.k)
+        self.score_to_sample[sc].add((al.fw, al.qual, rd_aln, rf_aln, rf_len, al.mate1, ordlen))
+        #self.res.add((sc, al.fw, al.qual, rd_aln, rf_aln, rf_len, al.mate1, ordlen))
+        self.num_added += 1
+
+    def empty(self):
+        """ Return true iff no tuples have been added """
+        return self.num_added == 0
+
+    def finalize(self):
+        """ Sort the samples in preparation for draws that might be biased
+            toward high or (more likely) low scores. """
+        self.finalized = True
+        if not self.empty():
+            self.avg_fraglen = float(self.tot_len) / self.num_added
+
+
 class ScoreDist(object):
     """ Capture a list of tuples, where each tuples represents the following
         traits observed in an alignment: (a) orientation, (b) quality string,
@@ -115,13 +163,15 @@ class ScoreDist(object):
         (e) score.  Keeping these tuples allows us to generate new reads that
         mimic observed reads in these key ways. """
     
-    def __init__(self, k=50000):
+    def __init__(self, k=50000, unique=False):
         """ Make a reservoir sampler for holding the tuples. """
         self.res = ReservoirSampler(k)
         self.max_fraglen = 0
         self.avg_fraglen = None
         self.finalized = False
         self.samp = None
+        self.unique = unique
+        self.unique_set = set()
 
     def draw(self, bias=2):
         """ Draw from the reservoir """
@@ -131,6 +181,7 @@ class ScoreDist(object):
         assert 0 <= rnd_i < len(self.samp)
         sc, _, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen = self.samp[rnd_i]
         return ReadTemplate(sc, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen)
+        # TODO: first pick score, then pick set of parameters associated with score
     
     def add(self, al, ref, ordlen=0):
         """ Convert given alignment to a tuple and add it to the reservoir
@@ -163,7 +214,76 @@ class ScoreDist(object):
         self.finalized = True
         if not self.empty():
             self.samp = sorted(self.res.r)
-            self.avg_fraglen = np.mean([x[6] for x in self.res])
+            self.avg_fraglen = np.mean([x[6] for x in self.res])  # rf_len
+
+
+class CollapsedScorePairDist(object):
+
+    def __init__(self, big_k=10000, small_k=30, max_allowed_fraglen=100000):
+        """ Make a reservoir sampler for holding the tuples. """
+        #self.res = ReservoirSampler(big_k)
+        self.score_to_sample = {}
+        self.max_allowed_fraglen = max_allowed_fraglen
+        self.max_fraglen = 0  # maximum observed fragment length
+        self.avg_fraglen = None
+        self.finalized = False
+        self.tot_len = 0
+        self.k = small_k
+        self.num_drawn = 0
+        self.num_added = 0
+
+    def draw(self, bias=1.0):
+        """ Draw from the reservoir """
+        assert self.finalized
+        assert not self.empty()
+        self.num_drawn += 1
+        #if random.random() < bias:
+        score = random.choice(self.score_to_sample.keys())
+        tup1, tup2, fraglen, upstream1 = random.choice(self.score_to_sample[score].r)
+        #else:
+        #    tup1, tup2, fraglen, upstream1 = random.choice(self.res)
+        fw_1, qual_1, rd_aln_1, rf_aln_1, sc_1, rf_len_1, mate1_1, _ = tup1
+        fw_2, qual_2, rd_aln_2, rf_aln_2, sc_2, rf_len_2, mate1_2, _ = tup2
+        return PairTemplate(ReadTemplate(sc_1, fw_1, qual_1, rd_aln_1, rf_aln_1, rf_len_1, mate1_1, rf_len_2),
+                            ReadTemplate(sc_2, fw_2, qual_2, rd_aln_2, rf_aln_2, rf_len_2, mate1_2, rf_len_1),
+                            fraglen, upstream1)
+
+    def add(self, al1, al2, ref):
+        """ Convert given alignment pair to a tuple and add it to the
+            reservoir sampler. """
+        sc1, sc2 = al1.bestScore, al2.bestScore
+        # Make note of fragment length
+        fraglen = Alignment.fragment_length(al1, al2)
+        fraglen = min(fraglen, self.max_allowed_fraglen)
+        self.max_fraglen = max(self.max_fraglen, fraglen)
+        # Make note of which end is upstream
+        upstream1 = al1.pos < al2.pos
+        # Get stacked alignment
+        rd_aln_1, rf_aln_1, rd_len_1, rf_len_1 = al1.stacked_alignment(align_soft_clipped=True, ref=ref)
+        rd_aln_2, rf_aln_2, rd_len_2, rf_len_2 = al2.stacked_alignment(align_soft_clipped=True, ref=ref)
+        assert fraglen == 0 or max(rf_len_1, rf_len_2) <= fraglen
+        score = sc1 + sc2
+        if score not in self.score_to_sample:
+            self.score_to_sample[score] = ReservoirSampler(self.k)
+        self.score_to_sample[score].add(((al1.fw, al1.qual, rd_aln_1, rf_aln_1, sc1, rf_len_1, True, rf_len_2),
+                                         (al2.fw, al2.qual, rd_aln_2, rf_aln_2, sc2, rf_len_2, False, rf_len_1),
+                                         fraglen, upstream1))
+        #self.res.add(((al1.fw, al1.qual, rd_aln_1, rf_aln_1, sc1, rf_len_1, True, rf_len_2),
+        #              (al2.fw, al2.qual, rd_aln_2, rf_aln_2, sc2, rf_len_2, False, rf_len_1),
+        #              fraglen, upstream1))
+        self.num_added += 1
+        self.tot_len += fraglen
+
+    def empty(self):
+        """ Return true iff no tuples have been added """
+        return self.num_added == 0
+
+    def finalize(self):
+        """ Sort the samples in preparation for draws that might be biased
+            toward high or (more likely) low scores. """
+        self.finalized = True
+        if not self.empty():
+            self.avg_fraglen = float(self.tot_len) / self.num_added
 
 
 class ScorePairDist(object):
@@ -249,10 +369,10 @@ class Dists(object):
         their fragment length and strands. """
 
     def __init__(self, k=50000, max_allowed_fraglen=100000):
-        self.sc_dist_unp = ScoreDist(k=k)
-        self.sc_dist_bad_end = ScoreDist(k=k)
-        self.sc_dist_conc = ScorePairDist(k=k, max_allowed_fraglen=max_allowed_fraglen)
-        self.sc_dist_disc = ScorePairDist(k=k, max_allowed_fraglen=max_allowed_fraglen)
+        self.sc_dist_unp = CollapsedScoreDist(big_k=k)
+        self.sc_dist_bad_end = CollapsedScoreDist(big_k=k)
+        self.sc_dist_conc = CollapsedScorePairDist(big_k=k, max_allowed_fraglen=max_allowed_fraglen)
+        self.sc_dist_disc = CollapsedScorePairDist(big_k=k, max_allowed_fraglen=max_allowed_fraglen)
 
     def finalize(self):
         self.sc_dist_unp.finalize()
@@ -564,10 +684,6 @@ def go(args, aligner_args):
     tim = Timing()
     tim.start_timer('Overall')
 
-    # Set up logger
-    logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', datefmt='%m/%d/%y-%H:%M:%S',
-                        level=logging.DEBUG if args['verbose'] else logging.INFO)
-
     # Create output directory if needed
     if not os.path.isdir(args['output_directory']):
         try:
@@ -575,6 +691,16 @@ def go(args, aligner_args):
         except OSError as exception:
             if exception.errno != errno.EEXIST:
                 raise
+
+    # Set up logger
+    logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', datefmt='%m/%d/%y-%H:%M:%S',
+                        level=logging.DEBUG if args['verbose'] else logging.INFO)
+
+    if args['write_logs'] or args['write_all']:
+        fn = os.path.join(args['output_directory'], 'ts_logs.txt')
+        fh = logging.FileHandler(fn)
+        fh.setLevel(logging.DEBUG)
+        logging.getLogger('').addHandler(fh)
 
     if args['U'] is not None and args['m1'] is not None:
         raise RuntimeError('Input must consist of only unpaired or only paired-end reads')
@@ -1034,7 +1160,7 @@ def add_args(parser):
     parser.add_argument('--max-allowed-fraglen', metavar='int', type=int, default=100000, required=False,
                         help='When simulating fragments, observed fragments longer than this will be'
                              'truncated to this length')
-    parser.add_argument('--low-score-bias', metavar='float', type=int, default=7, required=False,
+    parser.add_argument('--low-score-bias', metavar='float', type=int, default=1, required=False,
                         help='When simulating reads, we randomly select a real read\'s alignment profile'
                              'as a template.  A higher value for this parameter makes it more likely'
                              'we\'ll choose a low-scoring alignment.  If set to 1, all templates are'
@@ -1071,6 +1197,8 @@ def add_args(parser):
                         help='Write distances between true/actual alignments.')
     parser.add_argument('--write-timings', action='store_const', const=True, default=False,
                         help='Write timing info to "timing.tsv".')
+    parser.add_argument('--write-logs', action='store_const', const=True, default=False,
+                        help='Write logs to "ts_log.txt" in the output directory.')
     parser.add_argument('--write-all', action='store_const', const=True, default=False,
                         help='Same as specifying all --write-* options')
     parser.add_argument('--compress-output', action='store_const', const=True, default=False,
