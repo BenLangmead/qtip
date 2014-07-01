@@ -247,8 +247,8 @@ class FragmentSimSerial2(object):
                         else:
                             refoff1 = ref_off + fraglens[i] - rl1
                             refoff2 = ref_off
-                        rdp1 = Read.from_simulator(seq1, None, ref_id, refoff1, m1fw, sc1, typ)
-                        rdp2 = Read.from_simulator(seq2, None, ref_id, refoff2, m2fw, sc2, typ)
+                        rdp1, rdp2 = Read.pair_from_simulator(seq1, None, ref_id, refoff1, m1fw, sc1,
+                                                              seq2, None, ref_id, refoff2, m2fw, sc2, typ)
                         mutate(rdp1, qual_1, rd_aln_1, rf_aln_1)
                         mutate(rdp2, qual_2, rd_aln_2, rf_aln_2)
                         yield typ, rdp1, rdp2

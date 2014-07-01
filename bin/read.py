@@ -23,7 +23,17 @@ class Read(object):
             some simulated properties of the read. """
         rdname = "!!ts-sep!!".join(["!!ts!!", refid, "+" if fw else "-", str(refoff), str(sc), training_nm])
         return cls(rdname, seq, qual)
-    
+
+    @classmethod
+    def pair_from_simulator(cls, seq1, qual1, refid1, refoff1, fw1, sc1,
+                            seq2, qual2, refid2, refoff2, fw2, sc2, training_nm):
+        """ Construct appropriate read object (with appropriate name) given
+            some simulated properties of the read. """
+        rdname = "!!ts-sep!!".join(["!!ts!!",
+                                    refid1, "+" if fw1 else "-", str(refoff1), str(sc1),
+                                    refid2, "+" if fw2 else "-", str(refoff2), str(sc2), training_nm])
+        return cls(rdname, seq1, qual1), cls(rdname, seq2, qual2)
+
     @classmethod
     def to_tab6(cls, rd1, rd2=None, truncate_name=False):
         """ Convert either an unpaired read or a pair of reads to tab6

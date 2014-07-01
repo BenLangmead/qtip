@@ -545,7 +545,19 @@ class AlignmentReader(Thread):
                 if self.dataset is not None:
                     is_training = (al.name[0] == '!' and al.name.startswith('!!ts!!'))
                     if al.is_aligned() and is_training:
-                        _, refid, fw, refoff, sc, training_nm = al.name.split('!!ts-sep!!')
+                        name_split = al.name.split('!!ts-sep!!')
+                        if len(name_split) == 6:
+                            # unpaired
+                            _, refid, fw, refoff, sc, training_nm = name_split
+                        else:
+                            # Paired.  Both mates must have same name.
+                            assert len(name_split) == 10
+                            assert al.paired
+                            _, refid1, fw1, refoff1, sc1, refid2, fw2, refoff2, sc2, training_nm = name_split
+                            if al.mate1:
+                                refid, fw, refoff, sc = refid1, fw1, refoff1, sc1
+                            else:
+                                refid, fw, refoff, sc = refid2, fw2, refoff2, sc2
                         sc, refoff = int(sc), int(refoff)
                         self.sc_diffs[sc - al.bestScore] += 1
                         correct = False
