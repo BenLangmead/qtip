@@ -13,6 +13,7 @@ $(NM)/bwa: $(NM)
 
 $(NM): $(AR)
 	tar jxvf $<
+	cd $@ && patch -p1 < ../bwa_conc_flags.patch
 
 $(AR):
 	wget $(URL)
