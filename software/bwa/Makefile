@@ -11,7 +11,7 @@ bwa: $(NM)/bwa
 $(NM)/bwa: $(NM)
 	make -C $(NM)
 
-$(NM): $(AR)
+$(NM): $(AR) bwa_conc_flags.patch
 	tar jxvf $<
 	cd $@ && patch -p1 < ../bwa_conc_flags.patch
 
