@@ -5,11 +5,14 @@ NM=MOSAIK-$(VER)
 AR=$(NM)-source.tar
 URL=https://mosaik-aligner.googlecode.com/files/$(AR)
 
-mosaik: $(NM)/mosaik
+MosaikBuild: $(NM)/bin/MosaikBuild
+	ln -s -f $< $@
+
+MosaikAligner: $(NM)/bin/MosaikAligner
 	ln -s -f $< $@
 
 $(NM)/mosaik: $(NM)
-	make -C $(NM)
+	cd $(NM) && $(MAKE)
 
 $(NM): $(AR)
 	tar xvf $<
