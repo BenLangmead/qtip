@@ -23,6 +23,6 @@ $(AR):
 
 .PHONY: clean
 clean:
-	rm -f bwa
-	rm -rf bwa-*.tar.bz2
-	rm -rf bwa-*
+	rm -f mosaik
+	rm -rf MOSAIK-*
+	rm -rf bin obj
