@@ -74,16 +74,20 @@ class UnpairedTuple(object):
     """ Unpaired training/test tuple.  An optional "other end length" field is
         0 for unpaired alignments and >0 for bad-end alignments. """
 
-    def __init__(self, rdname, rdlen, minv, maxv, bestsc, best2sc, mapq, ordlen=0):
+    def __init__(self, rdname, rdlen, minv, maxv, bestsc, best2sc, mapq, ztzs, ordlen=0):
         assert minv is None or minv <= bestsc <= maxv
         self.rdname = rdname            # read name
-        self.rdlen = rdlen              # read len
-        self.ordlen = ordlen            # read len of opposite end
+        self.mapq = mapq                # original mapq
+        self.first = True
+        # scaling factors
         self.minv = minv                # min valid score
         self.maxv = maxv                # max valid score
+        # features for learning
+        self.rdlen = rdlen              # read len
+        self.ordlen = ordlen            # read len of opposite end
         self.bestsc = bestsc            # best
         self.best2sc = best2sc          # 2nd-best score
-        self.mapq = mapq                # original mapq
+        self.ztzs = ztzs or []
 
     # header names
     csv_names = ['name', 'best1', 'best2', 'minv', 'maxv', 'rdlen', 'mapq', 'ordlen']
@@ -98,20 +102,22 @@ class UnpairedTuple(object):
         if hasattr(al, 'minValid'):
             assert hasattr(al, 'maxValid')
             min_valid, max_valid = al.minValid, al.maxValid
-        return cls(al.name, len(al), min_valid, max_valid, al.bestScore, secbest, al.mapq, ordlen)
+        return cls(al.name, len(al), min_valid, max_valid, al.bestScore, secbest, al.mapq, al.ztzs, ordlen)
 
     @classmethod
-    def append_csv_header(cls, fh):
-        fh.write(','.join(cls.csv_names + ['correct']) + '\n')
+    def append_csv_header(cls, fh, num_ztzs):
+        ztz_colnames = ['ztz%d' % i for i in xrange(num_ztzs)]
+        fh.write(','.join(cls.csv_names + ztz_colnames + ['correct']) + '\n')
 
     def append_csv(self, fh, correct=None):
         correct_str = 'NA'
         if correct is not None:
             correct_str = 'T' if correct else 'F'
-        fh.write('%s,%d,%s,%s,%s,%d,%d,%s,%s\n' % (self.rdname, self.bestsc, _str_or_na(self.best2sc),
-                                                   _str_or_na(self.minv), _str_or_na(self.maxv),
-                                                   self.rdlen, self.mapq, _str_or_na(self.ordlen),
-                                                   correct_str))
+        ls = [self.rdname, self.bestsc, _str_or_na(self.best2sc),
+              _str_or_na(self.minv), _str_or_na(self.maxv),
+              self.rdlen, self.mapq, _str_or_na(self.ordlen)] + self.ztzs + [correct_str]
+        ls = map(str, ls)
+        fh.write(','.join(ls) + '\n')
 
 
 class PairedTuple(object):
@@ -120,7 +126,8 @@ class PairedTuple(object):
                  bestsc1, best2sc1, mapq1,
                  rdname2, rdlen2, minv2, maxv2,
                  bestsc2, best2sc2, mapq2,
-                 bestconcsc, best2concsc, fraglen):
+                 bestconcsc, best2concsc,
+                 al1ztzs, fraglen):
         assert minv1 is None or minv1 <= bestsc1 <= maxv1
         assert minv2 is None or minv2 <= bestsc2 <= maxv2
         self.rdname1 = rdname1          # read name #1
@@ -140,6 +147,7 @@ class PairedTuple(object):
         self.bestconcsc = bestconcsc    # best concordant
         self.best2concsc = best2concsc  # 2nd-best concordant
         self.fraglen = fraglen          # fragment length
+        self.ztzs1 = al1ztzs or []
 
     csv_names = ['name_1', 'best1_1', 'best2_1', 'minv_1', 'maxv_1', 'rdlen_1', 'mapq_1',
                  'name_2', 'best1_2', 'best2_2', 'minv_2', 'maxv_2', 'rdlen_2', 'mapq_2',
@@ -172,22 +180,25 @@ class PairedTuple(object):
                    al2.name, len(al2), min_valid2, max_valid2, al2.bestScore,
                    secbest2, al2.mapq,
                    best_concordant_score, second_best_concordant_score,
+                   al1.ztzs,
                    Alignment.fragment_length(al1, al2))
 
     @classmethod
-    def append_csv_header(cls, fh):
-        fh.write(','.join(cls.csv_names + ['correct']) + '\n')
+    def append_csv_header(cls, fh, num_ztzs):
+        ztz_colnames = ['ztz%d' % i for i in xrange(num_ztzs)]
+        fh.write(','.join(cls.csv_names + ztz_colnames + ['correct']) + '\n')
 
     def append_csv(self, fh, correct=None):
         correct_str = 'NA'
         if correct is not None:
             correct_str = 'T' if correct else 'F'
-        fh.write('%s,%d,%s,%s,%s,%d,%d,%s,%d,%s,%s,%s,%d,%d,%s,%s,%d,%s\n' %
-                 (self.rdname1, self.bestsc1, _str_or_na(self.best2sc1),
-                  _str_or_na(self.minv1), _str_or_na(self.maxv1), self.rdlen1, self.mapq1,
-                  self.rdname2, self.bestsc2, _str_or_na(self.best2sc2),
-                  _str_or_na(self.minv2), _str_or_na(self.maxv2), self.rdlen2, self.mapq2,
-                  _str_or_na(self.bestconcsc), _str_or_na(self.best2concsc), self.fraglen, correct_str))
+        ls = [self.rdname1, self.bestsc1, _str_or_na(self.best2sc1),
+              _str_or_na(self.minv1), _str_or_na(self.maxv1), self.rdlen1, self.mapq1,
+              self.rdname2, self.bestsc2, _str_or_na(self.best2sc2),
+              _str_or_na(self.minv2), _str_or_na(self.maxv2), self.rdlen2, self.mapq2,
+              _str_or_na(self.bestconcsc), _str_or_na(self.best2concsc), self.fraglen] + self.ztzs1 + [correct_str]
+        ls = map(str, ls)
+        fh.write(','.join(ls) + '\n')
 
 
 class DatasetOnDisk(object):
@@ -226,7 +237,8 @@ class DatasetOnDisk(object):
         if self.data_conc is None:
             self.data_conc_fn = self.temp_man.get_filename('%s_data_conc.csv' % self.name, 'dataset %s' % self.name)
             self.data_conc = open(self.data_conc_fn, 'w')
-            PairedTuple.append_csv_header(self.data_conc)
+            assert len(al1.ztzs or []) == len(al2.ztzs or [])
+            PairedTuple.append_csv_header(self.data_conc, len(al1.ztzs or []))
         for rec, correct in zip([rec1, rec2], [correct1, correct2]):
             rec.append_csv(self.data_conc, correct)
 
@@ -238,7 +250,8 @@ class DatasetOnDisk(object):
         if self.data_disc is None:
             self.data_disc_fn = self.temp_man.get_filename('%s_data_disc.csv' % self.name, 'dataset %s' % self.name)
             self.data_disc = open(self.data_disc_fn, 'w')
-            PairedTuple.append_csv_header(self.data_disc)
+            assert len(al1.ztzs or []) == len(al2.ztzs or [])
+            PairedTuple.append_csv_header(self.data_disc, len(al1.ztzs or []))
         for rec, correct in zip([rec1, rec2], [correct1, correct2]):
             rec.append_csv(self.data_disc, correct)
 
@@ -248,7 +261,7 @@ class DatasetOnDisk(object):
         if self.data_bad_end is None:
             self.data_bad_end_fn = self.temp_man.get_filename('%s_data_bad_end.csv' % self.name, 'dataset %s' % self.name)
             self.data_bad_end = open(self.data_bad_end_fn, 'w')
-            UnpairedTuple.append_csv_header(self.data_bad_end)
+            UnpairedTuple.append_csv_header(self.data_bad_end, len(al.ztzs or []))
         UnpairedTuple.from_alignment(al, len(unaligned.seq)).append_csv(self.data_bad_end, correct)
 
     def add_unpaired(self, al, correct):
@@ -257,7 +270,7 @@ class DatasetOnDisk(object):
         if self.data_unp is None:
             self.data_unp_fn = self.temp_man.get_filename('%s_data_unp.csv' % self.name, 'dataset %s' % self.name)
             self.data_unp = open(self.data_unp_fn, 'w')
-            UnpairedTuple.append_csv_header(self.data_unp)
+            UnpairedTuple.append_csv_header(self.data_unp, len(al.ztzs or []))
         UnpairedTuple.from_alignment(al).append_csv(self.data_unp, correct)
 
     def save(self, fnprefix):

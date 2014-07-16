@@ -140,7 +140,11 @@ class AlignmentBwaMem(Alignment):
     
     __asRe = re.compile('AS:i:([-]?[0-9]+)')  # best score
     __xsRe = re.compile('XS:i:([-]?[0-9]+)')  # second-best score
-    
+    __mdRe = re.compile('MD:Z:([^\s]+)')  # MD:Z string
+    __zupRe = re.compile('ZP:i:([-]?[0-9]+)')  # best concordant
+    __zlpRe = re.compile('Zp:i:([-]?[0-9]+)')  # 2nd best concordant
+    __ztRe = re.compile('ZT:Z:([^\s]*)')  # extra features
+
     def __init__(self):
         super(AlignmentBwaMem, self).__init__()
         self.name = None
@@ -161,6 +165,12 @@ class AlignmentBwaMem(Alignment):
         self.paired = None
         self.concordant = None
         self.discordant = None
+        self.bestScore = None
+        self.secondBestScore = None
+        self.bestConcordantScore = None
+        self.secondBestConcordantScore = None
+        self.ztzs = None
+        self.mdz = None
 
     def parse(self, ln):
         """ Parse ln, which is a line of SAM output from bwa mem.  The line
@@ -194,8 +204,26 @@ class AlignmentBwaMem(Alignment):
         self.secondBestScore = None
         if se is not None:
             self.secondBestScore = int(se.group(1))
+        # Parse ZP:i
+        se = self.__zupRe.search(self.extra)
+        self.bestConcordantScore = None
+        if se is not None:
+            self.bestConcordantScore = int(se.group(1))
+        # Parse Zp:i
+        se = self.__zlpRe.search(self.extra)
+        self.secondBestConcordantScore = None
+        if se is not None:
+            self.secondBestConcordantScore = int(se.group(1))
+        # Parse ZT.Z
+        self.ztzs = None
+        se = self.__ztRe.search(self.extra)
+        if se is not None:
+            self.ztzs = se.group(1).split(',')
         # Parse MD:Z
         self.mdz = None
+        se = self.__mdRe.search(self.extra)
+        if se is not None:
+            self.mdz = se.group(1)
         assert self.rep_ok()
     
     def rep_ok(self):

@@ -110,9 +110,10 @@ class PairTemplate(object):
 
 class CollapsedScoreDist(object):
 
-    def __init__(self, big_k=10000, small_k=100):
-        #self.res = ReservoirSampler(big_k)
+    def __init__(self, small_k=100):
         self.score_to_sample = {}
+        self.score_to_fraction_correct = defaultdict(lambda: [0, 0])
+        self.scores = None
         self.max_fraglen = 0
         self.avg_fraglen = None
         self.finalized = False
@@ -120,20 +121,28 @@ class CollapsedScoreDist(object):
         self.tot_len = 0
         self.num_drawn = 0
         self.k = small_k
+        self.correct_mass = 0
+        self.has_correctness_info = False
 
     def draw(self, bias=1.0):
         assert self.finalized
         assert not self.empty()
+        if self.scores is None:
+            self.scores = sorted(self.score_to_sample.iterkeys())
         self.num_drawn += 1
-        #if random.random() < bias:
-        score = random.choice(self.score_to_sample.keys())
+        if bias > 1.0:
+            rand_i = random.uniform(0, 1) / random.uniform(1, bias)
+            score = self.scores[int(rand_i * len(self.scores))]
+        else:
+            score = random.choice(self.score_to_sample.keys())
         tup = random.choice(self.score_to_sample[score].r)
         fw, qual, rd_aln, rf_aln, rf_len, mate1, olen = tup
-        #else:
-        #score, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen = self.res.draw()
+        if self.has_correctness_info:
+            p_correct = float(self.score_to_fraction_correct[score][0]) / self.score_to_fraction_correct[score][1]
+            self.correct_mass += p_correct
         return ReadTemplate(score, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen)
 
-    def add(self, al, ref, ordlen=0):
+    def add(self, al, correct, ref, ordlen=0):
         sc = al.bestScore
         rd_aln, rf_aln, rd_len, rf_len = al.stacked_alignment(align_soft_clipped=True, ref=ref)
         self.max_fraglen = max(self.max_fraglen, rf_len)
@@ -141,8 +150,14 @@ class CollapsedScoreDist(object):
         if sc not in self.score_to_sample:
             self.score_to_sample[sc] = ReservoirSampler(self.k)
         self.score_to_sample[sc].add((al.fw, al.qual, rd_aln, rf_aln, rf_len, al.mate1, ordlen))
-        #self.res.add((sc, al.fw, al.qual, rd_aln, rf_aln, rf_len, al.mate1, ordlen))
+        if correct is not None:
+            self.score_to_fraction_correct[sc][0] += 1 if correct else 0
+            self.score_to_fraction_correct[sc][1] += 1
+            self.has_correctness_info = True
         self.num_added += 1
+
+    def frac_correct(self):
+        return float(self.correct_mass) / self.num_drawn
 
     def empty(self):
         """ Return true iff no tuples have been added """
@@ -219,10 +234,12 @@ class ScoreDist(object):
 
 class CollapsedScorePairDist(object):
 
-    def __init__(self, big_k=10000, small_k=30, max_allowed_fraglen=100000):
+    def __init__(self, small_k=30, max_allowed_fraglen=100000):
         """ Make a reservoir sampler for holding the tuples. """
-        #self.res = ReservoirSampler(big_k)
         self.score_to_sample = {}
+        self.score_to_fraction_correct1 = defaultdict(lambda: [0, 0])
+        self.score_to_fraction_correct2 = defaultdict(lambda: [0, 0])
+        self.scores = None
         self.max_allowed_fraglen = max_allowed_fraglen
         self.max_fraglen = 0  # maximum observed fragment length
         self.avg_fraglen = None
@@ -231,24 +248,35 @@ class CollapsedScorePairDist(object):
         self.k = small_k
         self.num_drawn = 0
         self.num_added = 0
+        self.correct_mass1 = 0
+        self.correct_mass2 = 0
+        self.has_correctness_info = False
 
     def draw(self, bias=1.0):
         """ Draw from the reservoir """
         assert self.finalized
         assert not self.empty()
+        if self.scores is None:
+            self.scores = sorted(self.score_to_sample.iterkeys())
         self.num_drawn += 1
-        #if random.random() < bias:
-        score = random.choice(self.score_to_sample.keys())
+        if bias > 1.0:
+            rand_i = random.uniform(0, 1) / random.uniform(1, bias)
+            score = self.scores[int(rand_i * len(self.scores))]
+        else:
+            score = random.choice(self.score_to_sample.keys())
         tup1, tup2, fraglen, upstream1 = random.choice(self.score_to_sample[score].r)
-        #else:
-        #    tup1, tup2, fraglen, upstream1 = random.choice(self.res)
         fw_1, qual_1, rd_aln_1, rf_aln_1, sc_1, rf_len_1, mate1_1, _ = tup1
         fw_2, qual_2, rd_aln_2, rf_aln_2, sc_2, rf_len_2, mate1_2, _ = tup2
+        if self.has_correctness_info:
+            p_correct1 = float(self.score_to_fraction_correct1[score][0]) / self.score_to_fraction_correct1[score][1]
+            self.correct_mass1 += p_correct1
+            p_correct2 = float(self.score_to_fraction_correct2[score][0]) / self.score_to_fraction_correct2[score][1]
+            self.correct_mass2 += p_correct2
         return PairTemplate(ReadTemplate(sc_1, fw_1, qual_1, rd_aln_1, rf_aln_1, rf_len_1, mate1_1, rf_len_2),
                             ReadTemplate(sc_2, fw_2, qual_2, rd_aln_2, rf_aln_2, rf_len_2, mate1_2, rf_len_1),
                             fraglen, upstream1)
 
-    def add(self, al1, al2, ref):
+    def add(self, al1, al2, correct1, correct2, ref):
         """ Convert given alignment pair to a tuple and add it to the
             reservoir sampler. """
         sc1, sc2 = al1.bestScore, al2.bestScore
@@ -265,14 +293,23 @@ class CollapsedScorePairDist(object):
         score = sc1 + sc2
         if score not in self.score_to_sample:
             self.score_to_sample[score] = ReservoirSampler(self.k)
+        if correct1 is not None:
+            self.score_to_fraction_correct1[score][0] += 1 if correct1 else 0
+            self.score_to_fraction_correct1[score][1] += 1
+            self.score_to_fraction_correct2[score][0] += 1 if correct2 else 0
+            self.score_to_fraction_correct2[score][1] += 1
+            self.has_correctness_info = True
         self.score_to_sample[score].add(((al1.fw, al1.qual, rd_aln_1, rf_aln_1, sc1, rf_len_1, True, rf_len_2),
                                          (al2.fw, al2.qual, rd_aln_2, rf_aln_2, sc2, rf_len_2, False, rf_len_1),
                                          fraglen, upstream1))
-        #self.res.add(((al1.fw, al1.qual, rd_aln_1, rf_aln_1, sc1, rf_len_1, True, rf_len_2),
-        #              (al2.fw, al2.qual, rd_aln_2, rf_aln_2, sc2, rf_len_2, False, rf_len_1),
-        #              fraglen, upstream1))
         self.num_added += 1
         self.tot_len += fraglen
+
+    def frac_correct1(self):
+        return float(self.correct_mass1) / self.num_drawn
+
+    def frac_correct2(self):
+        return float(self.correct_mass2) / self.num_drawn
 
     def empty(self):
         """ Return true iff no tuples have been added """
@@ -368,11 +405,11 @@ class Dists(object):
         data on concordant and discordantly aligned pairs, such as
         their fragment length and strands. """
 
-    def __init__(self, k=50000, max_allowed_fraglen=100000):
-        self.sc_dist_unp = CollapsedScoreDist(big_k=k)
-        self.sc_dist_bad_end = CollapsedScoreDist(big_k=k)
-        self.sc_dist_conc = CollapsedScorePairDist(big_k=k, max_allowed_fraglen=max_allowed_fraglen)
-        self.sc_dist_disc = CollapsedScorePairDist(big_k=k, max_allowed_fraglen=max_allowed_fraglen)
+    def __init__(self, max_allowed_fraglen=100000):
+        self.sc_dist_unp = CollapsedScoreDist()
+        self.sc_dist_bad_end = CollapsedScoreDist()
+        self.sc_dist_conc = CollapsedScorePairDist(max_allowed_fraglen=max_allowed_fraglen)
+        self.sc_dist_disc = CollapsedScorePairDist(max_allowed_fraglen=max_allowed_fraglen)
 
     def finalize(self):
         self.sc_dist_unp.finalize()
@@ -380,25 +417,24 @@ class Dists(object):
         self.sc_dist_conc.finalize()
         self.sc_dist_disc.finalize()
 
-    def add_concordant_pair(self, al1, al2, ref):
+    def add_concordant_pair(self, al1, al2, correct1, correct2, ref):
         """ Add concordant paired-end read alignment to the model """
-        self.sc_dist_conc.add(al1, al2, ref)
+        self.sc_dist_conc.add(al1, al2, correct1, correct2, ref)
 
-    def add_discordant_pair(self, al1, al2, ref):
+    def add_discordant_pair(self, al1, al2, correct1, correct2, ref):
         """ Add discordant paired-end read alignment to the model """
-        self.sc_dist_disc.add(al1, al2, ref)
+        self.sc_dist_disc.add(al1, al2, correct1, correct2, ref)
 
-    def add_unpaired_read(self, al, ref):
+    def add_unpaired_read(self, al, correct, ref):
         """ Add unpaired read alignment to the model """
-        self.sc_dist_unp.add(al, ref)
+        self.sc_dist_unp.add(al, correct, ref)
 
-    def add_bad_end_read(self, al, ordlen, ref):
+    def add_bad_end_read(self, al, correct, ordlen, ref):
         """ Add bad-end read alignment to the model """
-        self.sc_dist_bad_end.add(al, ref, ordlen)
+        self.sc_dist_bad_end.add(al, correct, ref, ordlen)
 
     def has_pairs(self):
-        return self.has_concordant_pairs() or self.has_discordant_pairs() or \
-            self.has_bad_end_reads()
+        return not self.sc_dist_conc.empty() or not self.sc_dist_disc.empty() or not self.sc_dist_bad_end.empty()
 
     def has_concordant_pairs(self):
         """ Return true iff at least one concordant paired-end read was
@@ -641,13 +677,13 @@ class AlignmentReader(Thread):
                     try:
                         if mate1 is not None:
                             if al.concordant:
-                                self.dists.add_concordant_pair(mate1, mate2, self.ref)
+                                self.dists.add_concordant_pair(mate1, mate2, correct1, correct2, self.ref)
                             elif al.discordant:
-                                self.dists.add_discordant_pair(mate1, mate2, self.ref)
+                                self.dists.add_discordant_pair(mate1, mate2, correct1, correct2, self.ref)
                             else:
-                                self.dists.add_bad_end_read(al, len(last_al.seq), self.ref)
+                                self.dists.add_bad_end_read(al, correct, len(last_al.seq), self.ref)
                         elif not al.paired:
-                            self.dists.add_unpaired_read(al, self.ref)
+                            self.dists.add_unpaired_read(al, correct, self.ref)
                     except ReferenceOOB:
                         pass
                 
@@ -1093,6 +1129,21 @@ def go(args, aligner_args):
                 logging.info('Finished simulating and aligning training reads')
 
                 typ_align_count, sc_diffs = othread.typ_hist, othread.sc_diffs
+
+            if not dists.sc_dist_unp.empty() and dists.sc_dist_unp.has_correctness_info:
+                logging.info('    %d unpaired draws, %0.3f%% correct' % (dists.sc_dist_unp.num_drawn,
+                                                                         100*dists.sc_dist_unp.frac_correct()))
+            if not dists.sc_dist_conc.empty() and dists.sc_dist_conc.has_correctness_info:
+                logging.info('    %d concordant draws, %0.3f%%/%0.3f%% correct' % (dists.sc_dist_conc.num_drawn,
+                                                                                   100*dists.sc_dist_conc.frac_correct1(),
+                                                                                   100*dists.sc_dist_conc.frac_correct2()))
+            if not dists.sc_dist_disc.empty() and dists.sc_dist_disc.has_correctness_info:
+                logging.info('    %d discordant draws, %0.3f%%/%0.3f%% correct' % (dists.sc_dist_disc.num_drawn,
+                                                                                   100*dists.sc_dist_disc.frac_correct1(),
+                                                                                   100*dists.sc_dist_disc.frac_correct2()))
+            if not dists.sc_dist_bad_end.empty() and dists.sc_dist_bad_end.has_correctness_info:
+                logging.info('    %d bad-end draws, %0.3f%% correct' % (dists.sc_dist_bad_end.num_drawn,
+                                                                        100*dists.sc_dist_bad_end.frac_correct()))
 
             # Check the fraction of simualted reads that were aligned and
             # where we got an alignment of the expected type

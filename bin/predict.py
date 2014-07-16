@@ -18,7 +18,7 @@ import gc
 import cPickle
 from itertools import imap, izip
 from sklearn import cross_validation
-from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor, GradientBoostingRegressor
+from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor
 from collections import defaultdict, Counter
 
 
@@ -42,7 +42,7 @@ def round_pcor_np(pcor):
 
 def pcor_to_mapq(p):
     """ Convert probability correct (pcor) to mapping quality (MAPQ) """
-    return abs(-10.0 * math.log10(1.0 - p)) if p < 1.0 else float('inf')
+    return int(round(abs(-10.0 * math.log10(1.0 - p)) if p < 1.0 else float('inf')))
 
 
 def mapq_to_pcor(p):
@@ -66,8 +66,8 @@ class Normalizers(object):
         self.maxv_1 = None
         self.minv_2 = None
         self.maxv_2 = None
-        self.fraglen_mean = None
-        self.fraglen_sd = None
+        #self.fraglen_mean = None
+        #self.fraglen_sd = None
 
 
 class AlignmentTableReader(object):
@@ -82,38 +82,39 @@ class AlignmentTableReader(object):
                 ('c',         '_conc.csv'),
                 ('b',         '_bad_end.csv')]
 
-    def __init__(self, prefix, learn_normalizers=False, normalizers=None):
+    def __init__(self, prefix, use_normalizers=True, learn_normalizers=False, normalizers=None):
         self.prefix = prefix
         self.normalizers = {}
         self.dfs = {}
         self.readers = {}
-        if learn_normalizers:
-            for sn, suf in self.datasets:
-                fn = self.prefix + suf
-                if any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2'])):
-                    self.dfs[sn] = self._fn_to_iterator(fn, chunksize=None)
+        if use_normalizers:
+            if learn_normalizers:
+                for sn, suf in self.datasets:
+                    fn = self.prefix + suf
+                    if any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2'])):
+                        self.dfs[sn] = self._fn_to_iterator(fn, chunksize=None)
 
-                    def _new_iter(_sn):
-                        def _inner():
-                            return iter([self.dfs[_sn].copy()])
-                        return _inner
+                        def _new_iter(_sn):
+                            def _inner():
+                                return iter([self.dfs[_sn].copy()])
+                            return _inner
 
-                    self.readers[sn] = _new_iter(sn)
-            self._extract_normalizers(self.dfs)
-        elif normalizers is not None:
-            self.normalizers = normalizers.copy()
-            for sn, suf in self.datasets:
-                fn = self.prefix + suf
-                if any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2'])):
+                        self.readers[sn] = _new_iter(sn)
+                self._extract_normalizers(self.dfs)
+            elif normalizers is not None:
+                self.normalizers = normalizers.copy()
+                for sn, suf in self.datasets:
+                    fn = self.prefix + suf
+                    if any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2'])):
 
-                    def _new_iter(_fn):
-                        def _inner():
-                            return self._fn_to_iterator(_fn)
-                        return _inner
+                        def _new_iter(_fn):
+                            def _inner():
+                                return self._fn_to_iterator(_fn)
+                            return _inner
 
-                    self.readers[sn] = _new_iter(fn)
-        else:
-            raise RuntimeError('Either learn_normalizers must be true or normalizers must be specified')
+                        self.readers[sn] = _new_iter(fn)
+            else:
+                raise RuntimeError('Either learn_normalizers must be true or normalizers must be specified')
 
     @staticmethod
     def _fn_to_iterator(fn, chunksize=50000):
@@ -138,8 +139,7 @@ class AlignmentTableReader(object):
                 norm_conc.maxv_1 = df['best1_1'].max()
                 norm_conc.minv_2 = df['best1_2'].min()
                 norm_conc.maxv_2 = df['best1_2'].max()
-                norm_conc.fraglen_mean = df['fraglen'].mean()
-                norm_conc.fraglen_sd = df['fraglen'].std()
+                #norm_conc.fraglen_mean = df['fraglen'].mean()
             elif sn == 'd':
                 norm_disc = self.normalizers['d'] = Normalizers()
                 norm_disc.minv_1 = df['best1_1'].min()
@@ -157,7 +157,7 @@ class AlignmentTableReader(object):
             which may or may not have been learned from this alignment table.
         """
         def _standardize(_df, nm, best_nm, secbest_nm, mn, diff):
-            _df[nm] = (_df[best_nm] - _df[secbest_nm]) / diff
+            _df[nm] = (_df[best_nm].astype(float) - _df[secbest_nm]) / diff
             _df[nm] = _df[nm].fillna(np.nanmax(_df[nm])).fillna(0)
             _df[best_nm] = (_df[best_nm].astype(float) - mn) / diff
             _df[best_nm] = _df[best_nm].fillna(np.nanmax(_df[best_nm])).fillna(0)
@@ -176,32 +176,34 @@ class AlignmentTableReader(object):
 
         if sn in 'c':
             # normalize alignment scores
-            df['minv_1'] = df['minv_1'].fillna(norm.minv_1)
-            df['maxv_1'] = df['maxv_1'].fillna(norm.maxv_1)
-            df['minv_2'] = df['minv_2'].fillna(norm.minv_2)
-            df['maxv_2'] = df['maxv_2'].fillna(norm.maxv_2)
-            _standardize(df, 'diff_1', 'best1_1', 'best2_1', df['minv_1'], df['maxv_1'] - df['minv_1'])
-            _standardize(df, 'diff_2', 'best1_2', 'best2_2', df['minv_2'], df['maxv_2'] - df['minv_2'])
+            minv_1 = df['minv_1'].fillna(norm.minv_1)
+            maxv_1 = df['maxv_1'].fillna(norm.maxv_1)
+            minv_2 = df['minv_2'].fillna(norm.minv_2)
+            maxv_2 = df['maxv_2'].fillna(norm.maxv_2)
+            _standardize(df, 'diff_1', 'best1_1', 'best2_1', minv_1, maxv_1 - minv_1)
+            _standardize(df, 'diff_2', 'best1_2', 'best2_2', minv_2, maxv_2 - minv_2)
 
             # normalize concordant alignment scores
             minconc, maxconc = norm.minv_1 + norm.minv_2, norm.maxv_1 + norm.maxv_2
-            _standardize(df, 'diff_conc', 'best1conc', 'best2conc', minconc, maxconc - minconc)
+            if math.isnan(df['best1conc'].sum()) or math.isnan(df['best2conc'].sum()):
+                # assume the worst
+                logging.warning('Difference of concordants not available, so using minimum distance of mates')
+                df['diff_conc'] = df[['diff_1', 'diff_2']].min(axis=1)
+            else:
+                _standardize(df, 'diff_conc', 'best1conc', 'best2conc', minconc, maxconc - minconc)
 
-            df['best_min12'] = df[['best1_1', 'best1_2']].min(axis=1)
-            df['diff_min12'] = df[['diff_1', 'diff_2']].min(axis=1)
-            df['diff_min12conc'] = df[['diff_1', 'diff_2', 'diff_conc']].min(axis=1)
-            df['fraglen_z'] = ((df['fraglen'] - norm.fraglen_mean) / norm.fraglen_sd).abs()
+            #df['fraglen_z'] = ((df['fraglen'] - norm.fraglen_mean) / norm.fraglen_sd).abs()
 
         elif sn == 'd':
-            df['minv_1'] = df['minv_1'].fillna(norm.minv_1)
-            df['maxv_1'] = df['maxv_1'].fillna(norm.maxv_1)
-            _standardize(df, 'diff_1', 'best1_1', 'best2_1', df['minv_1'], df['maxv_1'] - df['minv_1'])
+            minv_1 = df['minv_1'].fillna(norm.minv_1)
+            maxv_1 = df['maxv_1'].fillna(norm.maxv_1)
+            _standardize(df, 'diff_1', 'best1_1', 'best2_1', minv_1, maxv_1 - minv_1)
 
         else:
             assert sn in 'ub'
-            df['minv'] = df['minv'].fillna(norm.minv)
-            df['maxv'] = df['maxv'].fillna(norm.maxv)
-            _standardize(df, 'diff', 'best1', 'best2', df['minv'], df['maxv'] - df['minv'])
+            minv = df['minv'].fillna(norm.minv)
+            maxv = df['maxv'].fillna(norm.maxv)
+            _standardize(df, 'diff', 'best1', 'best2', minv, maxv - minv)
 
         return df
 
@@ -211,25 +213,6 @@ class AlignmentTableReader(object):
 
     def __contains__(self, o):
         return o in self.readers
-
-
-        # if shortname == 'c':
-        #     # extract relevant paired-end features from training data
-        #     labs = ['best1_1',  # score of best alignment for mate
-        #             'best1_2',  # score of best alignment for opposite mate
-        #             'diff_1',  # difference for mate
-        #             'diff_2',  # difference for opposite mate
-        #             'diff_conc',  # concordant difference
-        #             'fraglen_z']  # # stddevs diff for fraglen
-        #     mapq_header = 'mapq_1'
-        # elif shortname == 'd':
-        #     # extract relevant discordant paired-end features
-        #     labs = ['best1_1', 'diff_1']
-        #     mapq_header = 'mapq_1'
-        # else:
-        #     # extract relevant unpaired features
-        #     labs = ['best1', 'diff']
-        #     mapq_header = 'mapq'
 
 
 def tuples_to_unpaired_matrix(tups, normalizers):
@@ -286,6 +269,29 @@ def auc(pcor, cor, rounded=False):
     return area
 
 
+def roc_table(pcor, cor, rounded=False, mapqize=False):
+    """ Return the ranking error given a list of pcors and a parallel list of
+        correct/incorrect booleans.  Round off to nearest MAPQ first if
+        rounded=True.  """
+    assert len(pcor) == len(cor)
+    if rounded:
+        pcor = round_pcor_np(pcor)
+    tally = tally_cor_per(pcor, cor)
+    cum_cor, cum_incor = 0, 0
+    mapqs, cors, incors, cum_cors, cum_incors = [], [], [], [], []
+    for p in sorted(tally.iterkeys(), reverse=True):
+        ncor, nincor = tally[p]
+        cum_cor += ncor
+        cum_incor += nincor
+        mapqs.append(pcor_to_mapq(p) if mapqize else p)
+        cors.append(ncor)
+        incors.append(nincor)
+        cum_cors.append(cum_cor)
+        cum_incors.append(cum_incor)
+    return pandas.DataFrame.from_dict({'mapq': mapqs, 'cor': cors, 'incor': incors,
+                                       'cum_cor': cum_cors, 'cum_incor': cum_incors})
+
+
 def ranking_error(pcor, cor, rounded=False):
     """ Return the ranking error given a list of pcors and a parallel list of
         correct/incorrect booleans.  Round off to nearest MAPQ first if
@@ -328,31 +334,6 @@ def cum_squared_error(pcor, cor, rounded=False):
     cor = np.array([cor[x] for x in pcor_order])
     assert all(pcor[i] >= pcor[i+1] for i in xrange(len(pcor)-1))
     return np.cumsum((pcor - cor) ** 2)
-
-
-def plot_drop_rate_v_squared_error(pcor, cor, pcor2=None, log2ize=False, rasterize=False):
-    cumsum = cum_squared_error(pcor, cor)
-    cumsum2 = None if pcor2 is None else cum_squared_error(pcor2, cor)
-    assert len(cumsum) == len(cumsum2)
-    ln = len(pcor)
-    x_log = np.linspace(1.0/ln, (ln - 1.0) / ln, ln)
-    assert len(x_log) == len(cumsum)
-    if log2ize:
-        x_log = -np.log2(x_log[::-1])
-    maxx = math.ceil(np.log2(ln))
-    fig = plt.figure(figsize=(10, 4))
-    axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
-    axes.plot(x_log, cumsum, color='r', label='Model', rasterized=rasterize)
-    if cumsum2 is not None:
-        axes.plot(x_log, cumsum2, color='k', label='Original', rasterized=rasterize)
-    axes.set_xlabel('MAPQ drop rate')
-    if log2ize:
-        axes.set_xticklabels(map(lambda x: 2 ** x, np.linspace(-1, -maxx, maxx)), rotation=90)
-    axes.set_ylabel('Cumulative squared error')
-    axes.set_title('Cumulative MSE comparison %s' % ('on -log2 scale' if log2ize else ''))
-    axes.legend(loc=2)
-    axes.grid(True)
-    return fig
 
 
 def plot_drop_rate_v_squared_error_difference(pcor, pcor2, cor, log2ize=False):
@@ -717,8 +698,6 @@ class MapqPredictions:
         self.auc_orig = None
         self.auc_raw = None
         self.auc_raw_round = None
-        self.auc = None
-        self.auc_round = None
         self.auc_diff = None
         self.auc_diff_pct = None
         self.auc_diff_round = None
@@ -843,11 +822,19 @@ class MapqPredictions:
             self.auc_raw = auc(pcor, correct)
             self.auc_raw_round = auc(pcor, correct, rounded=True)
             self.auc_diff = self.auc_raw - self.auc_orig
-            self.auc_diff_pct = 100.0 * self.auc_diff / self.auc_orig
             self.auc_diff_round = self.auc_raw_round - self.auc_orig
-            self.auc_diff_round_pct = 100.0 * self.auc_diff_round / self.auc_orig
-            self.auc = self.auc_raw / self.auc_orig
-            self.auc_round = self.auc_raw_round / self.auc_orig
+            if self.auc_orig == 0.:
+                if self.auc_diff > 0.:
+                    self.auc_diff_pct = float('inf')
+                else:
+                    self.auc_diff_pct = 0.0
+                if self.auc_diff_round > 0.:
+                    self.auc_diff_round_pct = float('inf')
+                else:
+                    self.auc_diff_round_pct = 0
+            else:
+                self.auc_diff_pct = 100.0 * self.auc_diff / self.auc_orig
+                self.auc_diff_round_pct = 100.0 * self.auc_diff_round / self.auc_orig
             if verbose:
                 logging.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.auc_diff_pct, self.auc_diff_round_pct))
 
@@ -945,34 +932,51 @@ def parse_sam(fh, ofh, alignment_class, normalizers, fit, ival=10000):
 class MapqFit:
 
     @staticmethod
-    def _df_to_mat(data, shortname):
+    def _df_to_mat(data, shortname, remove_labels=None, include_ztzs=True):
         """ Convert a data frame read with read_dataset into a matrix
             suitable for use with scikit-learn, and parallel vectors
             giving the original MAPQ predictions and whether or not the
             alignments are correct. """
+        if remove_labels is None:
+            remove_labels = set()
         if shortname == 'c':
             # extract relevant paired-end features from training data
             labs = ['best1_1',  # score of best alignment for mate
                     'best1_2',  # score of best alignment for opposite mate
                     'diff_1',  # difference for mate
-                    'diff_2',  # difference for opposite mate
-                    'diff_conc',  # concordant difference
-                    'fraglen_z']  # # stddevs diff for fraglen
+                    'diff_2']  # difference for opposite mate
+            if 'diff_conc' in data:
+                labs.append('diff_conc')  # concordant difference
+            #labs.append('fraglen_z')  # # stddevs diff for fraglen
+            labs.append('fraglen')
+            if data['rdlen_1'].nunique() > 1:
+                labs.append('rdlen_1')
             mapq_header = 'mapq_1'
         elif shortname == 'd':
             # extract relevant discordant paired-end features
             labs = ['best1_1', 'diff_1']
+            if data['rdlen_1'].nunique() > 1:
+                labs.append('rdlen_1')
             mapq_header = 'mapq_1'
         else:
             # extract relevant unpaired features
             labs = ['best1', 'diff']
+            if data['rdlen'].nunique() > 1:
+                labs.append('rdlen')
             mapq_header = 'mapq'
+        if include_ztzs:
+            for colname in sorted(data.columns.values):
+                if colname.startswith('ztz'):
+                    labs.append(colname)
         for lab in labs:
             assert not np.isnan(data[lab]).any()
+        for to_remove in remove_labels:
+            if to_remove in labs:
+                labs.remove(to_remove)
         data_mat = data[labs].values
         correct = np.array(map(lambda x: x == 1, data['correct']))
         assert not np.isinf(data_mat).any() and not np.isnan(data_mat).any()
-        return data_mat, data[mapq_header], correct
+        return data_mat, data[mapq_header], correct, labs
 
     @staticmethod
     def _downsample(x_train, mapq_orig_train, y_train, sample_fraction):
@@ -1021,7 +1025,8 @@ class MapqFit:
 
     datasets = zip('dbcu', ['Discordant', 'Bad-end', 'Concordant', 'Unpaired'], [True, False, True, False])
 
-    def _fit(self, dfs, logger=logging.info, sample_fraction=1.0, sample_fractions=None):
+    def _fit(self, dfs, logger=logging.info, sample_fraction=1.0, sample_fractions=None, remove_labels=None,
+             include_ztzs=True):
 
         if sample_fractions is None:
             sample_fractions = {}
@@ -1038,7 +1043,9 @@ class MapqFit:
             random.seed(self.random_seed)
             np.random.seed(self.random_seed)
             # extract features, convert to matrix
-            x_train, mapq_orig_train, y_train = self._df_to_mat(train, ds)
+            x_train, mapq_orig_train, y_train, col_names = self._df_to_mat(train, ds, remove_labels=remove_labels,
+                                                                           include_ztzs=include_ztzs)
+            self.col_names[ds] = col_names
             # optionally downsample
             frac = sample_fractions[ds] if ds in sample_fractions else sample_fraction
             if frac < 1.0:
@@ -1059,7 +1066,7 @@ class MapqFit:
 
     def predict(self, dfs,
                 keep_names=False, keep_data=False, keep_per_category=False, verbose=False,
-                logger=logging.info):
+                logger=logging.info, remove_labels=None):
 
         pred_overall = MapqPredictions()
         pred_per_category = {}
@@ -1068,14 +1075,14 @@ class MapqFit:
             if ds not in dfs:
                 continue
             names = None
-            names_colname = 'name1' if paired else 'name'
+            names_colname = 'name_1' if paired else 'name'
             if keep_per_category:
                 pred_per_category[ds] = MapqPredictions()
             nchunk = 0
             for test_chunk in dfs.dataset_iter(ds):
                 nchunk += 1
-                logger('  Making predictions for chunk %d, %d rows' % (nchunk, test_chunk.shape[0]))
-                x_test, mapq_orig_test, y_test = self._df_to_mat(test_chunk, ds)
+                logger('  Making predictions for %s chunk %d, %d rows' % (ds_long, nchunk, test_chunk.shape[0]))
+                x_test, mapq_orig_test, y_test, col_names = self._df_to_mat(test_chunk, ds, remove_labels=remove_labels)
                 y_test = np.array(map(lambda c: c == 1, test_chunk.correct))
                 pcor = self.trained_models[ds].predict(x_test)  # make predictions
                 pcor = np.array(self.postprocess_predictions(pcor, ds_long))
@@ -1087,9 +1094,10 @@ class MapqFit:
 
         logger('Finalizing results for overall test data (%d alignments)' % len(pred_overall.pcor))
         pred_overall.finalize(verbose=verbose)
-        for ds, pred in pred_per_category.iteritems():
-            logger('Finalizing results for "%s" test data (%d alignments)' % (ds, len(pred.pcor)))
-            pred.finalize(verbose=verbose)
+        if len(pred_per_category) > 1:
+            for ds, pred in pred_per_category.iteritems():
+                logger('Finalizing results for "%s" test data (%d alignments)' % (ds, len(pred.pcor)))
+                pred.finalize(verbose=verbose)
         logger('Done')
 
         if keep_per_category:
@@ -1125,15 +1133,18 @@ class MapqFit:
                     ofh.write(ln)
 
     def __init__(self, dfs, model_gen, random_seed=628599,
-                 logger=logging.info, sample_fraction=1.0, sample_fractions=None):
+                 logger=logging.info, sample_fraction=1.0, sample_fractions=None,
+                 remove_labels=None, include_ztzs=True):
 
         self.model_gen = model_gen
         self.random_seed = random_seed
         self.trained_models = {}
         self.crossval_avg = {}
         self.crossval_std = {}
+        self.col_names = {}
         self.trained_params = None
-        self._fit(dfs, logger=logger, sample_fraction=sample_fraction, sample_fractions=sample_fractions)
+        self._fit(dfs, logger=logger, sample_fraction=sample_fraction, sample_fractions=sample_fractions,
+                  remove_labels=remove_labels, include_ztzs=include_ztzs)
 
 
 class ModelFamily(object):
@@ -1189,7 +1200,8 @@ class ModelFamily(object):
     def next_predictor(self):
         if self.center not in self.scores:
             self.last_params = self.center
-            return self._idxs_to_params(self.center), self.new_predictor(self.center)
+            translated_params = self._idxs_to_params(self.center)
+            return translated_params, self.new_predictor(translated_params)
         while True:
             if self._has_unexplored_neighbors():
                 # more neighbors to be explored
@@ -1198,7 +1210,8 @@ class ModelFamily(object):
                     self.neighborhood_scores[params] = self.scores[params]
                     continue
                 self.last_params = params
-                return self._idxs_to_params(params), self.new_predictor(params)
+                translated_params = self._idxs_to_params(params)
+                return translated_params, self.new_predictor(translated_params)
             else:
                 # just finished exploring neighborhood
                 assert self.center in self.scores
@@ -1221,40 +1234,35 @@ class ModelFamily(object):
     def best_predictor(self):
         assert len(self.scores) > 0
         prioritized = sorted([(v, k) for k, v in self.scores.iteritems()])
-        return self._idxs_to_params(prioritized[-1][1]), self.new_predictor(prioritized[-1][1])
+        translated_params = self._idxs_to_params(prioritized[-1][1])
+        return translated_params, self.new_predictor(translated_params)
 
 
 def random_forest_models(random_seed=33):
     # These perform OK but not as well as the extremely random trees
     def _gen(params):
         return RandomForestRegressor(n_estimators=params[0], max_depth=params[1],
-                                     random_state=random_seed, max_features='auto')
-    return lambda: ModelFamily(_gen, [range(5, 100, 10), range(3, 6)])
+                                     random_state=random_seed,
+                                     max_features=1,
+                                     oob_score=True, bootstrap=True)
+    return lambda: ModelFamily(_gen, [range(5, 105, 10), range(2, 10)])
 
 
 def extra_trees_models(random_seed=33):
     # These perform quite well
     def _gen(params):
         return ExtraTreesRegressor(n_estimators=params[0], max_depth=params[1],
-                                   random_state=random_seed, max_features='auto')
+                                   random_state=random_seed,
+                                   max_features=1,
+                                   oob_score=True, bootstrap=True)
     return lambda: ModelFamily(_gen, [range(5, 105, 5), range(3, 20)])
 
 
-def gradient_boosting_models(random_seed=33):
-    # These perform OK but not as well as the extremely random trees
-    def _gen(params):
-        return GradientBoostingRegressor(n_estimators=params[0], max_depth=params[1],
-                                         learning_rate=params[2], random_state=random_seed,
-                                         max_features='auto', loss='ls')
-    return lambda: ModelFamily(_gen, [range(5, 40, 10), range(2, 6), [0.1, 0.2, 0.3, 0.5, 0.75, 1.0]])
-
-
-def adaboost_models(random_seed=33):
-    # These seem to perform quite poorly
-    def _gen(params):
-        return GradientBoostingRegressor(n_estimators=params[0], learning_rate=params[1],
-                                         loss='linear', random_state=random_seed)
-    return lambda: ModelFamily(_gen, [[10, 15, 20, 25, 30, 35, 40], [1.0, 1.5, 2.0]])
+#def adaboost_models(random_seed=33):
+#    # These seem to perform quite poorly
+#    def _gen(params):
+#        return AdaBoostRegressor()
+#    return lambda: ModelFamily(_gen, [[10, 15, 20, 25, 30, 35, 40], [1.0, 1.5, 2.0]])
 
 
 def model_family(args):
@@ -1262,10 +1270,6 @@ def model_family(args):
         return random_forest_models()
     elif args['model_family'] == 'ExtraTrees':
         return extra_trees_models()
-    elif args['model_family'] == 'GradientBoosting':
-        return gradient_boosting_models()
-    elif args['model_family'] == 'AdaBoost':
-        return adaboost_models()
     else:
         raise RuntimeError('Bad value for --model-family: "%s"' % args['model_family'])
 
@@ -1279,6 +1283,13 @@ def mkdir_quiet(dr):
         except OSError as exception:
             if exception.errno != errno.EEXIST:
                 raise
+
+
+def output_top_incorrect(pred, odir, args):
+    mkdir_quiet(odir)
+    if args['write_top_incorrect'] or args['write_all']:
+        df = pred.summarize_incorrect(1000)
+        df.to_csv(os.path.join(odir, 'top1000_incorrect.tsv'), sep='\t', index=False)
 
 
 def make_plots(pred, odir, args, prefix=''):
@@ -1312,14 +1323,21 @@ def make_plots(pred, odir, args, prefix=''):
 
 
 def go(args):
+    remove_labels = None
+    odir = args['output_directory']
+    mkdir_quiet(odir)
+
     logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', datefmt='%m/%d/%y-%H:%M:%S',
                         level=logging.DEBUG)
 
+    if args['write_logs'] or args['write_all']:
+        fn = os.path.join(odir, 'pred_logs.txt')
+        fh = logging.FileHandler(fn)
+        fh.setLevel(logging.DEBUG)
+        logging.getLogger('').addHandler(fh)
+
     logging.info('Instantiating model family')
     fam = model_family(args)
-
-    odir = args['output_directory']
-    mkdir_quiet(odir)
 
     logging.info('Reading datasets')
     input_dir = args['input_directory']
@@ -1351,14 +1369,40 @@ def go(args):
                     with open(my_fit_fn, 'rb') as fh:
                         ss_fit = cPickle.load(fh)
                 else:
-                    logging.info('      Fitting and making predictions')
+                    logging.info('      Fitting')
                     ss_fit = MapqFit(df_training, fam, random_seed=my_seed, logger=logging.info,
-                                     sample_fraction=fraction)
+                                     sample_fraction=fraction, remove_labels=remove_labels,
+                                     include_ztzs=not args['ignore_ztzs'])
                     if args['serialize_fit']:
                         logging.info('      Serializing fit object')
                         with open(my_fit_fn, 'wb') as ofh:
                             cPickle.dump(ss_fit, ofh, 2)
-                pred_overall = ss_fit.predict(df_test, verbose=args['verbose'])
+                if args['write_feature_importances'] or args['write_all']:
+                    logging.info('      Writing feature importances')
+                    for ds, model in ss_fit.trained_models.iteritems():
+                        my_fi_fn = os.path.join(my_odir, '%s_feature_importances.tsv' % ds)
+                        with open(my_fi_fn, 'w') as fh:
+                            importances = model.feature_importances_
+                            ranks = np.argsort(importances)[::-1]
+                            inv_ranks = [0] * len(ranks)
+                            for i, r in enumerate(ranks):
+                                inv_ranks[r] = i
+                            i = 0
+                            fh.write('feature\timportance\trank\n')
+                            for im, r in zip(importances, inv_ranks):
+                                fh.write('%s\t%0.4f\t%d\n' % (ss_fit.col_names[ds][i], im, r))
+                                i += 1
+                if args['write_oob_scores'] or args['write_all']:
+                    logging.info('      Writing out-of-bag scores')
+                    for ds, model in ss_fit.trained_models.iteritems():
+                        my_fi_fn = os.path.join(my_odir, '%s_oob_score.txt' % ds)
+                        with open(my_fi_fn, 'w') as fh:
+                            fh.write('%0.5f\n' % model.oob_score_)
+                logging.info('      Making predictions')
+                pred_overall, _ = ss_fit.predict(df_test, verbose=args['verbose'], keep_names=True,
+                                                 keep_data=True, keep_per_category=True, remove_labels=remove_labels)
+                logging.info('      Outputting top incorrect alignments')
+                output_top_incorrect(pred_overall, my_odir, args)
                 logging.info('      Making plots')
                 make_plots(pred_overall, my_odir, args, prefix='        ')
                 perf_dicts[repl-1]['fraction'].append(fraction)
@@ -1370,6 +1414,16 @@ def go(args):
                 perf_dicts[repl-1]['params'].append(str(ss_fit.trained_params))
                 del ss_fit
                 gc.collect()
+
+                if args['write_roc_table'] or args['write_all']:
+                    logging.info('      Writing ROC table')
+                    my_roc_fn = os.path.join(my_odir, 'roc_table.tsv')
+                    df = roc_table(pred_overall.pcor, pred_overall.correct, rounded=True, mapqize=True)
+                    df.to_csv(my_roc_fn, sep='\t', index=False)
+                    my_roc_orig_fn = os.path.join(my_odir, 'roc_table_orig.tsv')
+                    df_orig = roc_table(pred_overall.pcor_orig, pred_overall.correct, rounded=True, mapqize=True)
+                    df_orig.to_csv(my_roc_orig_fn, sep='\t', index=False)
+
             gc.collect()
         dfs = [pandas.DataFrame.from_dict(perf_dict) for perf_dict in perf_dicts]
         for i, df in enumerate(dfs):
@@ -1386,7 +1440,7 @@ def go(args):
             fit = cPickle.load(fh)
     else:
         logging.info('Fitting and making predictions')
-        fit = MapqFit(df_training, fam, random_seed=my_seed, logger=logging.info)
+        fit = MapqFit(df_training, fam, random_seed=my_seed, logger=logging.info, include_ztzs=not args['ignore_ztzs'])
         if args['serialize_fit']:
             logging.info('Serializing fit object')
             with open(fit_fn, 'wb') as ofh:
@@ -1428,7 +1482,12 @@ def add_predict_args(parser):
 
     # Model-related options
     parser.add_argument('--model-family', metavar='family', type=str, required=False,
-                        default='ExtraTrees', help='{RandomForest | ExtraTrees | GradientBoosting | AdaBoost}')
+                        default='RandomForest', help='{RandomForest | ExtraTrees}')
+    parser.add_argument('--subsampling-fraction', metavar='float', type=float, default=1.0,
+                        help='Subsample the training down to this fraction before fitting model')
+    parser.add_argument('--ignore-ztzs', action='store_const', const=True, default=False,
+                        help='Don\'t include features specified in the ZT:Z extra flag')
+
     parser.add_argument('--overwrite-fit', action='store_const', const=True, default=False,
                         help='Re-fit the model even if a fit is already present in --output-directory')
     parser.add_argument('--serialize-fit', action='store_const', const=True, default=False,
@@ -1437,8 +1496,6 @@ def add_predict_args(parser):
                         help='How hard to try to compress the model when writing to .pkl file')
 
     # What to generate
-    parser.add_argument('--subsampling-fraction', metavar='float', type=float, default=1.0,
-                        help='Subsample the training down to this fraction before fitting model')
     parser.add_argument('--subsampling-series', metavar='floats', type=str,
                         help='Comma separated list of subsampling fractions to try')
     parser.add_argument('--subsampling-replicates', metavar='int', type=int, default=1,
@@ -1452,6 +1509,20 @@ def add_predict_args(parser):
                         help='Like specifying all option beginning with --plot')
     parser.add_argument('--plot-format', metavar='format', type=str, default='png',
                         help='Extension (and image format) for plot: {pdf, png, eps, jpg, ...}')
+
+    parser.add_argument('--write-top-incorrect', action='store_const', const=True, default=False,
+                        help='Write information about the top 1000 misclassified alignments')
+    parser.add_argument('--write-logs', action='store_const', const=True, default=False,
+                        help='Write verbose prediction log to pred_log.txt in output directory')
+    parser.add_argument('--write-feature-importances', action='store_const', const=True, default=False,
+                        help='Write importance of each feature according to model to (cat)_feature_importances.tsv')
+    parser.add_argument('--write-oob-scores', action='store_const', const=True, default=False,
+                        help='Write out-of-bag scores to (cat)_oob_score.txt')
+    parser.add_argument('--write-roc-table', action='store_const', const=True, default=False,
+                        help='Write table with correct/incorrect stratified by MAPQ to roc_table.tsv in '
+                             'output directory')
+    parser.add_argument('--write-all', action='store_const', const=True, default=False,
+                        help='Like specifying all the --write-* parameters')
 
     parser.add_argument('--rewrite-sam', action='store_const', const=True, default=False,
                         help='Like specifying all option beginning with --plot')

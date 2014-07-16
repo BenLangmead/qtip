@@ -158,6 +158,7 @@ class AlignmentBowtie2(Alignment):
     __zlpRe = re.compile('Zp:i:([-]?[0-9]+)')  # 2nd best concordant
     __kNRe = re.compile('YN:i:([-]?[0-9]+)')  # min valid score
     __knRe = re.compile('Yn:i:([-]?[0-9]+)')  # max valid score
+    __ztRe = re.compile('ZT:Z:([^\s]*)')  # extra features
 
     def __init__(self):
         super(AlignmentBowtie2, self).__init__()
@@ -180,6 +181,12 @@ class AlignmentBowtie2(Alignment):
         self.concordant = None
         self.discordant = None
         self.al_type = None
+        self.bestScore = None
+        self.secondBestScore = None
+        self.bestConcordantScore = None
+        self.secondBestConcordantScore = None
+        self.ztzs = None
+        self.mdz = None
 
     def parse(self, ln):
         """ Parse ln, which is a line of SAM output from Bowtie 2.  The line
@@ -248,6 +255,11 @@ class AlignmentBowtie2(Alignment):
         se = self.__knRe.search(self.extra)
         if se is not None:
             self.maxValid = int(se.group(1))
+        # Parse ZT.Z
+        self.ztzs = None
+        se = self.__ztRe.search(self.extra)
+        if se is not None:
+            self.ztzs = se.group(1).split(',')
         self.al_type = None
         se = self.__ytRe.search(self.extra)
         if se is not None:
