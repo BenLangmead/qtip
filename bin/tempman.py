@@ -8,7 +8,7 @@ from collections import defaultdict
 class TemporaryFileManager(object):
 
     def __init__(self, dr=None):
-        self.dir = tempfile.mkdtemp() if dr is None else dr
+        self.dir = tempfile.mkdtemp(dir=dr)
         self.files = set()
         self.groups = defaultdict(list)
         self.peak_size = 0
