@@ -66,8 +66,6 @@ class Normalizers(object):
         self.maxv_1 = None
         self.minv_2 = None
         self.maxv_2 = None
-        #self.fraglen_mean = None
-        #self.fraglen_sd = None
 
 
 class AlignmentTableReader(object):
@@ -87,34 +85,34 @@ class AlignmentTableReader(object):
         self.normalizers = {}
         self.dfs = {}
         self.readers = {}
-        if use_normalizers:
-            if learn_normalizers:
-                for sn, suf in self.datasets:
-                    fn = self.prefix + suf
-                    if any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2'])):
-                        self.dfs[sn] = self._fn_to_iterator(fn, chunksize=None)
+        self.use_normalizers = use_normalizers
+        assert learn_normalizers or normalizers is not None or not use_normalizers
+        if learn_normalizers:
+            assert use_normalizers
+            for sn, suf in self.datasets:
+                fn = self.prefix + suf
+                if any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2'])):
+                    self.dfs[sn] = self._fn_to_iterator(fn, chunksize=None)
 
-                        def _new_iter(_sn):
-                            def _inner():
-                                return iter([self.dfs[_sn].copy()])
-                            return _inner
+                    def _new_iter(_sn):
+                        def _inner():
+                            return iter([self.dfs[_sn].copy()])
+                        return _inner
 
-                        self.readers[sn] = _new_iter(sn)
-                self._extract_normalizers(self.dfs)
-            elif normalizers is not None:
-                self.normalizers = normalizers.copy()
-                for sn, suf in self.datasets:
-                    fn = self.prefix + suf
-                    if any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2'])):
+                    self.readers[sn] = _new_iter(sn)
+            self._extract_normalizers(self.dfs)
+        else:
+            self.normalizers = normalizers
+            for sn, suf in self.datasets:
+                fn = self.prefix + suf
+                if any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2'])):
 
-                        def _new_iter(_fn):
-                            def _inner():
-                                return self._fn_to_iterator(_fn)
-                            return _inner
+                    def _new_iter(_fn):
+                        def _inner():
+                            return self._fn_to_iterator(_fn)
+                        return _inner
 
-                        self.readers[sn] = _new_iter(fn)
-            else:
-                raise RuntimeError('Either learn_normalizers must be true or normalizers must be specified')
+                    self.readers[sn] = _new_iter(fn)
 
     @staticmethod
     def _fn_to_iterator(fn, chunksize=50000):
@@ -139,7 +137,6 @@ class AlignmentTableReader(object):
                 norm_conc.maxv_1 = df['best1_1'].max()
                 norm_conc.minv_2 = df['best1_2'].min()
                 norm_conc.maxv_2 = df['best1_2'].max()
-                #norm_conc.fraglen_mean = df['fraglen'].mean()
             elif sn == 'd':
                 norm_disc = self.normalizers['d'] = Normalizers()
                 norm_disc.minv_1 = df['best1_1'].min()
@@ -156,7 +153,7 @@ class AlignmentTableReader(object):
             from the alignment table.  Requires that we have normalizers,
             which may or may not have been learned from this alignment table.
         """
-        def _standardize(_df, nm, best_nm, secbest_nm, mn, diff):
+        def _normalize_and_standardize(_df, nm, best_nm, secbest_nm, mn, diff):
             _df[nm] = (_df[best_nm].astype(float) - _df[secbest_nm]) / diff
             _df[nm] = _df[nm].fillna(np.nanmax(_df[nm])).fillna(0)
             _df[best_nm] = (_df[best_nm].astype(float) - mn) / diff
@@ -164,11 +161,17 @@ class AlignmentTableReader(object):
             assert not any([math.isnan(x) for x in _df[nm]])
             assert not any([math.isnan(x) for x in _df[best_nm]])
 
+        def _standardize(_df, nm, best_nm, secbest_nm):
+            _df[nm] = _df[best_nm].astype(float) - _df[secbest_nm]
+            _df[nm] = _df[nm].fillna(np.nanmax(_df[nm])).fillna(0)
+            assert not any([math.isnan(x) for x in _df[nm]])
+
         if df.shape[0] == 0:
             return
 
-        assert sn in self.normalizers
-        norm = self.normalizers[sn]
+        if self.use_normalizers:
+            assert sn in self.normalizers
+            norm = self.normalizers[sn]
 
         # Turn the correct column into 0/1
         if df['correct'].count() == len(df['correct']):
@@ -176,34 +179,44 @@ class AlignmentTableReader(object):
 
         if sn in 'c':
             # normalize alignment scores
-            minv_1 = df['minv_1'].fillna(norm.minv_1)
-            maxv_1 = df['maxv_1'].fillna(norm.maxv_1)
-            minv_2 = df['minv_2'].fillna(norm.minv_2)
-            maxv_2 = df['maxv_2'].fillna(norm.maxv_2)
-            _standardize(df, 'diff_1', 'best1_1', 'best2_1', minv_1, maxv_1 - minv_1)
-            _standardize(df, 'diff_2', 'best1_2', 'best2_2', minv_2, maxv_2 - minv_2)
+            if self.use_normalizers:
+                minv_1 = df['minv_1'].fillna(norm.minv_1)
+                maxv_1 = df['maxv_1'].fillna(norm.maxv_1)
+                minv_2 = df['minv_2'].fillna(norm.minv_2)
+                maxv_2 = df['maxv_2'].fillna(norm.maxv_2)
+                _normalize_and_standardize(df, 'diff_1', 'best1_1', 'best2_1', minv_1, maxv_1 - minv_1)
+                _normalize_and_standardize(df, 'diff_2', 'best1_2', 'best2_2', minv_2, maxv_2 - minv_2)
+            else:
+                _standardize(df, 'diff_1', 'best1_1', 'best2_1')
+                _standardize(df, 'diff_2', 'best1_2', 'best2_2')
 
             # normalize concordant alignment scores
-            minconc, maxconc = norm.minv_1 + norm.minv_2, norm.maxv_1 + norm.maxv_2
             if math.isnan(df['best1conc'].sum()) or math.isnan(df['best2conc'].sum()):
                 # assume the worst
-                logging.warning('Difference of concordants not available, so using minimum distance of mates')
+                logging.warning('Difference of concordants not available, so using minimum of mates')
                 df['diff_conc'] = df[['diff_1', 'diff_2']].min(axis=1)
+            elif self.use_normalizers:
+                minconc, maxconc = norm.minv_1 + norm.minv_2, norm.maxv_1 + norm.maxv_2
+                _normalize_and_standardize(df, 'diff_conc', 'best1conc', 'best2conc', minconc, maxconc - minconc)
             else:
-                _standardize(df, 'diff_conc', 'best1conc', 'best2conc', minconc, maxconc - minconc)
-
-            #df['fraglen_z'] = ((df['fraglen'] - norm.fraglen_mean) / norm.fraglen_sd).abs()
+                _standardize(df, 'diff_conc', 'best1conc', 'best2conc')
 
         elif sn == 'd':
-            minv_1 = df['minv_1'].fillna(norm.minv_1)
-            maxv_1 = df['maxv_1'].fillna(norm.maxv_1)
-            _standardize(df, 'diff_1', 'best1_1', 'best2_1', minv_1, maxv_1 - minv_1)
+            if self.use_normalizers:
+                minv_1 = df['minv_1'].fillna(norm.minv_1)
+                maxv_1 = df['maxv_1'].fillna(norm.maxv_1)
+                _normalize_and_standardize(df, 'diff_1', 'best1_1', 'best2_1', minv_1, maxv_1 - minv_1)
+            else:
+                _standardize(df, 'diff_1', 'best1_1', 'best2_1')
 
         else:
             assert sn in 'ub'
-            minv = df['minv'].fillna(norm.minv)
-            maxv = df['maxv'].fillna(norm.maxv)
-            _standardize(df, 'diff', 'best1', 'best2', minv, maxv - minv)
+            if self.use_normalizers:
+                minv = df['minv'].fillna(norm.minv)
+                maxv = df['maxv'].fillna(norm.maxv)
+                _normalize_and_standardize(df, 'diff', 'best1', 'best2', minv, maxv - minv)
+            else:
+                _standardize(df, 'diff', 'best1', 'best2')
 
         return df
 
@@ -986,7 +999,7 @@ class MapqFit:
         if sample_fraction < 1.0:
             sample_indexes = random.sample(xrange(n_training_samples), int(round(n_training_samples * sample_fraction)))
             x_train = x_train[sample_indexes, ]
-            mapq_orig_train = mapq_orig_train[sample_indexes]
+            mapq_orig_train = mapq_orig_train.iloc[sample_indexes]
             y_train = np.array([y_train[i] for i in sample_indexes])
         return x_train, mapq_orig_train, y_train
 
@@ -1296,24 +1309,27 @@ def make_plots(pred, odir, args, prefix=''):
     mkdir_quiet(odir)
     fmat = args['plot_format']
     if args['plot_cum_incorrect'] or args['plot_all']:
-        logging.info(prefix + 'Making cumulative-incorrect plots')
-        assert pred.correct is not None
-        plot_drop_rate(pred.pcor, pred.correct, pcor2=pred.pcor_orig, log2ize=False).savefig(
-            os.path.join(odir, 'drop_rate.' + fmat))
-        plt.close()
-        assert len(plt.get_fignums()) == 0
-        plot_drop_rate(pred.pcor, pred.correct, pcor2=pred.pcor_orig, log2ize=True).savefig(
-            os.path.join(odir, 'drop_rate_log2.' + fmat))
-        plt.close()
-        assert len(plt.get_fignums()) == 0
-        plot_drop_rate_difference(pred.pcor, pred.pcor_orig, pred.correct, log2ize=False).savefig(
-            os.path.join(odir, 'drop_rate_diff.' + fmat))
-        plt.close()
-        assert len(plt.get_fignums()) == 0
-        plot_drop_rate_difference(pred.pcor, pred.pcor_orig, pred.correct, log2ize=True).savefig(
-            os.path.join(odir, 'drop_rate_diff_log2.' + fmat))
-        plt.close()
-        assert len(plt.get_fignums()) == 0
+        if len(pred.pcor) > 1000000:
+            logging.warning(prefix + 'SKIPPING cumulative-incorrect plots because there were >1M predictions')
+        else:
+            logging.info(prefix + 'Making cumulative-incorrect plots')
+            assert pred.correct is not None
+            plot_drop_rate(pred.pcor, pred.correct, pcor2=pred.pcor_orig, log2ize=False).savefig(
+                os.path.join(odir, 'drop_rate.' + fmat))
+            plt.close()
+            assert len(plt.get_fignums()) == 0
+            plot_drop_rate(pred.pcor, pred.correct, pcor2=pred.pcor_orig, log2ize=True).savefig(
+                os.path.join(odir, 'drop_rate_log2.' + fmat))
+            plt.close()
+            assert len(plt.get_fignums()) == 0
+            plot_drop_rate_difference(pred.pcor, pred.pcor_orig, pred.correct, log2ize=False).savefig(
+                os.path.join(odir, 'drop_rate_diff.' + fmat))
+            plt.close()
+            assert len(plt.get_fignums()) == 0
+            plot_drop_rate_difference(pred.pcor, pred.pcor_orig, pred.correct, log2ize=True).savefig(
+                os.path.join(odir, 'drop_rate_diff_log2.' + fmat))
+            plt.close()
+            assert len(plt.get_fignums()) == 0
     if args['plot_mapq_buckets'] or args['plot_all']:
         logging.info(prefix + 'Making MAPQ bucket plots')
         bucket_error_plot([pred.mapq, pred.mapq_orig], ['Predicted', 'Original'], ['b', 'g'], pred.correct).savefig(
@@ -1341,8 +1357,11 @@ def go(args):
 
     logging.info('Reading datasets')
     input_dir = args['input_directory']
-    df_training = AlignmentTableReader(os.path.join(input_dir, 'training'), learn_normalizers=True)
-    df_test = AlignmentTableReader(os.path.join(input_dir, 'test'), normalizers=df_training.normalizers)
+    use_normalizers = not args['no_normalization']
+    df_training = AlignmentTableReader(os.path.join(input_dir, 'training'),
+                                       use_normalizers=use_normalizers, learn_normalizers=use_normalizers)
+    df_test = AlignmentTableReader(os.path.join(input_dir, 'test'),
+                                   use_normalizers=use_normalizers, normalizers=df_training.normalizers)
 
     if args['subsampling_series'] is not None:
         logging.info('Doing subsampling series')
@@ -1485,6 +1504,8 @@ def add_predict_args(parser):
                         default='RandomForest', help='{RandomForest | ExtraTrees}')
     parser.add_argument('--subsampling-fraction', metavar='float', type=float, default=1.0,
                         help='Subsample the training down to this fraction before fitting model')
+    parser.add_argument('--no-normalization', action='store_const', const=True, default=False,
+                        help='Don\'t normalize score differences with respect to minimum and maximum')
     parser.add_argument('--ignore-ztzs', action='store_const', const=True, default=False,
                         help='Don\'t include features specified in the ZT:Z extra flag')
 
