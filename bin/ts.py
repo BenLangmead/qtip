@@ -880,7 +880,9 @@ def go(args, aligner_args):
             test_csv_fn_prefix = os.path.join(args['output_directory'], 'test')
             test_data.save(test_csv_fn_prefix)
             logging.info('Test data (CSV format) written to "%s*"' % test_csv_fn_prefix)
-        
+
+        test_data.purge()
+
         # Writing correct/incorrect distances
         if args['write_test_distances'] or args['write_all']:
             for short_name, long_name, hist in [('cor', 'Correct', cor_dist), ('incor', 'Incorrect', incor_dist)]:
@@ -1180,6 +1182,7 @@ def go(args, aligner_args):
     training_csv_fn_prefix = os.path.join(args['output_directory'], 'training')
     training_data.save(training_csv_fn_prefix)
     logging.info('Training data (CSV format) written to "%s*"' % training_csv_fn_prefix)
+    training_data.purge()
 
     tim.end_timer('Writing training data')
 

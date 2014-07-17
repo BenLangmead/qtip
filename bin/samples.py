@@ -235,7 +235,7 @@ class DatasetOnDisk(object):
         rec1 = PairedTuple.from_alignments(al1, al2)
         rec2 = PairedTuple.from_alignments(al2, al1)
         if self.data_conc is None:
-            self.data_conc_fn = self.temp_man.get_filename('%s_data_conc.csv' % self.name, 'dataset %s' % self.name)
+            self.data_conc_fn = self.temp_man.get_filename('%s_conc.csv' % self.name, 'dataset %s' % self.name)
             self.data_conc = open(self.data_conc_fn, 'w')
             assert len(al1.ztzs or []) == len(al2.ztzs or [])
             PairedTuple.append_csv_header(self.data_conc, len(al1.ztzs or []))
@@ -248,7 +248,7 @@ class DatasetOnDisk(object):
         rec1 = PairedTuple.from_alignments(al1, al2)
         rec2 = PairedTuple.from_alignments(al2, al1)
         if self.data_disc is None:
-            self.data_disc_fn = self.temp_man.get_filename('%s_data_disc.csv' % self.name, 'dataset %s' % self.name)
+            self.data_disc_fn = self.temp_man.get_filename('%s_disc.csv' % self.name, 'dataset %s' % self.name)
             self.data_disc = open(self.data_disc_fn, 'w')
             assert len(al1.ztzs or []) == len(al2.ztzs or [])
             PairedTuple.append_csv_header(self.data_disc, len(al1.ztzs or []))
@@ -259,7 +259,7 @@ class DatasetOnDisk(object):
         """ Add a discordant paired-end alignment to our dataset. """
         assert al.paired
         if self.data_bad_end is None:
-            self.data_bad_end_fn = self.temp_man.get_filename('%s_data_bad_end.csv' % self.name, 'dataset %s' % self.name)
+            self.data_bad_end_fn = self.temp_man.get_filename('%s_bad_end.csv' % self.name, 'dataset %s' % self.name)
             self.data_bad_end = open(self.data_bad_end_fn, 'w')
             UnpairedTuple.append_csv_header(self.data_bad_end, len(al.ztzs or []))
         UnpairedTuple.from_alignment(al, len(unaligned.seq)).append_csv(self.data_bad_end, correct)
@@ -268,7 +268,7 @@ class DatasetOnDisk(object):
         """ Add an alignment for a simulated unpaired read to our dataset. """
         assert not al.paired
         if self.data_unp is None:
-            self.data_unp_fn = self.temp_man.get_filename('%s_data_unp.csv' % self.name, 'dataset %s' % self.name)
+            self.data_unp_fn = self.temp_man.get_filename('%s_unp.csv' % self.name, 'dataset %s' % self.name)
             self.data_unp = open(self.data_unp_fn, 'w')
             UnpairedTuple.append_csv_header(self.data_unp, len(al.ztzs or []))
         UnpairedTuple.from_alignment(al).append_csv(self.data_unp, correct)
@@ -296,6 +296,9 @@ class DatasetOnDisk(object):
         for fh in [self.data_conc, self.data_bad_end, self.data_disc, self.data_unp]:
             if fh is not None:
                 fh.close()
+
+    def purge(self):
+        self.temp_man.remove_group('dataset %s' % self.name)
 
     def to_data_frames(self):
         """ Convert dataset to tuple of 3 pandas DataFrames. """
