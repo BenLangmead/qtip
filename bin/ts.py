@@ -65,6 +65,7 @@ from simplesim import FragmentSimSerial2
 from read import Read, Alignment
 from bowtie2 import AlignmentBowtie2, Bowtie2
 from bwamem import AlignmentBwaMem, BwaMem
+from mosaik import AlignmentMosaik, Mosaik
 from reference import ReferenceIndexed, ReferenceOOB
 from tempman import TemporaryFileManager
 
@@ -768,11 +769,17 @@ def go(args, aligner_args):
             align_cmd = args['bwa_exe'] + ' mem '
         align_cmd += ' '.join(aligner_args)
         aligner_class, alignment_class = BwaMem, AlignmentBwaMem
+    elif args['aligner'] == 'mosaik':
+        align_cmd = 'MosaikAlign '
+        if args['mosaik_align_exe'] is not None:
+            align_cmd = args['mosaik_align_exe'] + ' '
+        align_cmd += ' '.join(aligner_args)
+        aligner_class, alignment_class = Mosaik, AlignmentMosaik
     elif args['aligner'] is not None:
         raise RuntimeError('Aligner not supported: "%s"' % args['aligner'])
 
     # for storing temp files and keep track of how big they get
-    temp_man = TemporaryFileManager()
+    temp_man = TemporaryFileManager(args['temp_directory'])
 
     logging.info('Loading reference data')
     with ReferenceIndexed(args['ref']) as ref:
@@ -1246,6 +1253,9 @@ def add_args(parser):
                              'chromosome.')
 
     # Output file-related arguments
+    parser.add_argument('--temp-directory', metavar='path', type=str, required=False,
+                        help='Write temporary files to this directory; default: uses environment variables '
+                             'like TMPDIR, TEMP, etc')
     parser.add_argument('--output-directory', metavar='path', type=str, required=True,
                         help='Write outputs to this directory')
     parser.add_argument('--write-training-reads', action='store_const', const=True, default=False,
