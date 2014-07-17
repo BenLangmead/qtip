@@ -1256,7 +1256,7 @@ def random_forest_models(random_seed=33):
     def _gen(params):
         return RandomForestRegressor(n_estimators=params[0], max_depth=params[1],
                                      random_state=random_seed,
-                                     max_features=1,
+                                     max_features=2,
                                      oob_score=True, bootstrap=True)
     return lambda: ModelFamily(_gen, [range(5, 105, 10), range(2, 10)])
 
@@ -1266,7 +1266,7 @@ def extra_trees_models(random_seed=33):
     def _gen(params):
         return ExtraTreesRegressor(n_estimators=params[0], max_depth=params[1],
                                    random_state=random_seed,
-                                   max_features=1,
+                                   max_features=2,
                                    oob_score=True, bootstrap=True)
     return lambda: ModelFamily(_gen, [range(5, 105, 5), range(3, 20)])
 
@@ -1501,7 +1501,7 @@ def add_predict_args(parser):
 
     # Model-related options
     parser.add_argument('--model-family', metavar='family', type=str, required=False,
-                        default='RandomForest', help='{RandomForest | ExtraTrees}')
+                        default='ExtraTrees', help='{RandomForest | ExtraTrees}')
     parser.add_argument('--subsampling-fraction', metavar='float', type=float, default=1.0,
                         help='Subsample the training down to this fraction before fitting model')
     parser.add_argument('--no-normalization', action='store_const', const=True, default=False,
