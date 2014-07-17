@@ -1247,7 +1247,9 @@ def add_args(parser):
                         help='Input SAM file to apply training data to.  Use with --training-input.')
     parser.add_argument('--bt2-exe', metavar='path', type=str, help='Path to Bowtie 2 exe')
     parser.add_argument('--bwa-exe', metavar='path', type=str, help='Path to BWA exe')
-    parser.add_argument('--aligner', metavar='name', default='bowtie2', type=str, help='bowtie2 or bwa-mem')
+    parser.add_argument('--mosaik-align-exe', metavar='path', type=str, help='Path to MosaikAlign exe')
+    parser.add_argument('--mosaik-build-exe', metavar='path', type=str, help='Path to MosaikBuild exe')
+    parser.add_argument('--aligner', metavar='name', default='bowtie2', type=str, help='bowtie2 | bwa-mem | mosaik')
 
     # For when input is itself simulated, so we can output a Dataset with the
     # 'correct' column filled in properly
