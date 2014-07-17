@@ -2,6 +2,7 @@ __author__ = 'langmead'
 
 import os
 import tempfile
+import shutil
 from collections import defaultdict
 
 
@@ -27,6 +28,9 @@ class TemporaryFileManager(object):
             self.files.remove(fn_basename)
             os.remove(os.path.join(self.dir, fn_basename))
         del self.groups[group]
+
+    def purge(self):
+        shutil.rmtree(self.dir)
 
     def size(self):
         """ Return total size of all the files in the temp dir """

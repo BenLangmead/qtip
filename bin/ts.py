@@ -1186,6 +1186,7 @@ def go(args, aligner_args):
 
     tim.end_timer('Writing training data')
 
+    temp_man.purge()
     logging.info('Peak temporary file size %0.2fMB' % (temp_man.peak_size / (1024.0 * 1024)))
 
     tim.end_timer('Overall')
