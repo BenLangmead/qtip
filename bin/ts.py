@@ -60,7 +60,7 @@ from threading import Thread
 # Modules that are part of the tandem simulator
 import simulators
 from samples import DatasetOnDisk
-from randutil import ReservoirSampler, WeightedRandomGenerator
+from randutil import ReservoirSampler
 from simplesim import FragmentSimSerial2
 from read import Read, Alignment
 from bowtie2 import AlignmentBowtie2, Bowtie2
@@ -111,10 +111,11 @@ class PairTemplate(object):
 
 class CollapsedScoreDist(object):
 
-    def __init__(self, small_k=100):
+    def __init__(self, small_k=100, big_k=10000, fraction_even=0.5, bias=1.0):
         self.score_to_sample = {}
         self.score_to_fraction_correct = defaultdict(lambda: [0, 0])
         self.scores = None
+        self.sample = ReservoirSampler(big_k)
         self.max_fraglen = 0
         self.avg_fraglen = None
         self.finalized = False
@@ -124,20 +125,25 @@ class CollapsedScoreDist(object):
         self.k = small_k
         self.correct_mass = 0
         self.has_correctness_info = False
+        self.fraction_even = fraction_even
+        self.bias = bias
 
-    def draw(self, bias=1.0):
+    def draw(self):
         assert self.finalized
         assert not self.empty()
         if self.scores is None:
             self.scores = sorted(self.score_to_sample.iterkeys())
         self.num_drawn += 1
-        if bias > 1.0:
-            rand_i = random.uniform(0, 1) / random.uniform(1, bias)
-            score = self.scores[int(rand_i * len(self.scores))]
+        if random.random() > self.fraction_even:
+            if self.bias > 1.0:
+                rand_i = random.uniform(0, 1) / random.uniform(1.0, self.bias)
+                score = self.scores[int(rand_i * len(self.scores))]
+            else:
+                score = random.choice(self.score_to_sample.keys())
+            tup = random.choice(self.score_to_sample[score].r)
+            fw, qual, rd_aln, rf_aln, rf_len, mate1, olen = tup
         else:
-            score = random.choice(self.score_to_sample.keys())
-        tup = random.choice(self.score_to_sample[score].r)
-        fw, qual, rd_aln, rf_aln, rf_len, mate1, olen = tup
+            score, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen = self.sample.draw()
         if self.has_correctness_info:
             p_correct = float(self.score_to_fraction_correct[score][0]) / self.score_to_fraction_correct[score][1]
             self.correct_mass += p_correct
@@ -151,6 +157,7 @@ class CollapsedScoreDist(object):
         if sc not in self.score_to_sample:
             self.score_to_sample[sc] = ReservoirSampler(self.k)
         self.score_to_sample[sc].add((al.fw, al.qual, rd_aln, rf_aln, rf_len, al.mate1, ordlen))
+        self.sample.add((sc, al.fw, al.qual, rd_aln, rf_aln, rf_len, al.mate1, ordlen))
         if correct is not None:
             self.score_to_fraction_correct[sc][0] += 1 if correct else 0
             self.score_to_fraction_correct[sc][1] += 1
@@ -172,72 +179,12 @@ class CollapsedScoreDist(object):
             self.avg_fraglen = float(self.tot_len) / self.num_added
 
 
-class ScoreDist(object):
-    """ Capture a list of tuples, where each tuples represents the following
-        traits observed in an alignment: (a) orientation, (b) quality string,
-        (c) read side of stacked alignment, (d) ref side of stacked alignment,
-        (e) score.  Keeping these tuples allows us to generate new reads that
-        mimic observed reads in these key ways. """
-    
-    def __init__(self, k=50000, unique=False):
-        """ Make a reservoir sampler for holding the tuples. """
-        self.res = ReservoirSampler(k)
-        self.max_fraglen = 0
-        self.avg_fraglen = None
-        self.finalized = False
-        self.samp = None
-        self.unique = unique
-        self.unique_set = set()
-
-    def draw(self, bias=2):
-        """ Draw from the reservoir """
-        assert self.finalized
-        assert not self.empty()
-        rnd_i = int(len(self.samp) * random.uniform(0, 1) / random.uniform(1, bias))
-        assert 0 <= rnd_i < len(self.samp)
-        sc, _, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen = self.samp[rnd_i]
-        return ReadTemplate(sc, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen)
-        # TODO: first pick score, then pick set of parameters associated with score
-    
-    def add(self, al, ref, ordlen=0):
-        """ Convert given alignment to a tuple and add it to the reservoir
-            sampler. """
-        sc = al.bestScore
-        # Get stacked alignment
-        rd_aln, rf_aln, rd_len, rf_len = al.stacked_alignment(align_soft_clipped=True, ref=ref)
-        self.max_fraglen = max(self.max_fraglen, rf_len)
-        self.res.add((sc, random.uniform(0, 1),
-                      al.fw, al.qual, rd_aln, rf_aln, rf_len, al.mate1, ordlen))
-
-    @property
-    def num_added(self):
-        """ Return the number of tuples that have been added, which could be
-            much greater than the number sampled """
-        return self.res.num_added()
-
-    @property
-    def num_sampled(self):
-        """ Return number of tuples that have been sampled """
-        return self.res.num_sampled()
-    
-    def empty(self):
-        """ Return true iff no tuples have been added """
-        return self.num_sampled == 0
-
-    def finalize(self):
-        """ Sort the samples in preparation for draws that might be biased
-            toward high or (more likely) low scores. """
-        self.finalized = True
-        if not self.empty():
-            self.samp = sorted(self.res.r)
-            self.avg_fraglen = np.mean([x[6] for x in self.res])  # rf_len
-
-
 class CollapsedScorePairDist(object):
 
-    def __init__(self, small_k=30, max_allowed_fraglen=100000):
+    def __init__(self, small_k=30, big_k=10000, max_allowed_fraglen=100000, fraction_even=0.5, bias=1.0):
         """ Make a reservoir sampler for holding the tuples. """
         self.score_to_sample = {}
+        self.sample = ReservoirSampler(big_k)
         self.score_to_fraction_correct1 = defaultdict(lambda: [0, 0])
         self.score_to_fraction_correct2 = defaultdict(lambda: [0, 0])
         self.scores = None
@@ -252,20 +199,25 @@ class CollapsedScorePairDist(object):
         self.correct_mass1 = 0
         self.correct_mass2 = 0
         self.has_correctness_info = False
+        self.fraction_even = fraction_even
+        self.bias = bias
 
-    def draw(self, bias=1.0):
+    def draw(self):
         """ Draw from the reservoir """
         assert self.finalized
         assert not self.empty()
         if self.scores is None:
             self.scores = sorted(self.score_to_sample.iterkeys())
         self.num_drawn += 1
-        if bias > 1.0:
-            rand_i = random.uniform(0, 1) / random.uniform(1, bias)
-            score = self.scores[int(rand_i * len(self.scores))]
+        if random.random() > self.fraction_even:
+            if self.bias > 1.0:
+                rand_i = random.uniform(0, 1) / random.uniform(1, self.bias)
+                score = self.scores[int(rand_i * len(self.scores))]
+            else:
+                score = random.choice(self.score_to_sample.keys())
+            tup1, tup2, fraglen, upstream1 = random.choice(self.score_to_sample[score].r)
         else:
-            score = random.choice(self.score_to_sample.keys())
-        tup1, tup2, fraglen, upstream1 = random.choice(self.score_to_sample[score].r)
+            score, tup1, tup2, fraglen, upstream1 = self.sample.draw()
         fw_1, qual_1, rd_aln_1, rf_aln_1, sc_1, rf_len_1, mate1_1, _ = tup1
         fw_2, qual_2, rd_aln_2, rf_aln_2, sc_2, rf_len_2, mate1_2, _ = tup2
         if self.has_correctness_info:
@@ -303,6 +255,10 @@ class CollapsedScorePairDist(object):
         self.score_to_sample[score].add(((al1.fw, al1.qual, rd_aln_1, rf_aln_1, sc1, rf_len_1, True, rf_len_2),
                                          (al2.fw, al2.qual, rd_aln_2, rf_aln_2, sc2, rf_len_2, False, rf_len_1),
                                          fraglen, upstream1))
+        self.sample.add((score,
+                         (al1.fw, al1.qual, rd_aln_1, rf_aln_1, sc1, rf_len_1, True, rf_len_2),
+                         (al2.fw, al2.qual, rd_aln_2, rf_aln_2, sc2, rf_len_2, False, rf_len_1),
+                         fraglen, upstream1))
         self.num_added += 1
         self.tot_len += fraglen
 
@@ -324,80 +280,6 @@ class CollapsedScorePairDist(object):
             self.avg_fraglen = float(self.tot_len) / self.num_added
 
 
-class ScorePairDist(object):
-    """ Capture a list of tuple pairs, where each tuple pair represents the
-        following in an alignment of a paired-end reads where both ends
-        aligned: (a) orientation, (b) quality string, (c) read side of stacked
-        alignment, (d) ref side of stacked alignment, (e) score, (f) fragment
-        length.  We record pairs of tuples where the first element of the pair
-        corresponds to mate 1 and the second to mate 2. """
-    
-    def __init__(self, k=50000, max_allowed_fraglen=100000):
-        """ Make a reservoir sampler for holding the tuples. """
-        self.res = ReservoirSampler(k)
-        self.max_allowed_fraglen = max_allowed_fraglen
-        self.max_fraglen = 0  # maximum observed fragment length
-        self.avg_fraglen = None
-        self.finalized = False
-        self.samp = None
-
-    def draw(self, bias=2):
-        """ Draw from the reservoir """
-        assert self.finalized
-        assert not self.empty()
-        rnd_i = int(len(self.samp) * random.uniform(0, 1) / random.uniform(1, bias))
-        assert 0 <= rnd_i < len(self.samp)
-        tup1, tup2, tup3, fraglen, upstream1 = self.samp[rnd_i]
-        fw_1, qual_1, rd_aln_1, rf_aln_1, sc_1, rf_len_1, mate1_1, _ = tup2
-        fw_2, qual_2, rd_aln_2, rf_aln_2, sc_2, rf_len_2, mate1_2, _ = tup3
-        return PairTemplate(ReadTemplate(sc_1, fw_1, qual_1, rd_aln_1, rf_aln_1, rf_len_1, mate1_1, rf_len_2),
-                            ReadTemplate(sc_2, fw_2, qual_2, rd_aln_2, rf_aln_2, rf_len_2, mate1_2, rf_len_1),
-                            fraglen, upstream1)
-
-    def add(self, al1, al2, ref):
-        """ Convert given alignment pair to a tuple and add it to the
-            reservoir sampler. """
-        sc1, sc2 = al1.bestScore, al2.bestScore
-        # Make note of fragment length
-        fraglen = Alignment.fragment_length(al1, al2)
-        fraglen = min(fraglen, self.max_allowed_fraglen)
-        self.max_fraglen = max(self.max_fraglen, fraglen)
-        # Make note of which end is upstream
-        upstream1 = al1.pos < al2.pos
-        # Get stacked alignment
-        rd_aln_1, rf_aln_1, rd_len_1, rf_len_1 = al1.stacked_alignment(align_soft_clipped=True, ref=ref)
-        rd_aln_2, rf_aln_2, rd_len_2, rf_len_2 = al2.stacked_alignment(align_soft_clipped=True, ref=ref)
-        assert fraglen == 0 or max(rf_len_1, rf_len_2) <= fraglen
-        self.res.add(((sc1 + sc2, random.uniform(0, 1)),
-                      (al1.fw, al1.qual, rd_aln_1, rf_aln_1, sc1, rf_len_1, True, rf_len_2),
-                      (al2.fw, al2.qual, rd_aln_2, rf_aln_2, sc2, rf_len_2, False, rf_len_1),
-                      fraglen,
-                      upstream1))
-
-    @property
-    def num_added(self):
-        """ Return the number of tuples that have been added, which could be
-            much greater than the number sampled """
-        return self.res.num_added()
-
-    @property
-    def num_sampled(self):
-        """ Return number of tuples that have been sampled """
-        return self.res.num_sampled()
-
-    def empty(self):
-        """ Return true iff no tuples have been added """
-        return self.num_sampled == 0
-
-    def finalize(self):
-        """ Sort the samples in preparation for draws that might be biased
-            toward high or (more likely) low scores. """
-        self.finalized = True
-        if not self.empty():
-            self.samp = sorted(self.res.r)
-            self.avg_fraglen = np.mean([x[3] for x in self.res])
-
-
 class Dists(object):
     
     """ Encapsulates the distributions that we capture from real data.
@@ -406,11 +288,13 @@ class Dists(object):
         data on concordant and discordantly aligned pairs, such as
         their fragment length and strands. """
 
-    def __init__(self, max_allowed_fraglen=100000):
-        self.sc_dist_unp = CollapsedScoreDist()
-        self.sc_dist_bad_end = CollapsedScoreDist()
-        self.sc_dist_conc = CollapsedScorePairDist(max_allowed_fraglen=max_allowed_fraglen)
-        self.sc_dist_disc = CollapsedScorePairDist(max_allowed_fraglen=max_allowed_fraglen)
+    def __init__(self, max_allowed_fraglen=100000, fraction_even=0.5, bias=1.0):
+        self.sc_dist_unp = CollapsedScoreDist(fraction_even=fraction_even, bias=bias)
+        self.sc_dist_bad_end = CollapsedScoreDist(fraction_even=fraction_even, bias=bias)
+        self.sc_dist_conc = CollapsedScorePairDist(max_allowed_fraglen=max_allowed_fraglen,
+                                                   fraction_even=fraction_even, bias=bias)
+        self.sc_dist_disc = CollapsedScorePairDist(max_allowed_fraglen=max_allowed_fraglen,
+                                                   fraction_even=fraction_even, bias=bias)
 
     def finalize(self):
         self.sc_dist_unp.finalize()
@@ -819,7 +703,7 @@ def go(args, aligner_args):
             tim.end_timer('Aligning input reads')
 
         test_data = DatasetOnDisk('test_data', temp_man)
-        dists = Dists(args['max_allowed_fraglen'])
+        dists = Dists(args['max_allowed_fraglen'], fraction_even=args['fraction_even'], bias=args['low_score_bias'])
         cor_dist, incor_dist = defaultdict(int), defaultdict(int)
         
         result_test_q = Queue()
@@ -948,8 +832,7 @@ def go(args, aligner_args):
                 n_simread, typ_count = 0, defaultdict(int)
                 for t, rdp1, rdp2 in simw.simulate_batch(args['sim_fraction'], args['sim_unp_min'],
                                                          args['sim_conc_min'], args['sim_disc_min'],
-                                                         args['sim_bad_end_min'],
-                                                         bias=args['low_score_bias']):
+                                                         args['sim_bad_end_min']):
                     if t in training_out_fh:
                         if frmt == 'tab6':
                             training_out_fh[t].write(Read.to_tab6(rdp1, rdp2) + '\n')
@@ -1234,11 +1117,14 @@ def add_args(parser):
     parser.add_argument('--max-allowed-fraglen', metavar='int', type=int, default=100000, required=False,
                         help='When simulating fragments, observed fragments longer than this will be'
                              'truncated to this length')
-    parser.add_argument('--low-score-bias', metavar='float', type=int, default=1, required=False,
+    parser.add_argument('--low-score-bias', metavar='float', type=float, default=1.0, required=False,
                         help='When simulating reads, we randomly select a real read\'s alignment profile'
                              'as a template.  A higher value for this parameter makes it more likely'
                              'we\'ll choose a low-scoring alignment.  If set to 1, all templates are'
                              'equally likely.')
+    parser.add_argument('--fraction-even', metavar='float', type=float, default=1.0, required=False,
+                        help='Fraction of the time to sample templates from the unstratified input '
+                             'sample versus the stratified sample.')
 
     parser.add_argument('--wiggle', metavar='int', type=int, default=30, required=False,
                         help='Wiggle room to allow in starting position when determining whether alignment is correct')

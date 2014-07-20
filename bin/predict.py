@@ -1016,25 +1016,39 @@ class MapqFit:
         return np.maximum(np.minimum(pcor_test, max_pcor), 0.)
 
     @staticmethod
-    def _crossval_fit(mf_gen, x_train, y_train, dataset_shortname):
+    def _crossval_fit(mf_gen, x_train, y_train, dataset_shortname, use_oob=True):
         """ Use cross validation to pick the best model from a
             collection of possible models (model_family) """
         mf = mf_gen()
-        score_avgs, score_stds = [], []
+        scores = []
+
+        def _oob_score(pred_):
+            pred_.fit(x_train, y_train)
+            return pred_.oob_score_
+
+        def _crossval_score(pred_):
+            scores_cv = cross_validation.cross_val_score(pred_, x_train, y_train)
+            return float(np.mean(scores_cv))
+
         while True:
             params, pred = mf.next_predictor()
             if pred is None:
                 break
-            scores = cross_validation.cross_val_score(pred, x_train, y_train)
-            score_avg, score_std = float(np.mean(scores)), float(np.std(scores))
-            logging.debug("%s, avg=%0.3f, std=%0.3f, %s" % (dataset_shortname, score_avg, score_std, str(params)))
-            score_avgs.append(score_avg)
-            score_stds.append(score_std)
-            mf.set_score(score_avg)
+            if use_oob:
+                score = _oob_score(pred)
+                scores.append(score)
+                best = score == max(scores)
+                logging.debug("%s, oob=%0.3f, %s%s" % (dataset_shortname, score, str(params), ' *' if best else ''))
+            else:
+                score = _crossval_score(pred)
+                scores.append(score)
+                best = score == max(scores)
+                logging.debug("%s, score=%0.3f, %s%s" % (dataset_shortname, score, str(params), ' *' if best else ''))
+            mf.set_score(score)
         best_params, best_pred = mf.best_predictor()
-        logging.debug("BEST: %s, avg=%0.3f, %s" % (dataset_shortname, max(score_avgs), str(best_params)))
+        logging.debug("BEST: %s, avg=%0.3f, %s" % (dataset_shortname, max(scores), str(best_params)))
         assert best_pred is not None
-        return best_pred, best_params, score_avgs, score_stds
+        return best_pred, best_params, scores
 
     datasets = zip('dbcu', ['Discordant', 'Bad-end', 'Concordant', 'Unpaired'], [True, False, True, False])
 
@@ -1068,11 +1082,11 @@ class MapqFit:
                 logger('  Now has %d rows' % x_train.shape[0])
 
             # use cross-validation to pick a model
-            self.trained_models[ds], params, avgs, stds = \
+            self.trained_models[ds], params, scores = \
                 self._crossval_fit(self.model_gen, x_train, y_train, ds)
 
             self.trained_params = params
-            self.crossval_avg[ds] = max(avgs)
+            self.crossval_avg[ds] = max(scores)
 
             # fit all the training data with the model
             self.trained_models[ds].fit(x_train, y_train)
@@ -1164,7 +1178,7 @@ class ModelFamily(object):
     """ Encapsulates a model family and a simple interface for naively
         searching the space of hyperparameters. """
 
-    def __init__(self, new_predictor, params):
+    def __init__(self, new_predictor, params, tolerance=1e-3):
         """
         new_predictor: function that takes set of params and returns
                        new predictor with those params
@@ -1176,7 +1190,9 @@ class ModelFamily(object):
         self.scores = {}
         self.last_params = None
         self.neighborhood_scores = None
+        self.tolerance = 0.0
         self._setup_neighborhood(self.center)
+        self.centers = set()
 
     def _setup_neighborhood(self, center):
         self.neighborhood_scores = {}
@@ -1192,11 +1208,13 @@ class ModelFamily(object):
                 neighbor = tuple(neighbor)
                 self.neighborhood_scores[neighbor] = self.scores.get(neighbor, None)
 
-    def _best_neighbor(self):
+    def _best_neighbors(self, thresh):
         assert not self._has_unexplored_neighbors()
         assert len(self.neighborhood_scores) > 0
-        prioritized = sorted([(v, k) for k, v in self.neighborhood_scores.iteritems()])
-        return prioritized[-1][0], prioritized[-1][1]  # highest cross-val score
+        for n in sorted([(v, k) for k, v in self.neighborhood_scores.iteritems()]):
+            if n[0] >= thresh:
+                yield n[0], n[1]
+                return  # TODO: implement tolerance
 
     def _has_unexplored_neighbors(self):
         return any(map(lambda x: x is None, self.neighborhood_scores.itervalues()))
@@ -1212,6 +1230,7 @@ class ModelFamily(object):
 
     def next_predictor(self):
         if self.center not in self.scores:
+            self.centers.add(self.center)
             self.last_params = self.center
             translated_params = self._idxs_to_params(self.center)
             return translated_params, self.new_predictor(translated_params)
@@ -1228,8 +1247,8 @@ class ModelFamily(object):
             else:
                 # just finished exploring neighborhood
                 assert self.center in self.scores
-                best_score, best_neighbor = self._best_neighbor()
-                if best_score > self.scores[self.center]:
+                center_score = self.scores[self.center]
+                for best_score, best_neighbor in self._best_neighbors(center_score - self.tolerance):
                     # improved on center
                     self.center = best_neighbor
                     self._setup_neighborhood(self.center)
@@ -1251,38 +1270,31 @@ class ModelFamily(object):
         return translated_params, self.new_predictor(translated_params)
 
 
-def random_forest_models(random_seed=33):
+def random_forest_models(random_seed=33, tolerance=1e-3):
     # These perform OK but not as well as the extremely random trees
     def _gen(params):
         return RandomForestRegressor(n_estimators=params[0], max_depth=params[1],
                                      random_state=random_seed,
                                      max_features=2,
                                      oob_score=True, bootstrap=True)
-    return lambda: ModelFamily(_gen, [range(5, 105, 10), range(2, 10)])
+    return lambda: ModelFamily(_gen, [range(5, 105, 10), range(2, 10)], tolerance)
 
 
-def extra_trees_models(random_seed=33):
+def extra_trees_models(random_seed=33, tolerance=1e-3):
     # These perform quite well
     def _gen(params):
         return ExtraTreesRegressor(n_estimators=params[0], max_depth=params[1],
                                    random_state=random_seed,
                                    max_features=2,
                                    oob_score=True, bootstrap=True)
-    return lambda: ModelFamily(_gen, [range(5, 105, 5), range(3, 20)])
-
-
-#def adaboost_models(random_seed=33):
-#    # These seem to perform quite poorly
-#    def _gen(params):
-#        return AdaBoostRegressor()
-#    return lambda: ModelFamily(_gen, [[10, 15, 20, 25, 30, 35, 40], [1.0, 1.5, 2.0]])
+    return lambda: ModelFamily(_gen, [range(5, 105, 5), range(3, 12)], tolerance)
 
 
 def model_family(args):
     if args['model_family'] == 'RandomForest':
-        return random_forest_models()
+        return random_forest_models(args['seed'], args['optimization_tolerance'])
     elif args['model_family'] == 'ExtraTrees':
-        return extra_trees_models()
+        return extra_trees_models(args['seed'], args['optimization_tolerance'])
     else:
         raise RuntimeError('Bad value for --model-family: "%s"' % args['model_family'])
 
@@ -1502,6 +1514,8 @@ def add_predict_args(parser):
     # Model-related options
     parser.add_argument('--model-family', metavar='family', type=str, required=False,
                         default='ExtraTrees', help='{RandomForest | ExtraTrees}')
+    parser.add_argument('--optimization-tolerance', metavar='float', type=float, default=1e-3,
+                        help='Tolerance when searching for best model parameters')
     parser.add_argument('--subsampling-fraction', metavar='float', type=float, default=1.0,
                         help='Subsample the training down to this fraction before fitting model')
     parser.add_argument('--no-normalization', action='store_const', const=True, default=False,

@@ -99,7 +99,7 @@ class FragmentSimSerial2(object):
         self.max_fraglen = max(dists.longest_fragment(), dists.longest_unpaired())
         assert self.max_fraglen > 0
 
-    def simulate_batch(self, fraction, min_unp, min_conc, min_disc, min_bad_end, chunk_size=5000000, bias=2):
+    def simulate_batch(self, fraction, min_unp, min_conc, min_disc, min_bad_end, chunk_size=5000000):
         """ Simulate a batch of around 'num_target' fragments.  Some of the
             fragments will be for concordant pairs, some for discordant pairs,
             and some for unpaired reads.  The mix is according to the
@@ -175,7 +175,7 @@ class FragmentSimSerial2(object):
                 if cov == 0:
                     continue
                 # pick fragment starting positions
-                draws = [dist.draw(bias) for _ in xrange(cov)]
+                draws = [dist.draw() for _ in xrange(cov)]
                 # have to special-case this for unpaired draws
                 fraglens = [d.fraglen for d in draws]
                 assert not any(x > self.max_fraglen for x in fraglens)
