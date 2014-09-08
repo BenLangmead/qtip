@@ -33,3 +33,4 @@ clean:
 	rm -f mosaik
 	rm -rf MOSAIK-*
 	rm -rf bin obj
+	rm -f MosaikAligner MosaikBuild
