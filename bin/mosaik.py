@@ -49,6 +49,8 @@ class Mosaik(Aligner):
             stored.  If 'sam' is none, SAM records will be added to
             the outQ.
         """
+        if paired is not None:
+            raise RuntimeError('Mosaik does not accept separate mate1/mate2 files')
         if index is None:
             raise RuntimeError('Must specify --index when aligner is mosaik')
         options = []
@@ -62,18 +64,14 @@ class Mosaik(Aligner):
         if paired_combined is not None and len(paired_combined) > 1:
             raise RuntimeError('mosaik can\'t handle more than one input file at a time')
         if unpaired is not None and (paired is not None or paired_combined is not None):
-            raise RuntimeError('mosaik can\'t handle unpaired and paired-end inputs at the same time')
+            raise RuntimeError('bwa mem can\'t handle unpaired and paired-end inputs at the same time')
         self.input_is_queued = False
         self.output_is_queued = False
         input_args = []
         if unpaired is not None:
-            input_args = [unpaired[0]]
-        if paired is not None:
-            assert len(paired[0]) == 2
-            input_args = [paired[0][0], paired[0][1]]
+            input_args = ['-in', unpaired[0]]
         if paired_combined is not None:
-            options.append('-p')
-            input_args = [paired_combined[0]]
+            input_args = ['-in', paired_combined[0]]
         if unpaired is None and paired is None and paired_combined is None:
             input_args = ['-']
             popen_stdin = PIPE
@@ -91,7 +89,7 @@ class Mosaik(Aligner):
         # Put all the arguments together
         cmd += ' '
         cmd += ' '.join(options + [index] + input_args + output_args)
-        logging.info('mosaik command: ' + cmd)
+        logging.info('bwa mem command: ' + cmd)
         if quiet:
             popen_stderr = open(os.devnull, 'w')
         self.pipe = Popen(cmd, shell=True,

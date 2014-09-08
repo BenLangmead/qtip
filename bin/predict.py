@@ -1143,8 +1143,6 @@ class MapqFit:
         # 3.
         assert 'u' in self.trained_models
         secbest = al.secondBestScore
-        if hasattr(al, 'thirdBestScore'):
-            secbest = max(secbest, al.thirdBestScore)
         x_test = [al.bestScore, secbest]
         pcor = self.trained_models['u'].predict(x_test)  # make predictions
 
