@@ -1,5 +1,7 @@
 #!gmake
 
+# might have to export BLD_PLATFORM=macosx64 first on Mac
+
 VER=2.2.3
 NM=MOSAIK-$(VER)
 AR=$(NM)-source.tar

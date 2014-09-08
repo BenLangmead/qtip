@@ -28,3 +28,14 @@ Then we add a little code to print out these new extra fields in mem_aln2sam in 
 
 	if (p->pair_score > 0) { kputsn("\tZP:i:", 6, str); kputw(p->pair_score, str); }
 	if (p->pair_sub > 0) { kputsn("\tZp:i:", 6, str); kputw(p->pair_sub, str); }
+
+
+UPDATE:
+
+I think maybe:
+
+		h[0].pair_score = h[1].pair_score = a[0].a[0].score + a[1].a[0].score;
+
+should actually be:
+
+		h[0].pair_score = h[1].pair_score = o;

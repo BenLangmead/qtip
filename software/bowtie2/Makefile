@@ -14,3 +14,8 @@ bowtie2-git/bowtie2-align: bowtie2-git
 bowtie2-git: $(GIT)
 	$(GIT) clone git@github.com:BenLangmead/bowtie2.git
 	mv bowtie2 $@
+
+.PHONY: clean
+clean:
+	rm -f bowtie2 bowtie2-align
+	rm -rf bowtie2-git
