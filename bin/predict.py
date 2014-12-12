@@ -1183,7 +1183,7 @@ class ModelFamily(object):
         TODO: need to switch to some kind of worklist approach
         """
 
-    def __init__(self, new_predictor, params, round_to, min_separation):
+    def __init__(self, new_predictor, params, round_to, min_separation, start_in_middle=True):
         """
         new_predictor: function that takes set of params and returns
                        new predictor with those params
@@ -1197,7 +1197,10 @@ class ModelFamily(object):
         self.best = float('-inf')
         self.best_rounded = float('-inf')
         self.best_translated_params = None
-        center = tuple([int(round(len(x) / 2)) for x in params])
+        if start_in_middle:
+            center = tuple([int(round(len(x) / 2)) for x in params])
+        else:
+            center = tuple([0] * len(params))
         self.workset = {center}
         self.added_to_workset = copy.copy(self.workset)
         self._add_neighbors_to_workset(center)
@@ -1263,7 +1266,7 @@ def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.02):
                                    random_state=random_seed,
                                    max_features=params[2],
                                    oob_score=True, bootstrap=True)
-    return lambda: ModelFamily(_gen, [range(5, 105, 5), range(3, 20, 2), [0.25, 0.5, 1.0]],
+    return lambda: ModelFamily(_gen, [range(5, 85, 5), range(3, 16, 2), [0.25, 0.5, 1.0]],
                                round_to, min_separation=min_separation)
 
 
