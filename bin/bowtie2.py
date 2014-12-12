@@ -225,6 +225,11 @@ class AlignmentBowtie2(Alignment):
         se = self.__mdRe.search(self.extra)
         if se is not None:
             self.mdz = se.group(1)
+        # Parse Xs:i
+        se = self.__xlsRe.search(self.extra)
+        self.thirdBestScore = None
+        if se is not None:
+            self.thirdBestScore = int(se.group(1))
         # Parse ZP:i
         se = self.__zupRe.search(self.extra)
         self.bestConcordantScore = None

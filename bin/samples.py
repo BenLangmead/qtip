@@ -96,6 +96,8 @@ class UnpairedTuple(object):
     def from_alignment(cls, al, ordlen=0):
         """ Create unpaired training/test tuple from Alignment object """
         secbest = al.secondBestScore
+        if hasattr(al, 'thirdBestScore'):
+            secbest = max(secbest, al.thirdBestScore)
         min_valid, max_valid = None, None
         if hasattr(al, 'minValid'):
             assert hasattr(al, 'maxValid')
@@ -155,6 +157,10 @@ class PairedTuple(object):
     def from_alignments(cls, al1, al2):
         """ Create unpaired training/test tuple from pair of Alignments """
         secbest1, secbest2 = al1.secondBestScore, al2.secondBestScore
+        if hasattr(al1, 'thirdBestScore'):
+            assert hasattr(al2, 'thirdBestScore')
+            secbest1 = max(secbest1, al1.thirdBestScore)
+            secbest2 = max(secbest2, al2.thirdBestScore)
         min_valid1, min_valid2 = None, None
         max_valid1, max_valid2 = None, None
         if hasattr(al1, 'minValid'):

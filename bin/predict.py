@@ -16,6 +16,7 @@ import numpy as np
 import logging
 import gc
 import cPickle
+import copy
 from itertools import imap, izip
 from sklearn import cross_validation
 from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor
@@ -1065,7 +1066,7 @@ class MapqFit:
             if train.shape[0] == 0:
                 continue  # empty
 
-            logger('Fitting %s training data' % ds_long)
+            logger('Fitting %s training data with random seed %d' % (ds_long, self.random_seed))
             # seed pseudo-random generators
             random.seed(self.random_seed)
             np.random.seed(self.random_seed)
@@ -1143,6 +1144,8 @@ class MapqFit:
         # 3.
         assert 'u' in self.trained_models
         secbest = al.secondBestScore
+        if hasattr(al, 'thirdBestScore'):
+            secbest = max(secbest, al.thirdBestScore)
         x_test = [al.bestScore, secbest]
         pcor = self.trained_models['u'].predict(x_test)  # make predictions
 
@@ -1161,6 +1164,7 @@ class MapqFit:
                  logger=logging.info, sample_fraction=1.0, sample_fractions=None,
                  remove_labels=None, include_ztzs=True):
 
+        assert random_seed >= 0
         self.model_gen = model_gen
         self.random_seed = random_seed
         self.trained_models = {}
@@ -1174,118 +1178,93 @@ class MapqFit:
 
 class ModelFamily(object):
     """ Encapsulates a model family and a simple interface for naively
-        searching the space of hyperparameters. """
+        searching the space of hyperparameters.
 
-    def __init__(self, new_predictor, params, tolerance=1e-3):
+        TODO: need to switch to some kind of worklist approach
+        """
+
+    def __init__(self, new_predictor, params, round_to, min_separation):
         """
         new_predictor: function that takes set of params and returns
                        new predictor with those params
         params: list of lists
         """
-        self.new_predictor = new_predictor
-        self.params = params
-        self.center = tuple([int(round(len(x)/2)) for x in params])
-        self.scores = {}
-        self.last_params = None
-        self.neighborhood_scores = None
-        self.tolerance = 0.0
-        self._setup_neighborhood(self.center)
-        self.centers = set()
+        self.new_predictor = new_predictor  # returns new predictor given parameters
+        self.params = params  # space of possible paramter choices
+        self.last_params = None  # remember last set of params used for predictor
+        self.round_to = round_to
+        self.min_separation = min_separation  # have to improve by at least this much to declare new best
+        self.best = float('-inf')
+        self.best_rounded = float('-inf')
+        self.best_translated_params = None
+        center = tuple([int(round(len(x) / 2)) for x in params])
+        self.workset = {center}
+        self.added_to_workset = copy.copy(self.workset)
+        self._add_neighbors_to_workset(center)
 
-    def _setup_neighborhood(self, center):
-        self.neighborhood_scores = {}
+    def _add_neighbors_to_workset(self, center):
         for i in xrange(len(self.params)):
             if center[i] > 0:
                 neighbor = list(center[:])
-                neighbor[i] -= 1
+                neighbor[i] -= 1  # add next-lowest neighbor
                 neighbor = tuple(neighbor)
-                self.neighborhood_scores[neighbor] = self.scores.get(neighbor, None)
+                if neighbor not in self.added_to_workset:
+                    self.added_to_workset.add(neighbor)
+                    self.workset.add(neighbor)
             if center[i] < len(self.params[i])-1:
                 neighbor = list(center[:])
-                neighbor[i] += 1
+                neighbor[i] += 1  # add next-highest neighbor
                 neighbor = tuple(neighbor)
-                self.neighborhood_scores[neighbor] = self.scores.get(neighbor, None)
-
-    def _best_neighbors(self, thresh):
-        assert not self._has_unexplored_neighbors()
-        assert len(self.neighborhood_scores) > 0
-        for n in sorted([(v, k) for k, v in self.neighborhood_scores.iteritems()]):
-            if n[0] >= thresh:
-                yield n[0], n[1]
-                return  # TODO: implement tolerance
-
-    def _has_unexplored_neighbors(self):
-        return any(map(lambda x: x is None, self.neighborhood_scores.itervalues()))
-
-    def _get_unexplored_neighbor(self):
-        for k, v in self.neighborhood_scores.iteritems():
-            if v is None:
-                return k
-        raise RuntimeError('_get_unexplored_neighbor called with no unexplored neighbors')
+                if neighbor not in self.added_to_workset:
+                    self.added_to_workset.add(neighbor)
+                    self.workset.add(neighbor)
 
     def _idxs_to_params(self, idxs):
         return [self.params[i][j] for i, j in enumerate(idxs)]
 
     def next_predictor(self):
-        if self.center not in self.scores:
-            self.centers.add(self.center)
-            self.last_params = self.center
-            translated_params = self._idxs_to_params(self.center)
+        if len(self.workset) > 0:
+            self.last_params = self.workset.pop()
+            translated_params = self._idxs_to_params(self.last_params)
             return translated_params, self.new_predictor(translated_params)
-        while True:
-            if self._has_unexplored_neighbors():
-                # more neighbors to be explored
-                params = self._get_unexplored_neighbor()
-                if params in self.scores:
-                    self.neighborhood_scores[params] = self.scores[params]
-                    continue
-                self.last_params = params
-                translated_params = self._idxs_to_params(params)
-                return translated_params, self.new_predictor(translated_params)
-            else:
-                # just finished exploring neighborhood
-                assert self.center in self.scores
-                center_score = self.scores[self.center]
-                for best_score, best_neighbor in self._best_neighbors(center_score - self.tolerance):
-                    # improved on center
-                    self.center = best_neighbor
-                    self._setup_neighborhood(self.center)
-                    continue
-                else:
-                    # didn't improve on best!
-                    self.last_params = None
-                    return None, None
+        self.last_params = None
+        return None, None
 
     def set_score(self, score):
         assert self.last_params is not None
-        assert self.last_params not in self.scores
-        self.scores[self.last_params] = score
+        assert self.last_params in self.added_to_workset
+        score_rounded = int(score / self.round_to) * self.round_to
+        if score_rounded < self.best_rounded:
+            return
+        if score > self.best + self.min_separation:
+            self.best, self.best_rounded = score, score_rounded
+            self.best_translated_params = self._idxs_to_params(self.last_params)
+            self._add_neighbors_to_workset(self.last_params)
 
     def best_predictor(self):
-        assert len(self.scores) > 0
-        prioritized = sorted([(v, k) for k, v in self.scores.iteritems()])
-        translated_params = self._idxs_to_params(prioritized[-1][1])
-        return translated_params, self.new_predictor(translated_params)
+        return self.best_translated_params, self.new_predictor(self.best_translated_params)
 
 
-def random_forest_models(random_seed=33, tolerance=1e-3):
+def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.02):
     # These perform OK but not as well as the extremely random trees
     def _gen(params):
         return RandomForestRegressor(n_estimators=params[0], max_depth=params[1],
                                      random_state=random_seed,
                                      max_features=2,
                                      oob_score=True, bootstrap=True)
-    return lambda: ModelFamily(_gen, [range(5, 105, 10), range(2, 10)], tolerance)
+    return lambda: ModelFamily(_gen, [range(5, 105, 10), range(2, 10)],
+                               round_to, min_separation=min_separation)
 
 
-def extra_trees_models(random_seed=33, tolerance=1e-3):
+def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.02):
     # These perform quite well
     def _gen(params):
         return ExtraTreesRegressor(n_estimators=params[0], max_depth=params[1],
                                    random_state=random_seed,
-                                   max_features=2,
+                                   max_features=params[2],
                                    oob_score=True, bootstrap=True)
-    return lambda: ModelFamily(_gen, [range(5, 105, 5), range(3, 12)], tolerance)
+    return lambda: ModelFamily(_gen, [range(5, 105, 5), range(3, 20, 2), [0.25, 0.5, 1.0]],
+                               round_to, min_separation=min_separation)
 
 
 def model_family(args):
@@ -1377,27 +1356,36 @@ def go(args):
         logging.info('Doing subsampling series')
         ss_odir = os.path.join(odir, 'subsampled')
         fractions = map(float, args['subsampling_series'].split(','))
-        perf_dicts = [{'fraction': [],
-                       'rank_err_diff_round_pct': [],
-                       'auc_diff_round_pct': [],
-                       'mse_diff_round_pct': [],
-                       'mapq_avg': [],
-                       'mapq_std': [],
-                       'params': []} for _ in xrange(args['subsampling_replicates'])]
+        perf_dicts = {'test': [{'fraction': [],
+                               'rank_err_diff_round_pct': [],
+                               'auc_diff_round_pct': [],
+                               'mse_diff_round_pct': [],
+                               'mapq_avg': [],
+                               'mapq_std': [],
+                               'params': []} for _ in xrange(args['subsampling_replicates'])]}
+        perf_dicts['training'] = copy.deepcopy(perf_dicts['test'])
         for fraction in fractions:
             logging.info('  Fraction=%0.3f' % fraction)
             for repl in xrange(1, args['subsampling_replicates']+1):
-                my_seed = hash(str(args['seed'] + repl))
+                my_seed = hash(str(args['seed'] + repl)) % 4294967296
+                assert my_seed >= 0
                 gc.collect()
                 logging.info('    Replicate=%d' % repl)
                 my_odir = os.path.join(ss_odir, '%0.3f' % fraction, str(repl))
                 mkdir_quiet(my_odir)
+
+                #
+                # Model-related outputs
+                #
+
                 my_fit_fn = os.path.join(my_odir, 'fit.pkl')
                 if os.path.exists(my_fit_fn) and not args['overwrite_fit']:
+                    # Read model fit from a pickled file
                     logging.info('      Loading predictions from file')
                     with open(my_fit_fn, 'rb') as fh:
                         ss_fit = cPickle.load(fh)
                 else:
+                    # Fit model
                     logging.info('      Fitting')
                     ss_fit = MapqFit(df_training, fam, random_seed=my_seed, logger=logging.info,
                                      sample_fraction=fraction, remove_labels=remove_labels,
@@ -1406,6 +1394,7 @@ def go(args):
                         logging.info('      Serializing fit object')
                         with open(my_fit_fn, 'wb') as ofh:
                             cPickle.dump(ss_fit, ofh, 2)
+
                 if args['write_feature_importances'] or args['write_all']:
                     logging.info('      Writing feature importances')
                     for ds, model in ss_fit.trained_models.iteritems():
@@ -1421,45 +1410,61 @@ def go(args):
                             for im, r in zip(importances, inv_ranks):
                                 fh.write('%s\t%0.4f\t%d\n' % (ss_fit.col_names[ds][i], im, r))
                                 i += 1
+
                 if args['write_oob_scores'] or args['write_all']:
                     logging.info('      Writing out-of-bag scores')
                     for ds, model in ss_fit.trained_models.iteritems():
                         my_fi_fn = os.path.join(my_odir, '%s_oob_score.txt' % ds)
                         with open(my_fi_fn, 'w') as fh:
                             fh.write('%0.5f\n' % model.oob_score_)
-                logging.info('      Making predictions')
-                pred_overall, _ = ss_fit.predict(df_test, verbose=args['verbose'], keep_names=True,
-                                                 keep_data=True, keep_per_category=True, remove_labels=remove_labels)
-                logging.info('      Outputting top incorrect alignments')
-                output_top_incorrect(pred_overall, my_odir, args)
-                logging.info('      Making plots')
-                make_plots(pred_overall, my_odir, args, prefix='        ')
-                perf_dicts[repl-1]['fraction'].append(fraction)
-                perf_dicts[repl-1]['rank_err_diff_round_pct'].append(pred_overall.rank_err_diff_round_pct)
-                perf_dicts[repl-1]['auc_diff_round_pct'].append(pred_overall.auc_diff_round_pct)
-                perf_dicts[repl-1]['mse_diff_round_pct'].append(pred_overall.mse_diff_round_pct)
-                perf_dicts[repl-1]['mapq_avg'].append(pred_overall.mapq_avg)
-                perf_dicts[repl-1]['mapq_std'].append(pred_overall.mapq_std)
-                perf_dicts[repl-1]['params'].append(str(ss_fit.trained_params))
+
+                #
+                # Prediction-related outputs
+                #
+
+                # TODO: do this for training as well as test data
+                for df, name in [(df_test, 'test'), (df_training, 'training')]:
+                    pred_odir = os.path.join(my_odir, name)
+                    mkdir_quiet(pred_odir)
+                    logging.info('      Making %s predictions' % name)
+                    pred_overall, _ = ss_fit.predict(
+                        df, verbose=args['verbose'], keep_names=True, keep_data=True,
+                        keep_per_category=True, remove_labels=remove_labels)
+                    logging.info('        Outputting top incorrect alignments')
+                    output_top_incorrect(pred_overall, pred_odir, args)
+                    logging.info('        Making plots')
+                    make_plots(pred_overall, pred_odir, args, prefix='        ')
+
+                    perf_dicts[name][repl-1]['fraction'].append(fraction)
+                    perf_dicts[name][repl-1]['rank_err_diff_round_pct'].append(pred_overall.rank_err_diff_round_pct)
+                    perf_dicts[name][repl-1]['auc_diff_round_pct'].append(pred_overall.auc_diff_round_pct)
+                    perf_dicts[name][repl-1]['mse_diff_round_pct'].append(pred_overall.mse_diff_round_pct)
+                    perf_dicts[name][repl-1]['mapq_avg'].append(pred_overall.mapq_avg)
+                    perf_dicts[name][repl-1]['mapq_std'].append(pred_overall.mapq_std)
+                    perf_dicts[name][repl-1]['params'].append(str(ss_fit.trained_params))
+
+                    # TODO: print columns giving SSE error for each distinct MAPQ
+                    if args['write_roc_table'] or args['write_all']:
+                        logging.info('      Writing ROC table')
+                        my_roc_fn = os.path.join(pred_odir, 'roc_table.tsv')
+                        df = roc_table(pred_overall.pcor, pred_overall.correct, rounded=True, mapqize=True)
+                        df.to_csv(my_roc_fn, sep='\t', index=False)
+                        my_roc_orig_fn = os.path.join(pred_odir, 'roc_table_orig.tsv')
+                        df_orig = roc_table(pred_overall.pcor_orig, pred_overall.correct, rounded=True, mapqize=True)
+                        df_orig.to_csv(my_roc_orig_fn, sep='\t', index=False)
+
                 del ss_fit
                 gc.collect()
 
-                if args['write_roc_table'] or args['write_all']:
-                    logging.info('      Writing ROC table')
-                    my_roc_fn = os.path.join(my_odir, 'roc_table.tsv')
-                    df = roc_table(pred_overall.pcor, pred_overall.correct, rounded=True, mapqize=True)
-                    df.to_csv(my_roc_fn, sep='\t', index=False)
-                    my_roc_orig_fn = os.path.join(my_odir, 'roc_table_orig.tsv')
-                    df_orig = roc_table(pred_overall.pcor_orig, pred_overall.correct, rounded=True, mapqize=True)
-                    df_orig.to_csv(my_roc_orig_fn, sep='\t', index=False)
-
             gc.collect()
-        dfs = [pandas.DataFrame.from_dict(perf_dict) for perf_dict in perf_dicts]
-        for i, df in enumerate(dfs):
-            df.to_csv(os.path.join(odir, 'subsampling_series_%d.tsv' % (i+1)), sep='\t', index=False)
-        plot_subsampling_series(dfs).savefig(os.path.join(odir, 'subsampling_series.' + args['plot_format']))
-        plt.close()
-        assert len(plt.get_fignums()) == 0
+
+        for name in ['test', 'training']:
+            dfs = [pandas.DataFrame.from_dict(perf_dict) for perf_dict in perf_dicts[name]]
+            for i, df in enumerate(dfs):
+                df.to_csv(os.path.join(odir, 'subsampling_series_%s_%d.tsv' % (name, i+1)), sep='\t', index=False)
+            plot_subsampling_series(dfs).savefig(os.path.join(odir, 'subsampling_series_%s.%s' % (name, args['plot_format'])))
+            plt.close()
+            assert len(plt.get_fignums()) == 0
 
     # if the fit already exists, use it unless --overwrite-fit is specified
     fit_fn = os.path.join(odir, 'fit.pkl')
@@ -1469,6 +1474,8 @@ def go(args):
             fit = cPickle.load(fh)
     else:
         logging.info('Fitting and making predictions')
+        my_seed = hash(str(args['seed']) + '-1') % 4294967296
+        assert my_seed >= 0
         fit = MapqFit(df_training, fam, random_seed=my_seed, logger=logging.info, include_ztzs=not args['ignore_ztzs'])
         if args['serialize_fit']:
             logging.info('Serializing fit object')
