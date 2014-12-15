@@ -3,7 +3,8 @@
 # might have to export BLD_PLATFORM=macosx64 first on Mac
 
 VER=2.2.3
-NM=MOSAIK-$(VER)
+NM=MOSAIK
+NM_VER=$(NM)-$(VER)
 AR=$(NM)-source.tar
 URL=https://mosaik-aligner.googlecode.com/files/$(AR)
 
@@ -23,7 +24,7 @@ $(NM)/bin/MosaikBuild $(NM)/bin/MosaikAligner: $(NM)
 
 $(NM): $(AR)
 	tar xvf $<
-	mv $(NM)-source $@
+	mv $(NM_VER)-source $@
 
 $(AR):
 	wget --no-check $(URL)
