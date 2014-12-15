@@ -5,7 +5,7 @@
 VER=2.2.3
 NM=MOSAIK
 NM_VER=$(NM)-$(VER)
-AR=$(NM)-source.tar
+AR=$(NM_VER)-source.tar
 URL=https://mosaik-aligner.googlecode.com/files/$(AR)
 
 .PHONY: all
@@ -32,6 +32,6 @@ $(AR):
 .PHONY: clean
 clean:
 	rm -f mosaik
-	rm -rf MOSAIK-*
+	rm -rf MOSAIK
 	rm -rf bin obj
 	rm -f MosaikAligner MosaikBuild
