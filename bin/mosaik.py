@@ -79,7 +79,7 @@ class Mosaik(Aligner):
         # Compose output arguments
         output_args = []
         if sam is not None:
-            output_args.extend(['>', sam])
+            output_args.extend(['-out', sam])
         else:
             self.output_is_queued = True
             popen_stdout = PIPE
@@ -88,8 +88,8 @@ class Mosaik(Aligner):
             options.append('-p')
         # Put all the arguments together
         cmd += ' '
-        cmd += ' '.join(options + [index] + input_args + output_args)
-        logging.info('bwa mem command: ' + cmd)
+        cmd += ' '.join(options + ['-ia', index] + input_args + output_args)
+        logging.info('MosaikAlign command: ' + cmd)
         if quiet:
             popen_stderr = open(os.devnull, 'w')
         self.pipe = Popen(cmd, shell=True,
