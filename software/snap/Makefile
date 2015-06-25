@@ -17,7 +17,7 @@ $(NM_VER): $(AR)
 	tar xvfz $<
 
 $(AR):
-	wget $(URL)
+	wget -O $(AR) $(URL)
 
 .PHONY: clean
 clean:
