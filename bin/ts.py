@@ -654,6 +654,9 @@ def go(args, aligner_args):
         align_cmd += ' '.join(aligner_args)
         aligner_class, alignment_class = BwaMem, AlignmentBwaMem
     elif args['aligner'] == 'mosaik':
+        if args['use_concurrency']:
+            raise RuntimeError('--use-concurrency cannott be combined with --aligner mosaik; '
+                               'MOSAIK writes BAM directly to a file')
         align_cmd = 'MosaikAlign '
         if args['mosaik_align_exe'] is not None:
             align_cmd = args['mosaik_align_exe'] + ' '
@@ -710,9 +713,10 @@ def go(args, aligner_args):
         if not args['use_concurrency']:
             tim.start_timer('Parsing input read alignments')
             with open(sam_fn, 'r') as sam_fh:
+                # TODO: support parsing of BAM, so we can use MOSAIK
                 othread = AlignmentReader(
                     args,
-                    sam_fh,                # SAM file
+                    sam_fh,                # SAM/BAM file
                     test_data,             # Dataset to gather alignments into
                     dists,                 # empirical dists
                     ref,                   # reference genome
@@ -793,7 +797,7 @@ def go(args, aligner_args):
         # the paired-end and one for the unpaired data.
         
         iters = (1 if dists.has_unpaired_reads() else 0) + (1 if dists.has_pairs() else 0)
-        if iters == 2 and aligner.supportsMix():
+        if iters == 2 and aligner.supports_mix():
             iters = 1
         if iters == 2:
             logging.info('Aligner does not accept unpaired/paired mix; training will have 2 rounds')
@@ -805,7 +809,7 @@ def go(args, aligner_args):
                 continue
             if not paired and not dists.has_unpaired_reads():
                 continue
-            if aligner.supportsMix() and dists.has_pairs() and dists.has_unpaired_reads():
+            if aligner.supports_mix() and dists.has_pairs() and dists.has_unpaired_reads():
                 # Do both unpaired and paired simualted reads in one round
                 both, lab = True, 'both paired-end and unpaired'
 
@@ -914,7 +918,7 @@ def go(args, aligner_args):
                         time.sleep(0.5)
 
                 sam_fn = temp_man.get_filename('training.sam', 'tandem sam')
-                if aligner.supportsMix():
+                if aligner.supports_mix():
                     aligner = aligner_class(align_cmd, args['index'],
                                             unpaired=unpaired_arg, paired_combined=paired_combined_arg,
                                             sam=sam_fn, format=frmt)
@@ -1172,7 +1176,7 @@ def add_args(parser):
     # Resource usage
     parser.add_argument('--use-concurrency', action='store_const', const=True, default=False,
                         help='Use pipes instead of temporary files.  Reduces disk usage '
-                             'but requires more memory.')
+                             'but requires more memory.  Doesn\'t work with all aligners.')
 
 
 def go_profile(args, aligner_args):

@@ -128,7 +128,7 @@ class Mosaik(Aligner):
         assert self.input_is_queued
         self.inQ.put(None)
     
-    def supportsMix(self):
+    def supports_mix(self):
         return False
 
 

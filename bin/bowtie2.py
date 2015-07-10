@@ -128,19 +128,17 @@ class Bowtie2(Aligner):
         assert self.input_is_queued
         self.inQ.put(self.format_read(rd1, rd2, truncate_name=truncate_name))
 
-    @staticmethod
-    def preferred_unpaired_format():
+    def preferred_unpaired_format(self):
         return 'tab6'
 
-    @staticmethod
-    def preferred_paired_format():
+    def preferred_paired_format(self):
         return 'tab6'
 
     def done(self):
         assert self.input_is_queued
         self.inQ.put(None)
     
-    def supportsMix(self):
+    def supports_mix(self):
         return True
 
 

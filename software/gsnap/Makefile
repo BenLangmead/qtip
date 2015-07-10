@@ -6,7 +6,13 @@ NM_VER=$(NM)-$(VER)
 AR=gmap-gsnap-$(VER).tar.gz
 URL=http://research-pub.gene.com/gmap/src/$(AR)
 
-$(NM): $(NM)-src/install-root/bin/gsnap
+.PHONY: all
+all: gsnap gmap_build
+
+gmap_build: $(NM)-src/install-root/bin/gmap_build
+	ln -s -f $< $@
+
+gsnap: $(NM)-src/install-root/bin/gsnap
 	ln -s -f $< $@
 
 $(NM)-src/install-root/bin/gsnap: $(NM)-src/Makefile
