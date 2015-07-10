@@ -1,8 +1,50 @@
+"""
+Encapsulates the SNAP aligner.
+
+An important message from the fine folks at SNAP:
+
+You may process more than one alignment without restarting SNAP, and if possible without reloading
+the index.  In order to do this, list on the command line all of the parameters for the first
+alignment, followed by a comma (separated by a space from the other parameters) followed by the
+parameters for the next alignment (including single or paired).  You may have as many of these
+as you please.  If two consecutive alignments use the same index, it will not be reloaded.
+So, for example, you could do
+
+'snap single hg19-20 foo.fq -o foo.sam , paired hg19-20 end1.fq end2.fq -o paired.sam'
+
+and it would not reload the index between the single and paired alignments.
+
+And another important message:
+
+When specifying an input or output file, you can simply list the filename, in which case
+SNAP will infer the type of the file from the file extension (.sam or .bam for example),
+or you can explicitly specify the file type by preceeding the filename with one of the
+ following type specifiers (which are case sensitive):
+    -fastq
+    -compressedFastq
+    -sam
+    -bam
+    -pairedFastq
+    -pairedInterleavedFastq
+    -pairedCompressedInterleavedFastq
+
+Input and output may also be from/to stdin/stdout. To do that, use a - for the input or output file
+name and give an explicit type specifier.  So, for example,
+snap single myIndex -fastq - -o -sam -
+would read FASTQ from stdin and write SAM to stdout.
+
+A couple of "paired" mode parameters to know about:
+
+  -s   min and max spacing to allow between paired ends (default: 50 1000).
+  -fs  force spacing to lie between min and max.
+"""
+
 import os
 import logging
 import re
 import string
 import sys
+import operator
 from subprocess import Popen, PIPE
 from read import Read, Alignment
 from threading import Thread
@@ -15,24 +57,34 @@ except ImportError:
     from queue import Queue  # python 3.x
 
 
-class Mosaik(Aligner):
+class SnapAligner(Aligner):
     
-    """ Encapsulates a BWA-MEM process.  The input can be a FASTQ
+    """ Encapsulates a snap-aligner process.  The input can be a FASTQ
         file, or a Queue onto which the caller enqueues reads.
         Similarly, output can be a SAM file, or a Queue from which the
         caller dequeues SAM records.  All records are textual; parsing
         is up to the user. """
-    
+
+    _input_args = ['-fastq',
+                   '-compressedFastq',
+                   '-sam',
+                   '-bam',
+                   '-pairedFastq',
+                   '-pairedInterleavedFastq',
+                   '-pairedCompressedInterleavedFastq']
+
+    _output_args = ['-o', '-sam', '-bam']
+
     def __init__(self,
                  cmd,
                  index,
-                 unpaired=None,
-                 paired=None,
-                 paired_combined=None,
-                 pairsOnly=False,
+                 unpaired=None,  # -fastq
+                 paired=None,  # -pairedFastq
+                 paired_combined=None,  # -pairedInterleavedFastq
+                 pairs_only=False,
                  sam=None,
                  quiet=False,
-                 format=None):
+                 input_format=None):
         """ Create new process.
             
             Inputs:
@@ -49,47 +101,73 @@ class Mosaik(Aligner):
             stored.  If 'sam' is none, SAM records will be added to
             the outQ.
         """
-        if paired is not None:
-            raise RuntimeError('Mosaik does not accept separate mate1/mate2 files')
+
         if index is None:
-            raise RuntimeError('Must specify --index when aligner is mosaik')
-        options = []
+            raise RuntimeError('Must specify --index when aligner is SNAP')
+
+        cmd_toks = cmd.split()
         popen_stdin, popen_stdout, popen_stderr = None, None, None
         self.inQ, self.outQ = None, None
+
+        #
         # Compose input arguments
-        if unpaired is not None and len(unpaired) > 1:
-            raise RuntimeError('mosaik can\'t handle more than one input file at a time')
-        if paired is not None and len(paired) > 1:
-            raise RuntimeError('mosaik can\'t handle more than one input file at a time')
-        if paired_combined is not None and len(paired_combined) > 1:
-            raise RuntimeError('mosaik can\'t handle more than one input file at a time')
-        if unpaired is not None and (paired is not None or paired_combined is not None):
-            raise RuntimeError('bwa mem can\'t handle unpaired and paired-end inputs at the same time')
+        #
+
+        for tok in self._input_args:
+            assert tok not in cmd_toks
+
         self.input_is_queued = False
         self.output_is_queued = False
-        input_args = []
-        if unpaired is not None:
-            input_args = ['-in', unpaired[0]]
+
+        args_single, args_paired = ['single'], ['paired']
+
         if paired_combined is not None:
-            input_args = ['-in', paired_combined[0]]
+            assert paired is None
+            assert input_format == 'interleaved_fastq'
+            args_paired.append('-pairedInterleavedFastq')
+            args_paired.extend(paired_combined)
+        elif paired is not None:
+            assert paired_combined is None
+            assert input_format == 'fastq'
+            args_paired.append('-pairedFastq')
+            args_paired.extend(list(reduce(operator.concat, paired)))
+
+        if unpaired is not None:
+            assert input_format == 'fastq'
+            args_single.append('-fastq')
+            args_single.extend(unpaired)
+
         if unpaired is None and paired is None and paired_combined is None:
-            input_args = ['-']
-            popen_stdin = PIPE
-            self.input_is_queued = True
+            raise RuntimeError('Cannot instantiate SnapAligner without input file(s) specified')
+
+        #
         # Compose output arguments
-        output_args = []
+        #
+
+        for tok in self._output_args:
+            assert tok not in cmd_toks
+
+        # Compose output arguments
+        args_output = ['-o', '-sam']
         if sam is not None:
-            output_args.extend(['-out', sam])
+            args_output.append(sam)
         else:
+            args_output.append('-')
             self.output_is_queued = True
             popen_stdout = PIPE
-        # Tell bwa mem whether to expected paired-end interleaved input
-        if pairsOnly:
-            options.append('-p')
+
         # Put all the arguments together
-        cmd += ' '
-        cmd += ' '.join(options + ['-ia', index] + input_args + output_args)
-        logging.info('MosaikAlign command: ' + cmd)
+        cmd = ''
+        if len(args_single) > 1:
+            cmd += ' '.join([index] + args_single)
+        if len(args_paired) > 1:
+            if len(cmd) > 0:
+                cmd += ' , '
+            cmd += ' '.join([index] + args_paired)
+        cmd += ' ' + ' '.join([args_output])
+        cmd += ' ' + ' '.join(cmd_toks)
+
+        logging.info('SNAP command: ' + cmd)
         if quiet:
             popen_stderr = open(os.devnull, 'w')
         self.pipe = Popen(cmd, shell=True,
@@ -127,15 +205,20 @@ class Mosaik(Aligner):
     def done(self):
         assert self.input_is_queued
         self.inQ.put(None)
-    
+
     def supports_mix(self):
+        """
+        Note: return value of true doesn't just mean it can take some unpaired
+        and some paired in a given invocation; it also means that can be
+        interleaved in the input.
+        """
         return False
 
 
-class AlignmentMosaik(Alignment):
-    """ Encapsulates a bwa mem SAM alignment record.  Parses certain
-        important SAM extra fields output by bwa mem. """
-    
+class AlignmentSnap(Alignment):
+    """ Encapsulates a SNAP SAM alignment record.  Parses certain
+        important SAM extra fields output by snap-aligner. """
+
     __asRe = re.compile('AS:i:([-]?[0-9]+)')  # best score
     __xsRe = re.compile('XS:i:([-]?[0-9]+)')  # second-best score
     __mdRe = re.compile('MD:Z:([^\s]+)')  # MD:Z string
@@ -144,7 +227,7 @@ class AlignmentMosaik(Alignment):
     __ztRe = re.compile('ZT:Z:([^\s]*)')  # extra features
 
     def __init__(self):
-        super(AlignmentMosaik, self).__init__()
+        super(AlignmentSnap, self).__init__()
         self.name = None
         self.flags = None
         self.refid = None
@@ -171,7 +254,7 @@ class AlignmentMosaik(Alignment):
         self.mdz = None
 
     def parse(self, ln):
-        """ Parse ln, which is a line of SAM output from bwa mem.  The line
+        """ Parse ln, which is a line of SAM output from SNAP.  The line
             must correspond to an aligned read. """
         self.name, self.flags, self.refid, self.pos, self.mapq, self.cigar, \
             self.rnext, self.pnext, self.tlen, self.seq, self.qual, self.extra = \
@@ -223,8 +306,8 @@ class AlignmentMosaik(Alignment):
         if se is not None:
             self.mdz = se.group(1)
         assert self.rep_ok()
-    
+
     def rep_ok(self):
         # Call parent's repOk
-        assert super(AlignmentMosaik, self).rep_ok()
+        assert super(AlignmentSnap, self).rep_ok()
         return True

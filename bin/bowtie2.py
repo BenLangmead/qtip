@@ -30,10 +30,10 @@ class Bowtie2(Aligner):
                  unpaired=None,
                  paired=None,
                  paired_combined=None,
-                 pairsOnly=False,
+                 pairs_only=False,
                  sam=None,
                  quiet=False,
-                 format=None):
+                 input_format=None):
         """ Create new process.
             
             Inputs:
@@ -65,27 +65,27 @@ class Bowtie2(Aligner):
         # Some of the Bowtie 2's format-related parameters take an
         # argument (e.g. -U, -1, -2, --tab5, --tab6) and some don't
         # (-f, -q, -r, -c)
-        if format in ['fastq', 'fasta', 'raw']:
-            if format == 'fastq':
+        if input_format in ['fastq', 'fasta', 'raw']:
+            if input_format == 'fastq':
                 input_args.append('-q')
-            elif format == 'fastq':
+            elif input_format == 'fastq':
                 input_args.append('-f')
-            elif format == 'raw':
+            elif input_format == 'raw':
                 input_args.append('-r')
-            format = None
+            input_format = None
         if unpaired is not None:
-            input_args.append(('--%s' % format) if format is not None else '-U')
+            input_args.append(('--%s' % input_format) if input_format is not None else '-U')
             input_args.append(','.join(unpaired))
         if paired is not None:
-            assert format not in ['tab5', 'tab6', '12']
+            assert input_format not in ['tab5', 'tab6', '12']
             input_args.extend(['-1', ','.join(map(itemgetter(0), paired))])
             input_args.extend(['-2', ','.join(map(itemgetter(1), paired))])
         if paired_combined is not None:
-            assert format is not None
-            input_args.extend(['--%s' % format, ','.join(paired_combined)])
+            assert input_format is not None
+            input_args.extend(['--%s' % input_format, ','.join(paired_combined)])
         if unpaired is None and paired is None and paired_combined is None:
-            assert format is not None
-            input_args.extend(['--%s' % format, '-'])
+            assert input_format is not None
+            input_args.extend(['--%s' % input_format, '-'])
             popen_stdin = PIPE
             self.input_is_queued = True
         # Make sure output arguments haven't been specified already
@@ -140,7 +140,7 @@ class Bowtie2(Aligner):
         assert self.input_is_queued
         self.inQ.put(None)
     
-    def supportsMix(self):
+    def supports_mix(self):
         return True
 
 

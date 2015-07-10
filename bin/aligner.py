@@ -1,8 +1,14 @@
-'''
+"""
 aligner.py
 
-Encapsulates an aligner.
-'''
+Encapsulates an aligner.  Classes for specific aligners inherit from
+this class and override the constructor and these three member
+functions.  Some points about these overrides:
+
+1. The constructor
+
+2. Put is a function that, given a read, will
+"""
 
 from abc import ABCMeta, abstractmethod
 
@@ -18,5 +24,5 @@ class Aligner(object):
         pass
     
     @abstractmethod
-    def supportsMix(self):
+    def supports_mix(self):
         pass

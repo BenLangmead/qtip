@@ -7,11 +7,11 @@ NM=snap
 NM_VER=snap-$(VER)
 
 $(NM)/snap-aligner: $(NM)
-	make -C $(NM) CXX=g++-5
+	make -C $(NM) # CXX=g++-5
 
 $(NM): $(NM_VER)
 	mv $< $@
-	cd $@ && patch -p1 < ../snap_patch.diff
+#	cd $@ && patch -p1 < ../snap_patch.diff
 
 $(NM_VER): $(AR)
 	tar xvfz $<

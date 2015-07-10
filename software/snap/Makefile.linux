@@ -1,0 +1,29 @@
+#!gmake
+
+# Illumina version: 2.1.8
+# 454 version: 2.5.8
+
+AR=artbinvanillaicecream031114linux64tgz.tgz
+URL=http://www.niehs.nih.gov/research/resources/assets/docs/$(AR)
+ARCH=Linux64
+
+.PHONY: all
+all: art_illumina art_454
+
+art_illumina: $(ARCH)/art_illumina
+	ln -s -f $< $@
+
+art_454: $(ARCH)/art_454
+	ln -s -f $< $@
+
+$(ARCH)/art_illumina $(ARCH)/art_454: $(AR)
+	gzip -dc $< | tar xvf -
+
+$(AR):
+	wget $(URL)
+
+.PHONY: clean
+clean:
+	rm -f art_illumina art_454
+	rm -rf $(ARCH)
+	rm -f *.tgz

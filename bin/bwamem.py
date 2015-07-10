@@ -29,10 +29,10 @@ class BwaMem(Aligner):
                  unpaired=None,
                  paired=None,
                  paired_combined=None,
-                 pairsOnly=False,
+                 pairs_only=False,
                  sam=None,
                  quiet=False,
-                 format=None):
+                 input_format=None):
         """ Create new process.
             
             Inputs:
@@ -75,6 +75,7 @@ class BwaMem(Aligner):
             options.append('-p')
             input_args = [paired_combined[0]]
         if unpaired is None and paired is None and paired_combined is None:
+
             input_args = ['-']
             popen_stdin = PIPE
             self.input_is_queued = True
@@ -86,7 +87,7 @@ class BwaMem(Aligner):
             self.output_is_queued = True
             popen_stdout = PIPE
         # Tell bwa mem whether to expected paired-end interleaved input
-        if pairsOnly:
+        if pairs_only:
             options.append('-p')
         # Put all the arguments together
         cmd += ' '
@@ -130,7 +131,7 @@ class BwaMem(Aligner):
         assert self.input_is_queued
         self.inQ.put(None)
     
-    def supportsMix(self):
+    def supports_mix(self):
         return False
 
 

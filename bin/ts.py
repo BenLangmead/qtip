@@ -66,6 +66,7 @@ from read import Read, Alignment
 from bowtie2 import AlignmentBowtie2, Bowtie2
 from bwamem import AlignmentBwaMem, BwaMem
 from mosaik import AlignmentMosaik, Mosaik
+from snap import AlignmentSnap, SnapAligner
 from reference import ReferenceIndexed, ReferenceOOB
 from tempman import TemporaryFileManager
 
@@ -659,6 +660,8 @@ def go(args, aligner_args):
             align_cmd = args['mosaik_align_exe'] + ' '
         align_cmd += ' '.join(aligner_args)
         aligner_class, alignment_class = Mosaik, AlignmentMosaik
+    elif args['aligner'] == 'snap':
+        pass  # TODO
     elif args['aligner'] is not None:
         raise RuntimeError('Aligner not supported: "%s"' % args['aligner'])
 
@@ -793,7 +796,7 @@ def go(args, aligner_args):
         # the paired-end and one for the unpaired data.
         
         iters = (1 if dists.has_unpaired_reads() else 0) + (1 if dists.has_pairs() else 0)
-        if iters == 2 and aligner.supportsMix():
+        if iters == 2 and aligner.supports_mix():
             iters = 1
         if iters == 2:
             logging.info('Aligner does not accept unpaired/paired mix; training will have 2 rounds')
@@ -805,13 +808,14 @@ def go(args, aligner_args):
                 continue
             if not paired and not dists.has_unpaired_reads():
                 continue
-            if aligner.supportsMix() and dists.has_pairs() and dists.has_unpaired_reads():
+            if aligner.supports_mix() and dists.has_pairs() and dists.has_unpaired_reads():
                 # Do both unpaired and paired simualted reads in one round
                 both, lab = True, 'both paired-end and unpaired'
 
             def simulate(simw, aligner=None, frmt='tab6'):
-                """ Need to re-think this to accomodate the case where we're
-                    writing to a file instead of directly to aligner """
+                """ Simulates reads.  Either pipes them directly to the aligner
+                    (when not write_training_reads and args['use_concurrency']
+                    or writes them to various files and returns those. """
                 write_training_reads = args['write_training_reads'] or args['write_all']
                 training_out_fn, training_out_fh = {}, {}
                 if write_training_reads or not args['use_concurrency']:
@@ -834,17 +838,26 @@ def go(args, aligner_args):
                                                          args['sim_conc_min'], args['sim_disc_min'],
                                                          args['sim_bad_end_min']):
                     if t in training_out_fh:
+                        # read is going to a file
                         if frmt == 'tab6':
+                            # preferred format for Bowtie 2
                             training_out_fh[t].write(Read.to_tab6(rdp1, rdp2) + '\n')
                         elif frmt == 'interleaved_fastq':
+                            # preferred paired-end format for BWA & SNAP
                             training_out_fh[t].write(Read.to_interleaved_fastq(rdp1, rdp2) + '\n')
                         elif frmt == 'fastq':
+                            # preferred unpaired format for BWA & SNAP
                             assert rdp2 is None
                             training_out_fh[t].write(Read.to_fastq(rdp1) + '\n')
                         else:
                             raise RuntimeError('Bad training read output format "%s"' % frmt)
                     if aligner is not None:
-                        aligner.put(rdp1, rdp2)
+                        # here, there's no guarantee about the order in which
+                        # reads are being fed to the aligner, so the aligner
+                        # had better be ready to accept a mixed stream of
+                        # unpaired and paired
+                        assert aligner.supports_mix()
+                        aligner.put(rdp1, rdp2)  # read is going directly to the aligner
                     typ_count[t] += 1
                     n_simread += 1
                     if (n_simread % 20000) == 0:
@@ -852,7 +865,7 @@ def go(args, aligner_args):
                                      (n_simread, typ_count['conc'], typ_count['disc'],
                                       typ_count['bad_end'], typ_count['unp']))
 
-                for t in training_out_fh.iterkeys():
+                for t in training_out_fh.keys():
                     training_out_fh[t].close()
                     logging.info('  Training reads written to "%s"' % training_out_fn[t])
 
@@ -899,6 +912,8 @@ def go(args, aligner_args):
                                         fh.write(ln)
                         paired_combined_arg = [fn]
 
+                assert unpaired_arg is not None or paired_combined_arg is not None
+
                 logging.info('Finished simulating tandem reads')
                 tim.end_timer('Simulating tandem reads')
 
@@ -914,28 +929,28 @@ def go(args, aligner_args):
                         time.sleep(0.5)
 
                 sam_fn = temp_man.get_filename('training.sam', 'tandem sam')
-                if aligner.supportsMix():
-                    aligner = aligner_class(align_cmd, args['index'],
+                if aligner.supports_mix():
+                    aligner = aligner_class(align_cmd, args['index'],  # no concurrency
                                             unpaired=unpaired_arg, paired_combined=paired_combined_arg,
-                                            sam=sam_fn, format=frmt)
-
+                                            sam=sam_fn, input_format=frmt)
+                    # the aligner_class gets to decide what order to do unpaired/paired
                     _wait_for_aligner(aligner)
-                    logging.debug('Finished aligning unpaired tandem reads')
+                    logging.debug('Finished aligning unpaired and paired-end tandem reads')
                 else:
                     paired_sam, unpaired_sam = None, None
                     if unpaired_arg is not None:
                         unpaired_sam = temp_man.get_filename('training_unpaired.sam', 'tandem sam')
-                        aligner = aligner_class(align_cmd, args['index'],
+                        aligner = aligner_class(align_cmd, args['index'],  # no concurrency
                                                 unpaired=unpaired_arg, paired_combined=None,
-                                                sam=unpaired_sam, format=frmt)
+                                                sam=unpaired_sam, input_format=frmt)
                         _wait_for_aligner(aligner)
                         logging.debug('Finished aligning unpaired tandem reads')
 
                     if paired_combined_arg is not None:
                         paired_sam = temp_man.get_filename('training_paired.sam', 'tandem sam')
-                        aligner = aligner_class(align_cmd, args['index'],
+                        aligner = aligner_class(align_cmd, args['index'],  # no concurrency
                                                 unpaired=None, paired_combined=paired_combined_arg,
-                                                sam=paired_sam, format=frmt)
+                                                sam=paired_sam, input_format=frmt)
                         _wait_for_aligner(aligner)
                         logging.debug('Finished aligning paired-end tandem reads')
 
@@ -982,8 +997,9 @@ def go(args, aligner_args):
                 tim.end_timer('Parsing tandem alignments')
             else:
 
-                logging.info('Opening aligner process')
-                aligner = aligner_class(align_cmd, args['index'], pairsOnly=paired)
+                logging.info('Opening aligner process using concurrency')
+                # Does the aligner always get unpaireds before paireds or vice versa?
+                aligner = aligner_class(align_cmd, args['index'], pairs_only=paired)
                 sam_fn = os.path.join(args['output_directory'], 'training.sam')
                 training_sam_fh = open(sam_fn, 'w') if (args['write_training_sam'] or args['write_all']) else None
                 cor_dist, incor_dist = defaultdict(int), defaultdict(int)
@@ -1006,6 +1022,8 @@ def go(args, aligner_args):
                 othread.start()
                 assert othread.is_alive()
 
+                # uses aligner.put to pump simulated reads directly into aligner
+                # always simulates
                 typ_sim_count, training_out_fn = simulate(simw, aligner, frmt='tab6')
                 aligner.done()
 
@@ -1135,7 +1153,9 @@ def add_args(parser):
     parser.add_argument('--bwa-exe', metavar='path', type=str, help='Path to BWA exe')
     parser.add_argument('--mosaik-align-exe', metavar='path', type=str, help='Path to MosaikAlign exe')
     parser.add_argument('--mosaik-build-exe', metavar='path', type=str, help='Path to MosaikBuild exe')
-    parser.add_argument('--aligner', metavar='name', default='bowtie2', type=str, help='bowtie2 | bwa-mem | mosaik')
+    parser.add_argument('--snap-exe', metavar='path', type=str, help='Path to snap-aligner exe')
+    parser.add_argument('--aligner', metavar='name', default='bowtie2', type=str,
+                        help='bowtie2 | bwa-mem | mosaik | snap')
 
     # For when input is itself simulated, so we can output a Dataset with the
     # 'correct' column filled in properly
