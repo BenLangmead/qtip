@@ -1,0 +1,15 @@
+Binary files snap/SNAPCommand and snap-fixed/SNAPCommand differ
+diff -rupN --exclude='*.o' --exclude='*.d' snap/SNAPLib/SortedDataWriter.cpp snap-fixed/SNAPLib/SortedDataWriter.cpp
+--- snap/SNAPLib/SortedDataWriter.cpp	2015-05-06 18:39:48.000000000 -0400
++++ snap-fixed/SNAPLib/SortedDataWriter.cpp	2015-06-25 10:23:40.000000000 -0400
+@@ -335,7 +335,7 @@ SortedDataFilterSupplier::mergeSort()
+     }
+     for (SortBlockVector::iterator i = blocks.begin(); i != blocks.end(); i++) {
+         i->reader = readerSupplier->getDataReader(1, MAX_READ_LENGTH * 8, 0.0,
+-            min(1UL << 23, max(1UL << 17, bufferSpace / blocks.size()))); // 128kB to 8MB buffer space per block
++            min(1ULL << 23, max(1ULL << 17, bufferSpace / blocks.size()))); // 128kB to 8MB buffer space per block
+         i->reader->init(tempFileName);
+         i->reader->reinit(i->start, i->bytes);
+     }
+Binary files snap/snap-aligner and snap-fixed/snap-aligner differ
+Binary files snap/unit_tests and snap-fixed/unit_tests differ
