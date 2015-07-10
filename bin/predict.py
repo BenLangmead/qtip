@@ -1421,6 +1421,13 @@ def go(args):
                         with open(my_fi_fn, 'w') as fh:
                             fh.write('%0.5f\n' % model.oob_score_)
 
+                if args['write_params'] or args['write_all']:
+                    logging.info('      Writing parameters selected by cross-validation')
+                    for ds, model in ss_fit.trained_models.iteritems():
+                        my_fi_fn = os.path.join(my_odir, '%s_oob_score.txt' % ds)
+                        with open(my_fi_fn, 'w') as fh:
+                            fh.write('%0.5f\n' % model.oob_score_)
+
                 #
                 # Prediction-related outputs
                 #

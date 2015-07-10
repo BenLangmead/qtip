@@ -655,6 +655,9 @@ def go(args, aligner_args):
         align_cmd += ' '.join(aligner_args)
         aligner_class, alignment_class = BwaMem, AlignmentBwaMem
     elif args['aligner'] == 'mosaik':
+        if args['use_concurrency']:
+            raise RuntimeError('--use-concurrency cannott be combined with --aligner mosaik; '
+                               'MOSAIK writes BAM directly to a file')
         align_cmd = 'MosaikAlign '
         if args['mosaik_align_exe'] is not None:
             align_cmd = args['mosaik_align_exe'] + ' '
@@ -713,9 +716,10 @@ def go(args, aligner_args):
         if not args['use_concurrency']:
             tim.start_timer('Parsing input read alignments')
             with open(sam_fn, 'r') as sam_fh:
+                # TODO: support parsing of BAM, so we can use MOSAIK
                 othread = AlignmentReader(
                     args,
-                    sam_fh,                # SAM file
+                    sam_fh,                # SAM/BAM file
                     test_data,             # Dataset to gather alignments into
                     dists,                 # empirical dists
                     ref,                   # reference genome
@@ -1192,7 +1196,7 @@ def add_args(parser):
     # Resource usage
     parser.add_argument('--use-concurrency', action='store_const', const=True, default=False,
                         help='Use pipes instead of temporary files.  Reduces disk usage '
-                             'but requires more memory.')
+                             'but requires more memory.  Doesn\'t work with all aligners.')
 
 
 def go_profile(args, aligner_args):

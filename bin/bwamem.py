@@ -119,12 +119,10 @@ class BwaMem(Aligner):
         assert self.input_is_queued
         self.inQ.put(self.format_read(rd1, rd2, truncate_name=truncate_name))
 
-    @staticmethod
-    def preferred_unpaired_format():
+    def preferred_unpaired_format(self):
         return 'fastq'
 
-    @staticmethod
-    def preferred_paired_format():
+    def preferred_paired_format(self):
         return 'interleaved_fastq'
 
     def done(self):
