@@ -119,7 +119,7 @@ class SnapAligner(Aligner):
         self.input_is_queued = False
         self.output_is_queued = False
 
-        args_single, args_paired = ['single'], ['paired']
+        args_single, args_paired = ['single', index], ['paired', index]
 
         if paired_combined is not None:
             assert paired is None
@@ -155,11 +155,11 @@ class SnapAligner(Aligner):
 
         # Put all the arguments together
         if len(args_single) > 1:
-            cmd += ' '.join([index] + args_single)
+            cmd += ' '.join(args_single)
         if len(args_paired) > 1:
             if len(cmd) > 0:
                 cmd += ' , '
-            cmd += ' '.join([index] + args_paired)
+            cmd += ' '.join(args_paired)
         cmd += ' ' + ' '.join(args_output)
         cmd += ' ' + ' '.join(cmd_toks)
 
