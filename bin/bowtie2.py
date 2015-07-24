@@ -141,6 +141,16 @@ class Bowtie2(Aligner):
     def supports_mix(self):
         return True
 
+    def supports_concurrency(self):
+        """ Can take input reads on a queue and write output alignments
+            to a queue?  Otherwise, . """
+        return True
+
+    def writes_bam(self):
+        """ Writes BAM directly to a file (like MOSAIK)?  Otherwise, we
+            assume it writes SAM to stdout. """
+        return False
+
 
 class AlignmentBowtie2(Alignment):
     """ Encapsulates a Bowtie 2 SAM alignment record.  Parses certain

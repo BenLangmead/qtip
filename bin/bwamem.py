@@ -132,6 +132,16 @@ class BwaMem(Aligner):
     def supports_mix(self):
         return False
 
+    def supports_concurrency(self):
+        """ Can take input reads on a queue and write output alignments
+            to a queue?  Otherwise, . """
+        return False
+
+    def writes_bam(self):
+        """ Writes BAM directly to a file (like MOSAIK)?  Otherwise, we
+            assume it writes SAM to stdout. """
+        return False
+
 
 class AlignmentBwaMem(Alignment):
     """ Encapsulates a bwa mem SAM alignment record.  Parses certain
