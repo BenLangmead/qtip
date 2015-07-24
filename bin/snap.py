@@ -161,7 +161,7 @@ class SnapAligner(Aligner):
             if len(cmd) > 0:
                 cmd += ' , '
             cmd += ' '.join([index] + args_paired)
-        cmd += ' ' + ' '.join([args_output])
+        cmd += ' ' + ' '.join(args_output)
         cmd += ' ' + ' '.join(cmd_toks)
 
         logging.info('SNAP command: ' + cmd)
