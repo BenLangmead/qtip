@@ -5,7 +5,7 @@ from rpy2.robjects.packages import importr
 import rpy2.robjects as robjects
 import logging
 
-qsim_dir = '/Users/langmead/Documents/workspace/mapq'
+qsim_dir = os.environ['HOME'] + '/git/mapq'
 simdata_dir = os.path.join(qsim_dir, 'data', 'simulated_reads')
 roc_table_base = os.path.join(simdata_dir, 'summary', 'roc_table', 'test')
 sub_table_base = os.path.join(simdata_dir, 'summary', 'subsampling_tables', 'test')
