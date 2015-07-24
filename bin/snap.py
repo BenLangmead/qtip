@@ -123,17 +123,14 @@ class SnapAligner(Aligner):
 
         if paired_combined is not None:
             assert paired is None
-            assert input_format == 'interleaved_fastq', input_format
             args_paired.append('-pairedInterleavedFastq')
             args_paired.extend(paired_combined)
         elif paired is not None:
             assert paired_combined is None
-            assert input_format == 'fastq', input_format
             args_paired.append('-pairedFastq')
             args_paired.extend(list(reduce(operator.concat, paired)))
 
         if unpaired is not None:
-            assert input_format == 'fastq', input_format
             args_single.append('-fastq')
             args_single.extend(unpaired)
 
