@@ -123,17 +123,17 @@ class SnapAligner(Aligner):
 
         if paired_combined is not None:
             assert paired is None
-            assert input_format == 'interleaved_fastq'
+            assert input_format == 'interleaved_fastq', input_format
             args_paired.append('-pairedInterleavedFastq')
             args_paired.extend(paired_combined)
         elif paired is not None:
             assert paired_combined is None
-            assert input_format == 'fastq'
+            assert input_format == 'fastq', input_format
             args_paired.append('-pairedFastq')
             args_paired.extend(list(reduce(operator.concat, paired)))
 
         if unpaired is not None:
-            assert input_format == 'fastq'
+            assert input_format == 'fastq', input_format
             args_single.append('-fastq')
             args_single.extend(unpaired)
 
@@ -212,6 +212,16 @@ class SnapAligner(Aligner):
         and some paired in a given invocation; it also means that can be
         interleaved in the input.
         """
+        return False
+
+    def supports_concurrency(self):
+        """ Can take input reads on a queue and write output alignments
+            to a queue?  Otherwise, . """
+        return False  # might be True
+
+    def writes_bam(self):
+        """ Writes BAM directly to a file (like MOSAIK)?  Otherwise, we
+            assume it writes SAM to stdout. """
         return False
 
 
