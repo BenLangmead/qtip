@@ -154,9 +154,9 @@ class SnapAligner(Aligner):
             popen_stdout = PIPE
 
         # Put all the arguments together
-        if len(args_single) > 1:
+        if len(args_single) > 2:
             cmd += ' '.join(args_single)
-        if len(args_paired) > 1:
+        if len(args_paired) > 2:
             if len(cmd) > 0:
                 cmd += ' , '
             cmd += ' '.join(args_paired)
