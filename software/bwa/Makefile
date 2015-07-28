@@ -13,7 +13,7 @@ $(NM)/bwa: $(NM)
 
 $(NM): $(AR) bwa_conc_flags.patch
 	tar jxvf $<
-	cd $@ && patch -p1 < ../bwa_conc_flags.patch
+	cd $@ && patch -p1 < ../bwa_conc_flags_0.7.12.patch
 
 $(AR):
 	wget $(URL)
