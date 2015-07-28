@@ -166,7 +166,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/ReadWriter.cpp snap/SNAPLib/ReadWri
                      if (0 == addFrontClipping) {
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
 --- tmp/snap/SNAPLib/SAM.cpp	2015-07-28 15:15:02.000000000 -0400
-+++ snap/SNAPLib/SAM.cpp	2015-07-28 16:57:37.000000000 -0400
++++ snap/SNAPLib/SAM.cpp	2015-07-28 17:02:32.000000000 -0400
 @@ -1123,6 +1123,7 @@ SAMFormat::writeRead(
      Read * read,
      AlignmentResult result, 
@@ -182,8 +182,8 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
 -    int charsInString = snprintf(buffer, bufferSpace, "%.*s\t%d\t%s\t%u\t%d\t%s\t%s\t%u\t%lld\t%.*s\t%.*s%s%.*s%s%s\tPG:Z:SNAP%s%.*s\n",
 +	// AS:i
 +	char asibuf[100];
-+	const char* asiSeparator = "\tAS:i:-";
-+	snprintf(asibuf, 100, "%d", features.bestScore);
++	const char* asiSeparator = "\tAS:i:";
++	snprintf(asibuf, 100, "%d", -features.bestScore);
 +	const char* asiString = asibuf;
 +	
 +	// XS:i
@@ -191,8 +191,8 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
 +	const char *xsiSeparator = "";
 +	const char* xsiString = "";
 +	if(features.secondBestScore != 0xffff) {
-+		snprintf(xsibuf, 100, "%d", features.secondBestScore);
-+		xsiSeparator = "\tXS:i:-";
++		snprintf(xsibuf, 100, "%d", -features.secondBestScore);
++		xsiSeparator = "\tXS:i:";
 +		xsiString = xsibuf;
 +	}
 +	
