@@ -22,6 +22,6 @@ $(AR):
 
 .PHONY: clean
 clean:
-	rm -f bwa
+	rm -fr snap snap-$(VER)
 	rm -f *.tar.gz
 
