@@ -1,0 +1,187 @@
+diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/AlignmentResult.h
+--- tmp/snap/SNAPLib/AlignmentResult.h	2015-07-28 15:15:02.000000000 -0400
++++ snap/SNAPLib/AlignmentResult.h	2015-07-25 21:09:25.000000000 -0400
+@@ -46,6 +46,35 @@ inline const char *AlignmentResultToStri
+     }
+ }
+ 
++struct TS_MapqEstimationFeatures {
++	
++	TS_MapqEstimationFeatures() :
++	bestScore(0),
++	secondBestScore(0),
++	probabilityOfAllCandidates(0.0),
++	probabilityOfBestCandidate(0.0),
++	popularSeedsSkipped(0) { }
++	
++	void init(unsigned _bestScore,
++			  unsigned _secondBestScore,
++			  double _probabilityOfAllCandidates,
++			  double _probabilityOfBestCandidate,
++			  unsigned _popularSeedsSkipped)
++	{
++		bestScore = _bestScore;
++		secondBestScore = _secondBestScore;
++		probabilityOfAllCandidates = _probabilityOfAllCandidates;
++		probabilityOfBestCandidate = _probabilityOfBestCandidate;
++		popularSeedsSkipped = _popularSeedsSkipped;
++	}
++	
++	unsigned bestScore;
++	unsigned secondBestScore;
++	double probabilityOfAllCandidates;
++	double probabilityOfBestCandidate;
++	unsigned popularSeedsSkipped;
++};
++
+ struct SingleAlignmentResult {
+ 	AlignmentResult status;
+ 
+@@ -54,6 +83,7 @@ struct SingleAlignmentResult {
+     int             score;		// score of each end if matched
+ 
+     int             mapq;		// mapping quality, encoded like a Phred score (but as an integer, not ASCII Phred + 33).
++	TS_MapqEstimationFeatures features; // features that might help an external tool estimate MAPQ; not exhaustive
+ 
+     static int compareByContigAndScore(const void *first, const void *second);      // qsort()-style compare routine
+     static int compareByScore(const void *first, const void *second);               // qsort()-style compare routine
+@@ -81,6 +111,8 @@ struct PairedAlignmentResult {
+ 	int score[NUM_READS_PER_PAIR];              // score of each end if matched
+ 
+ 	int mapq[NUM_READS_PER_PAIR];               // mapping quality of each end, encoded like a Phred score (but as an integer, not ASCII Phred + 33).
++	
++	TS_MapqEstimationFeatures features[NUM_READS_PER_PAIR]; // features that might help an external tool estimate MAPQ; not exhaustive
+ 
+ 	bool fromAlignTogether;                     // Was this alignment created by aligning both reads together, rather than from some combination of single-end aligners?
+ 	bool alignedAsPair;                         // Were the reads aligned as a pair, or separately?
+diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/Bam.cpp snap/SNAPLib/Bam.cpp
+--- tmp/snap/SNAPLib/Bam.cpp	2015-07-28 15:15:02.000000000 -0400
++++ snap/SNAPLib/Bam.cpp	2015-07-28 15:04:32.000000000 -0400
+@@ -682,7 +682,9 @@ public:
+     virtual bool writeRead(
+         const ReaderContext& context, LandauVishkinWithCigar * lv, char * buffer, size_t bufferSpace,
+         size_t * spaceUsed, size_t qnameLen, Read * read, AlignmentResult result,
+-        int mapQuality, GenomeLocation genomeLocation, Direction direction, bool secondaryAlignment, int * o_addFrontClipping,
++        int mapQuality,
++        const TS_MapqEstimationFeatures& features,
++        GenomeLocation genomeLocation, Direction direction, bool secondaryAlignment, int * o_addFrontClipping,
+         bool hasMate = false, bool firstInPair = false, Read * mate = NULL,
+         AlignmentResult mateResult = NotFound, GenomeLocation mateLocation = 0, Direction mateDirection = FORWARD,
+         bool alignedAsPair = false) const;
+@@ -839,6 +841,7 @@ BAMFormat::writeRead(
+     Read * read,
+     AlignmentResult result,
+     int mapQuality,
++    const TS_MapqEstimationFeatures& features,
+     GenomeLocation genomeLocation,
+     Direction direction,
+     bool secondaryAlignment,
+@@ -1022,6 +1025,7 @@ BAMFormat::writeRead(
+     nm->tag[0] = 'N'; nm->tag[1] = 'M'; nm->val_type = 'C';
+     *(_uint8*)nm->value() = (_uint8)editDistance;
+     auxLen += (unsigned) nm->size();
++	// BTL: TODO: ZT:Z
+ 
+     if (NULL != spaceUsed) {
+         *spaceUsed = bamSize;
+diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/BaseAligner.cpp snap/SNAPLib/BaseAligner.cpp
+--- tmp/snap/SNAPLib/BaseAligner.cpp	2015-07-28 15:15:02.000000000 -0400
++++ snap/SNAPLib/BaseAligner.cpp	2015-07-25 21:10:24.000000000 -0400
+@@ -764,6 +764,11 @@ Return Value:
+                 primaryResult->score = bestScore;
+                 if (bestScore <= maxK) {
+                     primaryResult->location = bestScoreGenomeLocation;
++					primaryResult->features.init(bestScore,
++												 secondBestScore,
++												 probabilityOfAllCandidates,
++												 probabilityOfBestCandidate,
++												 popularSeedsSkipped);
+                     primaryResult->mapq = computeMAPQ(probabilityOfAllCandidates, probabilityOfBestCandidate, bestScore, popularSeedsSkipped);
+                     if (primaryResult->mapq >= MAPQ_LIMIT_FOR_SINGLE_HIT) {
+                         primaryResult->status = SingleHit;
+diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/FileFormat.h snap/SNAPLib/FileFormat.h
+--- tmp/snap/SNAPLib/FileFormat.h	2015-07-28 15:15:02.000000000 -0400
++++ snap/SNAPLib/FileFormat.h	2015-07-28 15:03:35.000000000 -0400
+@@ -92,7 +92,9 @@ public:
+     virtual bool writeRead(
+         const ReaderContext& context, LandauVishkinWithCigar * lv, char * buffer, size_t bufferSpace,
+         size_t * spaceUsed, size_t qnameLen, Read * read, AlignmentResult result,
+-        int mapQuality, GenomeLocation genomeLocation, Direction direction, bool secondaryAlignment, int* o_addFrontClipping,
++        int mapQuality,
++        const TS_MapqEstimationFeatures& features,
++        GenomeLocation genomeLocation, Direction direction, bool secondaryAlignment, int* o_addFrontClipping,
+         bool hasMate = false, bool firstInPair = false, Read * mate = NULL, 
+         AlignmentResult mateResult = NotFound, GenomeLocation mateLocation = 0, Direction mateDirection = FORWARD,
+         bool alignedAsPair = false) const = 0; 
+diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/IntersectingPairedEndAligner.cpp snap/SNAPLib/IntersectingPairedEndAligner.cpp
+--- tmp/snap/SNAPLib/IntersectingPairedEndAligner.cpp	2015-07-28 15:15:02.000000000 -0400
++++ snap/SNAPLib/IntersectingPairedEndAligner.cpp	2015-07-25 21:13:36.000000000 -0400
+@@ -855,6 +855,11 @@ doneScoring:
+         for (unsigned whichRead = 0; whichRead < NUM_READS_PER_PAIR; whichRead++) {
+             result->location[whichRead] = bestResultGenomeLocation[whichRead];
+             result->direction[whichRead] = bestResultDirection[whichRead];
++			result->features[whichRead].init(bestResultScore[whichRead],
++											 0,
++											 probabilityOfAllPairs,
++											 probabilityOfBestPair,
++											 popularSeedsSkipped[0] + popularSeedsSkipped[1]);
+             result->mapq[whichRead] = computeMAPQ(probabilityOfAllPairs, probabilityOfBestPair, bestResultScore[whichRead], popularSeedsSkipped[0] + popularSeedsSkipped[1]);
+             result->status[whichRead] = result->mapq[whichRead] > MAPQ_LIMIT_FOR_SINGLE_HIT ? SingleHit : MultipleHits;
+             result->score[whichRead] = bestResultScore[whichRead];
+diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
+--- tmp/snap/SNAPLib/SAM.cpp	2015-07-28 15:15:02.000000000 -0400
++++ snap/SNAPLib/SAM.cpp	2015-07-28 15:12:54.000000000 -0400
+@@ -1123,6 +1123,7 @@ SAMFormat::writeRead(
+     Read * read,
+     AlignmentResult result, 
+     int mapQuality,
++    const TS_MapqEstimationFeatures& features,
+     GenomeLocation genomeLocation,
+     Direction direction,
+     bool secondaryAlignment,
+@@ -1249,7 +1250,19 @@ SAMFormat::writeRead(
+             readGroupString = read->getReadGroup();
+         }
+     }
+-    int charsInString = snprintf(buffer, bufferSpace, "%.*s\t%d\t%s\t%u\t%d\t%s\t%s\t%u\t%lld\t%.*s\t%.*s%s%.*s%s%s\tPG:Z:SNAP%s%.*s\n",
++	// AS:i
++	char asibuf[1024];
++	const char* asiSeparator = "\tAS:i:";
++	snprintf(asibuf, 1023, "%d", features.bestScore);
++	const char* asiString = asibuf;
++	
++	// ZT:Z
++	char ztzbuf[1024];
++	const char* ztzSeparator = "\tZT:Z:";
++	snprintf(ztzbuf, 1023, "%d,%d,%0.8f,%0.8f,%d", features.bestScore, features.bestScore-features.secondBestScore, features.probabilityOfAllCandidates, features.probabilityOfBestCandidate, features.popularSeedsSkipped);
++	const char* ztzString = ztzbuf;
++	
++    int charsInString = snprintf(buffer, bufferSpace, "%.*s\t%d\t%s\t%u\t%d\t%s\t%s\t%u\t%lld\t%.*s\t%.*s%s%.*s%s%s%s%s\tPG:Z:SNAP%s%.*s%s%s\n",
+         qnameLen, read->getId(),
+         flags,
+         contigName,
+@@ -1263,7 +1276,9 @@ SAMFormat::writeRead(
+         fullLength, quality,
+         aux != NULL ? "\t" : "", auxLen, aux != NULL ? aux : "",
+         readGroupSeparator, readGroupString,
+-        nmString, rglineAuxLen, rglineAux);
++        asiSeparator, asiString,
++        nmString, rglineAuxLen, rglineAux,
++        ztzSeparator, ztzString);
+ 
+     if (charsInString > bufferSpace) {
+         //
+diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.h snap/SNAPLib/SAM.h
+--- tmp/snap/SNAPLib/SAM.h	2015-07-28 15:15:02.000000000 -0400
++++ snap/SNAPLib/SAM.h	2015-07-28 15:03:56.000000000 -0400
+@@ -164,7 +164,9 @@ public:
+     virtual bool writeRead(
+         const ReaderContext& context, LandauVishkinWithCigar * lv, char * buffer, size_t bufferSpace,
+         size_t * spaceUsed, size_t qnameLen, Read * read, AlignmentResult result, 
+-        int mapQuality, GenomeLocation genomeLocation, Direction direction, bool secondaryAlignment, int* o_addFrontClipping,
++        int mapQuality,
++        const TS_MapqEstimationFeatures& features,
++        GenomeLocation genomeLocation, Direction direction, bool secondaryAlignment, int* o_addFrontClipping,
+         bool hasMate = false, bool firstInPair = false, Read * mate = NULL, 
+         AlignmentResult mateResult = NotFound, GenomeLocation mateLocation = 0, Direction mateDirection = FORWARD,
+         bool alignedAsPair = false) const; 

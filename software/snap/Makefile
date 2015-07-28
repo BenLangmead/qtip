@@ -12,6 +12,7 @@ $(NM)/snap-aligner: $(NM)
 $(NM): $(NM_VER)
 	mv $< $@
 #	cd $@ && patch -p1 < ../snap_patch.diff
+	cd $@ && patch -p1 < ../snap_features_patch.diff
 
 $(NM_VER): $(AR)
 	tar xvfz $<
