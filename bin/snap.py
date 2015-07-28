@@ -123,15 +123,18 @@ class SnapAligner(Aligner):
 
         if paired_combined is not None:
             assert paired is None
-            args_paired.append('-pairedInterleavedFastq')
+            compressed = paired_combined[0].endswith('.gz')
+            args_paired.append('-pairedCompressedInterleavedFastq' if compressed else '-pairedInterleavedFastq')
             args_paired.extend(paired_combined)
         elif paired is not None:
             assert paired_combined is None
-            args_paired.append('-pairedFastq')
+            compressed = paired[0][0].endswith('.gz')
+            args_paired.append('-compressedFastq' if compressed else '-fastq')
             args_paired.extend(list(reduce(operator.concat, paired)))
 
         if unpaired is not None:
-            args_single.append('-fastq')
+            compressed = unpaired[0].endswith('.gz')
+            args_single.append('-compressedFastq' if compressed else '-fastq')
             args_single.extend(unpaired)
 
         if unpaired is None and paired is None and paired_combined is None:
