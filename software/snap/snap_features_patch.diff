@@ -166,7 +166,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/ReadWriter.cpp snap/SNAPLib/ReadWri
                      if (0 == addFrontClipping) {
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
 --- tmp/snap/SNAPLib/SAM.cpp	2015-07-28 15:15:02.000000000 -0400
-+++ snap/SNAPLib/SAM.cpp	2015-07-28 15:12:54.000000000 -0400
++++ snap/SNAPLib/SAM.cpp	2015-07-28 16:37:46.000000000 -0400
 @@ -1123,6 +1123,7 @@ SAMFormat::writeRead(
      Read * read,
      AlignmentResult result, 
@@ -175,16 +175,26 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
      GenomeLocation genomeLocation,
      Direction direction,
      bool secondaryAlignment,
-@@ -1249,7 +1250,19 @@ SAMFormat::writeRead(
+@@ -1249,7 +1250,29 @@ SAMFormat::writeRead(
              readGroupString = read->getReadGroup();
          }
      }
 -    int charsInString = snprintf(buffer, bufferSpace, "%.*s\t%d\t%s\t%u\t%d\t%s\t%s\t%u\t%lld\t%.*s\t%.*s%s%.*s%s%s\tPG:Z:SNAP%s%.*s\n",
 +	// AS:i
-+	char asibuf[1024];
++	char asibuf[100];
 +	const char* asiSeparator = "\tAS:i:";
-+	snprintf(asibuf, 1023, "%d", features.bestScore);
++	snprintf(asibuf, 100, "%d", features.bestScore);
 +	const char* asiString = asibuf;
++	
++	// XS:i
++	char xsibuf[100];
++	const char *xsiSeparator = "";
++	const char* xsiString = "";
++	if(features.secondBestScore != 0xffff) {
++		snprintf(xsibuf, 100, "%d", features.secondBestScore);
++		xsiSeparator = "\tXS:i";
++		xsiString = xsibuf;
++	}
 +	
 +	// ZT:Z
 +	char ztzbuf[1024];
@@ -192,16 +202,17 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
 +	snprintf(ztzbuf, 1023, "%d,%d,%0.8f,%0.8f,%d", features.bestScore, features.bestScore-features.secondBestScore, features.probabilityOfAllCandidates, features.probabilityOfBestCandidate, features.popularSeedsSkipped);
 +	const char* ztzString = ztzbuf;
 +	
-+    int charsInString = snprintf(buffer, bufferSpace, "%.*s\t%d\t%s\t%u\t%d\t%s\t%s\t%u\t%lld\t%.*s\t%.*s%s%.*s%s%s%s%s\tPG:Z:SNAP%s%.*s%s%s\n",
++    int charsInString = snprintf(buffer, bufferSpace, "%.*s\t%d\t%s\t%u\t%d\t%s\t%s\t%u\t%lld\t%.*s\t%.*s%s%.*s%s%s%s%s%s%s\tPG:Z:SNAP%s%.*s%s%s\n",
          qnameLen, read->getId(),
          flags,
          contigName,
-@@ -1263,7 +1276,9 @@ SAMFormat::writeRead(
+@@ -1263,7 +1286,10 @@ SAMFormat::writeRead(
          fullLength, quality,
          aux != NULL ? "\t" : "", auxLen, aux != NULL ? aux : "",
          readGroupSeparator, readGroupString,
 -        nmString, rglineAuxLen, rglineAux);
 +        asiSeparator, asiString,
++        xsiSeparator, xsiString,
 +        nmString, rglineAuxLen, rglineAux,
 +        ztzSeparator, ztzString);
  
