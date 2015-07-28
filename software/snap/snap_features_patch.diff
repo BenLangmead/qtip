@@ -166,7 +166,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/ReadWriter.cpp snap/SNAPLib/ReadWri
                      if (0 == addFrontClipping) {
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
 --- tmp/snap/SNAPLib/SAM.cpp	2015-07-28 15:15:02.000000000 -0400
-+++ snap/SNAPLib/SAM.cpp	2015-07-28 17:02:32.000000000 -0400
++++ snap/SNAPLib/SAM.cpp	2015-07-28 17:20:08.000000000 -0400
 @@ -1123,6 +1123,7 @@ SAMFormat::writeRead(
      Read * read,
      AlignmentResult result, 
@@ -175,38 +175,44 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
      GenomeLocation genomeLocation,
      Direction direction,
      bool secondaryAlignment,
-@@ -1249,7 +1250,29 @@ SAMFormat::writeRead(
+@@ -1249,7 +1250,35 @@ SAMFormat::writeRead(
              readGroupString = read->getReadGroup();
          }
      }
 -    int charsInString = snprintf(buffer, bufferSpace, "%.*s\t%d\t%s\t%u\t%d\t%s\t%s\t%u\t%lld\t%.*s\t%.*s%s%.*s%s%s\tPG:Z:SNAP%s%.*s\n",
-+	// AS:i
-+	char asibuf[100];
-+	const char* asiSeparator = "\tAS:i:";
-+	snprintf(asibuf, 100, "%d", -features.bestScore);
-+	const char* asiString = asibuf;
 +	
-+	// XS:i
-+	char xsibuf[100];
++	const char* asiSeparator = "";
++	const char* asiString = "";
 +	const char *xsiSeparator = "";
 +	const char* xsiString = "";
-+	if(features.secondBestScore != 0xffff) {
-+		snprintf(xsibuf, 100, "%d", -features.secondBestScore);
-+		xsiSeparator = "\tXS:i:";
-+		xsiString = xsibuf;
-+	}
++	const char* ztzSeparator = "";
++	const char* ztzString = "";
++	char asibuf[100], xsibuf[100], ztzbuf[1024];
 +	
-+	// ZT:Z
-+	char ztzbuf[1024];
-+	const char* ztzSeparator = "\tZT:Z:";
-+	snprintf(ztzbuf, 1023, "%0.8f,%0.8f,%d", features.probabilityOfAllCandidates, features.probabilityOfBestCandidate, features.popularSeedsSkipped);
-+	const char* ztzString = ztzbuf;
++	if((flags & 4) == 0) {
++		// AS:i
++		asiSeparator = "\tAS:i:";
++		snprintf(asibuf, 100, "%d", -features.bestScore);
++		asiString = asibuf;
++		
++		// XS:i
++		if(features.secondBestScore != 0xffff) {
++			snprintf(xsibuf, 100, "%d", -features.secondBestScore);
++			xsiSeparator = "\tXS:i:";
++			xsiString = xsibuf;
++		}
++		
++		// ZT:Z
++		ztzSeparator = "\tZT:Z:";
++		snprintf(ztzbuf, 1024, "%0.8f,%0.8f,%d", features.probabilityOfAllCandidates, features.probabilityOfBestCandidate, features.popularSeedsSkipped);
++		ztzString = ztzbuf;
++	}
 +	
 +    int charsInString = snprintf(buffer, bufferSpace, "%.*s\t%d\t%s\t%u\t%d\t%s\t%s\t%u\t%lld\t%.*s\t%.*s%s%.*s%s%s%s%s%s%s\tPG:Z:SNAP%s%.*s%s%s\n",
          qnameLen, read->getId(),
          flags,
          contigName,
-@@ -1263,7 +1286,10 @@ SAMFormat::writeRead(
+@@ -1263,7 +1292,10 @@ SAMFormat::writeRead(
          fullLength, quality,
          aux != NULL ? "\t" : "", auxLen, aux != NULL ? aux : "",
          readGroupSeparator, readGroupString,
