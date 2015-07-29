@@ -1571,6 +1571,8 @@ def add_predict_args(parser):
     parser.add_argument('--write-roc-table', action='store_const', const=True, default=False,
                         help='Write table with correct/incorrect stratified by MAPQ to roc_table.tsv in '
                              'output directory')
+    parser.add_argument('--write-params', action='store_const', const=True, default=False,
+                        help='Write hyper-parameters chosen with cross validation')
     parser.add_argument('--write-all', action='store_const', const=True, default=False,
                         help='Like specifying all the --write-* parameters')
 
