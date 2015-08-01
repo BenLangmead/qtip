@@ -7,6 +7,10 @@
 #       than -omax secondary alignments, SNAP will write out only the best -omax of them, where 'best' means
 #       'with the lowest edit distance'.  Ties are broken arbitrarily.
 
+# For "paired" mode:
+#   -s   min and max spacing to allow between paired ends (default: 50 1000).
+#   -fs  force spacing to lie between min and max.
+
 BASE_URL=http://www.cs.jhu.edu/~langmea/resources
 
 [ ! -f lambda_virus.fa ] && wget $BASE_URL/lambda_virus.fa
@@ -38,3 +42,26 @@ cat reads_paired.fq | ../snap/snap-aligner paired lambda_virus.snap -pairedInter
 
 # Paired-end twice
 ../snap/snap-aligner paired lambda_virus.snap reads_1.fq reads_2.fq reads_1.fq reads_2.fq -o -sam pai_d1.sam
+
+# Paired-end fragment length experiments
+
+cat <<EOF >.r1.fq
+@r1
+GGGCGGCGACCTCGCGGGTTTTCGCTATTTATGAAAATTTTCCGGTTTAAGGCGTTTCCGTTCTTCTTCG
++
+IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
+EOF
+
+cat <<EOF >.r2.fq
+@r1
+GCCTCGCTTTCAGCACCTGTCGTTTCCTTTCTTTTCAGAGGGTATTTTAAATAAAAACATTAAGTTATGA
++
+IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
+EOF
+
+../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.fq -s 141 141 -fs -o -sam paired_141_1.sam
+
+../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.fq -s 140 140 -fs -o -sam paired_140_1.sam
+
+../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.fq -s 139 139 -fs -o -sam paired_139_1.sam
+
