@@ -59,9 +59,19 @@ GCCTCGCTTTCAGCACCTGTCGTTTCCTTTCTTTTCAGAGGGTATTTTAAATAAAAACATTAAGTTATGA
 IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 EOF
 
-../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.fq -s 141 141 -fs -o -sam paired_141_1.sam
+# Just some random bases
+cat <<EOF >.r2.bad.fq
+@r1
+ACGTATTATATGGCCGTAGAGTGCGCATAGATGCTCAGTCAAACCCGCGGATATATAAAACCGGCGGTTT
++
+IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
+EOF
 
-../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.fq -s 140 140 -fs -o -sam paired_140_1.sam
+# These are the circumstances that yield a concordant alignment
+../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.fq -s 69 70 -o -sam paired_conc_1.sam
 
-../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.fq -s 139 139 -fs -o -sam paired_139_1.sam
+# This gives a discordant alignment
+../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.fq -s 1 2 -fs -o -sam paired_disc_1.sam
 
+# This gives a pair where just one end aligns
+../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.bad.fq -s 69 70 -fs -o -sam paired_unp_1.sam
