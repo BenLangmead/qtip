@@ -74,4 +74,28 @@ EOF
 ../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.fq -s 1 2 -fs -o -sam paired_disc_1.sam
 
 # This gives a pair where just one end aligns
-../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.bad.fq -s 69 70 -fs -o -sam paired_unp_1.sam
+../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.bad.fq -s 69 70 -o -sam paired_unp_1.sam
+
+# Now let's try to figure out exactly what distances the -s parameter is setting.
+# Theory: it's specifying a right-open interval where the interval describes how
+# far the leftmost aligned base of the second mate is allowed to be from the
+# leftmost aligned base of the first mate.
+
+cat <<EOF >.r2.nudged_right.fq
+@r1
+CCTCGCTTTCAGCACCTGTCGTTTCCTTTCTTTTCAGAGGGTATTTTAAATAAAAACATTAAGTTATGA
++
+IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
+EOF
+
+# this gives concordant alignment, so left-to-left theory is wrong
+../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.nudged_right.fq -s 69 70 -fs -o -sam paired_conc_2.sam
+
+cat <<EOF >.r2.nudged_left.fq
+@r1
+GCCTCGCTTTCAGCACCTGTCGTTTCCTTTCTTTTCAGAGGGTATTTTAAATAAAAACATTAAGTTATG
++
+IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
+EOF
+
+../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.nudged_right.fq -s 70 71 -fs -o -sam paired_conc_3.sam
