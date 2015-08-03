@@ -157,7 +157,7 @@ class SnapAligner(Aligner):
             popen_stdout = PIPE
 
         # Put all the arguments together
-        cmd = cmd_toks[0]
+        cmd = ''
         if len(args_single) > 2:
             cmd += ' '.join(args_single)
             cmd += ' ' + ' '.join(args_output)
@@ -171,6 +171,8 @@ class SnapAligner(Aligner):
             cmd += ' ' + ' '.join(args_output)
             if len(cmd_toks) > 1:
                 cmd += ' ' + ' '.join(cmd_toks[1:])
+
+        cmd = cmd_toks[0] + ' ' + cmd
 
         logging.info('SNAP command: ' + cmd)
         if quiet:
