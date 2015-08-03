@@ -464,7 +464,7 @@ def go(args, aligner_args):
     elif args['aligner'] == 'snap':
         align_cmd = 'snap-aligner '
         if args['snap_exe'] is not None:
-            align_cmd = args['snap_exe']
+            align_cmd = args['snap_exe'] + ' '
         align_cmd += ' '.join(aligner_args)
         aligner_class, alignment_class = SnapAligner, AlignmentSnap
     elif args['aligner'] is not None:
@@ -693,6 +693,7 @@ def go(args, aligner_args):
                 logging.info('Simulating tandem reads (%s)' % lab)
                 frmt = aligner.preferred_paired_format() if (paired or both) \
                     else aligner.preferred_unpaired_format()
+                assert frmt is not None
                 typ_sim_count, training_out_fn = simulate(simw, frmt=frmt)
 
                 unpaired_arg = None
