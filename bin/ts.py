@@ -618,19 +618,23 @@ def go(args, aligner_args):
                 # Do both unpaired and paired simualted reads in one round
                 both, lab = True, 'both paired-end and unpaired'
 
-            def simulate(simw, aligner=None, frmt='tab6'):
+            def simulate(simw, unpaired_format, paired_format, aligner=None):
                 """ Simulates reads.  Either pipes them directly to the aligner
                     (when not write_training_reads and args['use_concurrency']
                     or writes them to various files and returns those. """
+                type_to_format = {'conc': paired_format,
+                                  'disc': paired_format,
+                                  'bad_end': paired_format,
+                                  'unp': unpaired_format}
                 write_training_reads = args['write_training_reads'] or args['write_all']
                 training_out_fn, training_out_fh = {}, {}
                 if write_training_reads or not args['use_concurrency']:
                     types = []
                     if paired or both:
-                        types.extend(['conc', 'disc', 'bad_end'])
+                        types.extend(zip(['conc', 'disc', 'bad_end'], [paired_format] * 3))
                     if not paired or both:
-                        types.append('unp')
-                    for t in types:
+                        types.append(('unp', unpaired_format))
+                    for t, frmt in types:
                         fn_base = 'training_%s.%s' % (t, frmt)
                         fn = os.path.join(args['output_directory'], fn_base)
                         if not write_training_reads:
@@ -643,6 +647,7 @@ def go(args, aligner_args):
                 for t, rdp1, rdp2 in simw.simulate_batch(args['sim_fraction'], args['sim_unp_min'],
                                                          args['sim_conc_min'], args['sim_disc_min'],
                                                          args['sim_bad_end_min']):
+                    frmt = type_to_format[t]
                     if t in training_out_fh:
                         # read is going to a file
                         if frmt == 'tab6':
@@ -691,10 +696,9 @@ def go(args, aligner_args):
 
                 tim.start_timer('Simulating tandem reads')
                 logging.info('Simulating tandem reads (%s)' % lab)
-                frmt = aligner.preferred_paired_format() if (paired or both) \
-                    else aligner.preferred_unpaired_format()
-                assert frmt is not None
-                typ_sim_count, training_out_fn = simulate(simw, frmt=frmt)
+                typ_sim_count, training_out_fn = simulate(simw,
+                                                          aligner.preferred_unpaired_format(),
+                                                          aligner.preferred_paired_format())
 
                 unpaired_arg = None
                 if 'unp' in training_out_fn or 'bad_end' in training_out_fn:
@@ -710,7 +714,7 @@ def go(args, aligner_args):
                             paired_combined_arg.append(training_out_fn[t])
                     if len(paired_combined_arg) > 1:
                         # new file
-                        fn_base = 'training_concdisc.%s' % frmt
+                        fn_base = 'training_concdisc.%s' % aligner.preferred_paired_format()
                         fn = temp_man.get_filename(fn_base, 'tandem reads')
                         with open(fn, 'w') as fh:
                             for ifn in paired_combined_arg:
@@ -739,7 +743,7 @@ def go(args, aligner_args):
                 if aligner.supports_mix():
                     aligner = aligner_class(align_cmd, args['index'],  # no concurrency
                                             unpaired=unpaired_arg, paired_combined=paired_combined_arg,
-                                            sam=sam_fn, input_format=frmt)
+                                            sam=sam_fn, input_format=aligner.preferred_paired_format())
                     # the aligner_class gets to decide what order to do unpaired/paired
                     _wait_for_aligner(aligner)
                     logging.debug('Finished aligning unpaired and paired-end tandem reads')
@@ -749,7 +753,7 @@ def go(args, aligner_args):
                         unpaired_sam = temp_man.get_filename('training_unpaired.sam', 'tandem sam')
                         aligner = aligner_class(align_cmd, args['index'],  # no concurrency
                                                 unpaired=unpaired_arg, paired_combined=None,
-                                                sam=unpaired_sam, input_format=frmt)
+                                                sam=unpaired_sam, input_format=aligner.preferred_unpaired_format())
                         _wait_for_aligner(aligner)
                         logging.debug('Finished aligning unpaired tandem reads')
 
@@ -757,7 +761,7 @@ def go(args, aligner_args):
                         paired_sam = temp_man.get_filename('training_paired.sam', 'tandem sam')
                         aligner = aligner_class(align_cmd, args['index'],  # no concurrency
                                                 unpaired=None, paired_combined=paired_combined_arg,
-                                                sam=paired_sam, input_format=frmt)
+                                                sam=paired_sam, input_format=aligner.preferred_paired_format())
                         _wait_for_aligner(aligner)
                         logging.debug('Finished aligning paired-end tandem reads')
 
@@ -831,7 +835,7 @@ def go(args, aligner_args):
 
                 # uses aligner.put to pump simulated reads directly into aligner
                 # always simulates
-                typ_sim_count, training_out_fn = simulate(simw, aligner, frmt='tab6')
+                typ_sim_count, training_out_fn = simulate(simw, 'tab6', 'tab6', aligner)
                 aligner.done()
 
                 logging.debug('Waiting for aligner (%s) to finish' % lab)
