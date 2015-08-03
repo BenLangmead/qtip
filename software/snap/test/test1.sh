@@ -83,19 +83,22 @@ EOF
 
 cat <<EOF >.r2.nudged_right.fq
 @r1
-CCTCGCTTTCAGCACCTGTCGTTTCCTTTCTTTTCAGAGGGTATTTTAAATAAAAACATTAAGTTATGA
-+
-IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
-EOF
-
-# this gives concordant alignment, so left-to-left theory is wrong
-../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.nudged_right.fq -s 69 70 -fs -o -sam paired_conc_2.sam
-
-cat <<EOF >.r2.nudged_left.fq
-@r1
 GCCTCGCTTTCAGCACCTGTCGTTTCCTTTCTTTTCAGAGGGTATTTTAAATAAAAACATTAAGTTATG
 +
 IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 EOF
 
-../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.nudged_right.fq -s 70 71 -fs -o -sam paired_conc_3.sam
+# this gives concordant alignment, so left-to-left theory is wrong
+../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.nudged_right.fq -s 70 71 -fs -o -sam paired_conc_2.sam
+
+cat <<EOF >.r2.nudged_left.fq
+@r1
+GCCTCGCTTTCAGCACCTGTCGTTTCCTTTCTTTTCAGAGGGTATTTTAAATAAAAACATTAAGTTATGAC
++
+IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
+EOF
+
+# this also gives concordant alignment, so right-to-right theory is also wrong
+../snap/snap-aligner paired lambda_virus.snap .r1.fq .r2.nudged_right.fq -s 68 69 -fs -o -sam paired_conc_3.sam
+
+# next thought
