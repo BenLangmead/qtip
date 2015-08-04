@@ -612,8 +612,10 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         for paired, lab in [(True, 'paired-end'), (False, 'unpaired')]:
             both = False
             if paired and not dists.has_pairs():
+                logging.debug('No paired-end reads in the input model')
                 continue
             if not paired and not dists.has_unpaired_reads():
+                logging.debug('No unpaired reads in the input model')
                 continue
             if aligner.supports_mix() and dists.has_pairs() and dists.has_unpaired_reads():
                 # Do both unpaired and paired simualted reads in one round
@@ -632,9 +634,9 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 if write_training_reads or not args['use_concurrency']:
                     types = []
                     if paired or both:
-                        types.extend(zip(['conc', 'disc'], [paired_format] * 2))
+                        types.extend(zip(['conc', 'disc', 'bad_end'], [paired_format] * 3))
                     if not paired or both:
-                        types.extend(zip(['unp', 'bad_end'], [unpaired_format] * 2))
+                        types.extend(zip(['unp'], [unpaired_format]))
                     for t, frmt in types:
                         fn_base = 'training_%s.%s' % (t, frmt)
                         fn = os.path.join(args['output_directory'], fn_base)
@@ -648,6 +650,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 for t, rdp1, rdp2 in simw.simulate_batch(args['sim_fraction'], args['sim_unp_min'],
                                                          args['sim_conc_min'], args['sim_disc_min'],
                                                          args['sim_bad_end_min']):
+                    assert t in type_to_format
                     frmt = type_to_format[t]
                     if t in training_out_fh:
                         # read is going to a file
@@ -701,28 +704,53 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                                                           aligner.preferred_unpaired_format(),
                                                           aligner.preferred_paired_format())
 
+                # TODO: why is this correct?  the simulated bad_end reads seem
+                # to be paired-end, and should be aligned in paired-end mode
                 unpaired_arg = None
-                if 'unp' in training_out_fn or 'bad_end' in training_out_fn:
-                    unpaired_arg = []
-                    for t in ['unp', 'bad_end']:
-                        if t in training_out_fn:
-                            unpaired_arg.append(training_out_fn[t])
-                paired_combined_arg = None
-                if 'conc' in training_out_fn or 'disc' in training_out_fn:
-                    paired_combined_arg = []
-                    for t in ['conc', 'disc']:
-                        if t in training_out_fn:
-                            paired_combined_arg.append(training_out_fn[t])
-                    if len(paired_combined_arg) > 1:
-                        # new file
-                        fn_base = 'training_concdisc.%s' % aligner.preferred_paired_format()
-                        fn = temp_man.get_filename(fn_base, 'tandem reads')
-                        with open(fn, 'w') as fh:
-                            for ifn in paired_combined_arg:
-                                with open(ifn) as ifh:
-                                    for ln in ifh:
-                                        fh.write(ln)
-                        paired_combined_arg = [fn]
+                if False:
+                    if 'unp' in training_out_fn or 'bad_end' in training_out_fn:
+                        unpaired_arg = []
+                        for t in ['unp', 'bad_end']:
+                            if t in training_out_fn:
+                                unpaired_arg.append(training_out_fn[t])
+                    paired_combined_arg = None
+                    if 'conc' in training_out_fn or 'disc' in training_out_fn:
+                        paired_combined_arg = []
+                        for t in ['conc', 'disc']:
+                            if t in training_out_fn:
+                                paired_combined_arg.append(training_out_fn[t])
+                        if len(paired_combined_arg) > 1:
+                            # new file
+                            fn_base = 'training_paired.%s' % aligner.preferred_paired_format()
+                            fn = temp_man.get_filename(fn_base, 'tandem reads')
+                            with open(fn, 'w') as fh:
+                                for ifn in paired_combined_arg:
+                                    with open(ifn) as ifh:
+                                        for ln in ifh:
+                                            fh.write(ln)
+                            paired_combined_arg = [fn]
+                else:
+                    if 'unp' in training_out_fn:
+                        unpaired_arg = []
+                        for t in ['unp']:
+                            if t in training_out_fn:
+                                unpaired_arg.append(training_out_fn[t])
+                    paired_combined_arg = None
+                    if 'conc' in training_out_fn or 'disc' in training_out_fn or 'bad_end' in training_out_fn:
+                        paired_combined_arg = []
+                        for t in ['conc', 'disc', 'bad_end']:
+                            if t in training_out_fn:
+                                paired_combined_arg.append(training_out_fn[t])
+                        if len(paired_combined_arg) > 1:
+                            # new file
+                            fn_base = 'training_paired.%s' % aligner.preferred_paired_format()
+                            fn = temp_man.get_filename(fn_base, 'tandem reads')
+                            with open(fn, 'w') as fh:
+                                for ifn in paired_combined_arg:
+                                    with open(ifn) as ifh:
+                                        for ln in ifh:
+                                            fh.write(ln)
+                            paired_combined_arg = [fn]
 
                 assert unpaired_arg is not None or paired_combined_arg is not None
 
