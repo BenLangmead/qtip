@@ -1037,8 +1037,13 @@ class MapqFit:
                 break
             score = _oob_score(pred) if use_oob else _crossval_score(pred)
             scores.append(score)
-            best = mf.set_score(score)
-            logging.debug("%s, %s=%0.3f, %s%s" % (dataset_shortname, 'oob' if use_oob else 'score', score, str(params), ' *' if best else ''))
+            better, much_better = mf.set_score(score)
+            symbol = ''
+            if much_better:
+                symbol = '*'
+            elif better:
+                symbol = '+'
+            logging.debug("%s, %s=%0.3f, %s%s" % (dataset_shortname, 'oob' if use_oob else 'score', score, symbol))
         best_params, best_pred = mf.best_predictor()
         logging.debug("BEST: %s, avg=%0.3f, %s" % (dataset_shortname, max(scores), str(best_params)))
         assert best_pred is not None
@@ -1184,8 +1189,7 @@ class ModelFamily(object):
         self.last_params = None  # remember last set of params used for predictor
         self.round_to = round_to
         self.min_separation = min_separation  # have to improve by at least this much to declare new best
-        self.best = float('-inf')
-        self.best_rounded = float('-inf')
+        self.best = self.best_base = self.best_rounded = float('-inf')
         self.best_translated_params = None
         if start_in_middle:
             center = tuple([int(round(len(x) / 2)) for x in params])
@@ -1227,20 +1231,22 @@ class ModelFamily(object):
         assert self.last_params is not None
         assert self.last_params in self.added_to_workset
         score_rounded = int(score / self.round_to) * self.round_to
-        if score_rounded < self.best_rounded:
-            return False
-        if self.best == float('-inf') or score > self.best * (1.0 + self.min_separation):
-            self.best, self.best_rounded = score, score_rounded
+        if self.best == float('-inf') or score > self.best_base * (1.0 + self.min_separation):
+            self.best, self.best_base, self.best_rounded = score, score, score_rounded
             self.best_translated_params = self._idxs_to_params(self.last_params)
             self._add_neighbors_to_workset(self.last_params)
-            return True
-        return False
+            return True, True
+        elif score > self.best:
+            self.best, self.best_rounded = score, score_rounded
+            self.best_translated_params = self._idxs_to_params(self.last_params)
+            return True, False
+        return False, False
 
     def best_predictor(self):
         return self.best_translated_params, self.new_predictor(self.best_translated_params)
 
 
-def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.05):
+def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.015):
     # These perform OK but not as well as the extremely random trees
     def _gen(params):
         return RandomForestRegressor(n_estimators=params[0], max_depth=params[1],
@@ -1251,7 +1257,7 @@ def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.05):
                                round_to, min_separation=min_separation)
 
 
-def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.05):
+def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.015):
     # These perform quite well
     def _gen(params):
         return ExtraTreesRegressor(n_estimators=params[0], max_depth=params[1],
