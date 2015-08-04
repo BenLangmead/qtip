@@ -424,7 +424,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     """ Main driver for tandem simulator """
 
     random.seed(args['seed'])
-    np.random.seed(args['seed'])
+    import numpy
+    numpy.random.seed(args['seed'])
 
     tim = Timing()
     tim.start_timer('Overall')
