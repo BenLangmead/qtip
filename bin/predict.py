@@ -1175,8 +1175,8 @@ class MapqFit:
 
 
 class ModelFamily(object):
-    """ Encapsulates a model family and a simple interface for naively
-        searching the space of hyperparameters. """
+    """ Encapsulates a model family and a simple interface for search
+        hyperparameter space. """
 
     def __init__(self, new_predictor, params, round_to, min_separation, start_in_middle=True):
         """
@@ -1246,7 +1246,7 @@ class ModelFamily(object):
         return self.best_translated_params, self.new_predictor(self.best_translated_params)
 
 
-def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.015):
+def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.01):
     # These perform OK but not as well as the extremely random trees
     def _gen(params):
         return RandomForestRegressor(n_estimators=params[0], max_depth=params[1],
@@ -1257,7 +1257,7 @@ def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.015):
                                round_to, min_separation=min_separation)
 
 
-def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.015):
+def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.01):
     # These perform quite well
     def _gen(params):
         return ExtraTreesRegressor(n_estimators=params[0], max_depth=params[1],
