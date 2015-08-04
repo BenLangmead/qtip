@@ -1229,7 +1229,7 @@ class ModelFamily(object):
         score_rounded = int(score / self.round_to) * self.round_to
         if score_rounded < self.best_rounded:
             return False
-        if score > self.best + self.min_separation:
+        if self.best == float('-inf') or score > self.best * (1.0 + self.min_separation):
             self.best, self.best_rounded = score, score_rounded
             self.best_translated_params = self._idxs_to_params(self.last_params)
             self._add_neighbors_to_workset(self.last_params)
@@ -1240,7 +1240,7 @@ class ModelFamily(object):
         return self.best_translated_params, self.new_predictor(self.best_translated_params)
 
 
-def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.02):
+def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.05):
     # These perform OK but not as well as the extremely random trees
     def _gen(params):
         return RandomForestRegressor(n_estimators=params[0], max_depth=params[1],
@@ -1251,7 +1251,7 @@ def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.02):
                                round_to, min_separation=min_separation)
 
 
-def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.02):
+def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.05):
     # These perform quite well
     def _gen(params):
         return ExtraTreesRegressor(n_estimators=params[0], max_depth=params[1],
