@@ -166,7 +166,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/ReadWriter.cpp snap/SNAPLib/ReadWri
                      if (0 == addFrontClipping) {
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
 --- tmp/snap/SNAPLib/SAM.cpp	2015-07-28 15:15:02.000000000 -0400
-+++ snap/SNAPLib/SAM.cpp	2015-07-28 17:20:08.000000000 -0400
++++ snap/SNAPLib/SAM.cpp	2015-08-04 10:46:28.000000000 -0400
 @@ -1123,6 +1123,7 @@ SAMFormat::writeRead(
      Read * read,
      AlignmentResult result, 
@@ -175,7 +175,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
      GenomeLocation genomeLocation,
      Direction direction,
      bool secondaryAlignment,
-@@ -1249,7 +1250,35 @@ SAMFormat::writeRead(
+@@ -1249,7 +1250,38 @@ SAMFormat::writeRead(
              readGroupString = read->getReadGroup();
          }
      }
@@ -204,7 +204,10 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
 +		
 +		// ZT:Z
 +		ztzSeparator = "\tZT:Z:";
-+		snprintf(ztzbuf, 1024, "%0.8f,%0.8f,%d", features.probabilityOfAllCandidates, features.probabilityOfBestCandidate, features.popularSeedsSkipped);
++		snprintf(ztzbuf, 1024, "%0.8f,%0.8f,%d",
++				 features.probabilityOfBestCandidate,
++				 features.probabilityOfAllCandidates - features.probabilityOfBestCandidate,
++				 features.popularSeedsSkipped);
 +		ztzString = ztzbuf;
 +	}
 +	
@@ -212,7 +215,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
          qnameLen, read->getId(),
          flags,
          contigName,
-@@ -1263,7 +1292,10 @@ SAMFormat::writeRead(
+@@ -1263,7 +1295,10 @@ SAMFormat::writeRead(
          fullLength, quality,
          aux != NULL ? "\t" : "", auxLen, aux != NULL ? aux : "",
          readGroupSeparator, readGroupString,
