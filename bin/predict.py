@@ -171,7 +171,7 @@ class AlignmentTableReader(object):
             return
 
         if self.use_normalizers:
-            assert sn in self.normalizers
+            assert sn in self.normalizers, (sn, self.normalizers)
             norm = self.normalizers[sn]
 
         # Turn the correct column into 0/1
