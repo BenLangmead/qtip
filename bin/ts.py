@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+from __future__ import print_function
+
 """
 ts.py
 
@@ -1099,7 +1101,7 @@ if __name__ == "__main__":
                     'the tandem read alignments.')
 
     if '--version' in sys.argv:
-        print 'Tandem simulator, version ' + VERSION
+        print('Tandem simulator, version ' + VERSION)
         sys.exit(0)
 
     add_args(_parser)
