@@ -625,16 +625,16 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                     or writes them to various files and returns those. """
                 type_to_format = {'conc': paired_format,
                                   'disc': paired_format,
-                                  'bad_end': paired_format,
+                                  'bad_end': unpaired_format,
                                   'unp': unpaired_format}
                 write_training_reads = args['write_training_reads'] or args['write_all']
                 training_out_fn, training_out_fh = {}, {}
                 if write_training_reads or not args['use_concurrency']:
                     types = []
                     if paired or both:
-                        types.extend(zip(['conc', 'disc', 'bad_end'], [paired_format] * 3))
+                        types.extend(zip(['conc', 'disc'], [paired_format] * 2))
                     if not paired or both:
-                        types.append(('unp', unpaired_format))
+                        types.extend(zip(['unp', 'bad_end'], [unpaired_format] * 2))
                     for t, frmt in types:
                         fn_base = 'training_%s.%s' % (t, frmt)
                         fn = os.path.join(args['output_directory'], fn_base)
