@@ -37,6 +37,47 @@ class PairTemplate(object):
         return self._fraglen
 
 
+class ScoreDist(object):
+
+    """ Like CollapsedScoreDist but with fraction_even=1.0 """
+
+    def __init__(self, small_k=100, big_k=10000):
+        self.sample = ReservoirSampler(big_k)
+        self.max_fraglen = 0
+        self.avg_fraglen = None
+        self.finalized = False
+        self.num_added = 0
+        self.tot_len = 0
+        self.num_drawn = 0
+        self.has_correctness_info = False
+
+    def draw(self):
+        assert self.finalized
+        assert not self.empty()
+        self.num_drawn += 1
+        score, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen = self.sample.draw()
+        return ReadTemplate(score, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen)
+
+    def add(self, al, correct, ref, ordlen=0):
+        sc = al.bestScore
+        rd_aln, rf_aln, rd_len, rf_len = al.stacked_alignment(align_soft_clipped=True, ref=ref)
+        self.max_fraglen = max(self.max_fraglen, rf_len)
+        self.tot_len += rf_len
+        self.sample.add((sc, al.fw, al.qual, rd_aln, rf_aln, rf_len, al.mate1, ordlen))
+        self.num_added += 1
+
+    def empty(self):
+        """ Return true iff no tuples have been added """
+        return self.num_added == 0
+
+    def finalize(self):
+        """ Sort the samples in preparation for draws that might be biased
+            toward high or (more likely) low scores. """
+        self.finalized = True
+        if not self.empty():
+            self.avg_fraglen = float(self.tot_len) / self.num_added
+
+
 class CollapsedScoreDist(object):
 
     def __init__(self, small_k=100, big_k=10000, fraction_even=0.5, bias=1.0):
@@ -94,6 +135,67 @@ class CollapsedScoreDist(object):
 
     def frac_correct(self):
         return float(self.correct_mass) / self.num_drawn
+
+    def empty(self):
+        """ Return true iff no tuples have been added """
+        return self.num_added == 0
+
+    def finalize(self):
+        """ Sort the samples in preparation for draws that might be biased
+            toward high or (more likely) low scores. """
+        self.finalized = True
+        if not self.empty():
+            self.avg_fraglen = float(self.tot_len) / self.num_added
+
+
+class ScorePairDist(object):
+
+    def __init__(self, small_k=30, big_k=10000, max_allowed_fraglen=100000):
+        """ Make a reservoir sampler for holding the tuples. """
+        self.sample = ReservoirSampler(big_k)
+        self.max_allowed_fraglen = max_allowed_fraglen
+        self.max_fraglen = 0  # maximum observed fragment length
+        self.avg_fraglen = None
+        self.finalized = False
+        self.tot_len = 0
+        self.k = small_k
+        self.num_drawn = 0
+        self.num_added = 0
+        self.has_correctness_info = False
+
+    def draw(self):
+        """ Draw from the reservoir """
+        assert self.finalized
+        assert not self.empty()
+        self.num_drawn += 1
+        score, tup1, tup2, fraglen, upstream1 = self.sample.draw()
+        fw_1, qual_1, rd_aln_1, rf_aln_1, sc_1, rf_len_1, mate1_1, _ = tup1
+        fw_2, qual_2, rd_aln_2, rf_aln_2, sc_2, rf_len_2, mate1_2, _ = tup2
+        return PairTemplate(ReadTemplate(sc_1, fw_1, qual_1, rd_aln_1, rf_aln_1, rf_len_1, mate1_1, rf_len_2),
+                            ReadTemplate(sc_2, fw_2, qual_2, rd_aln_2, rf_aln_2, rf_len_2, mate1_2, rf_len_1),
+                            fraglen, upstream1)
+
+    def add(self, al1, al2, correct1, correct2, ref):
+        """ Convert given alignment pair to a tuple and add it to the
+            reservoir sampler. """
+        sc1, sc2 = al1.bestScore, al2.bestScore
+        # Make note of fragment length
+        fraglen = Alignment.fragment_length(al1, al2)
+        fraglen = min(fraglen, self.max_allowed_fraglen)
+        self.max_fraglen = max(self.max_fraglen, fraglen)
+        # Make note of which end is upstream
+        upstream1 = al1.pos < al2.pos
+        # Get stacked alignment
+        rd_aln_1, rf_aln_1, rd_len_1, rf_len_1 = al1.stacked_alignment(align_soft_clipped=True, ref=ref)
+        rd_aln_2, rf_aln_2, rd_len_2, rf_len_2 = al2.stacked_alignment(align_soft_clipped=True, ref=ref)
+        assert fraglen == 0 or max(rf_len_1, rf_len_2) <= fraglen
+        score = sc1 + sc2
+        self.sample.add((score,
+                         (al1.fw, al1.qual, rd_aln_1, rf_aln_1, sc1, rf_len_1, True, rf_len_2),
+                         (al2.fw, al2.qual, rd_aln_2, rf_aln_2, sc2, rf_len_2, False, rf_len_1),
+                         fraglen, upstream1))
+        self.num_added += 1
+        self.tot_len += fraglen
 
     def empty(self):
         """ Return true iff no tuples have been added """

@@ -68,7 +68,7 @@ from mosaik import AlignmentMosaik, Mosaik
 from snap import AlignmentSnap, SnapAligner
 from reference import ReferenceIndexed, ReferenceOOB
 from tempman import TemporaryFileManager
-from score_dists import CollapsedScoreDist, CollapsedScorePairDist
+from score_dists import CollapsedScoreDist, ScoreDist, CollapsedScorePairDist, ScorePairDist
 
 VERSION = '0.1.0'
 
@@ -88,12 +88,18 @@ class Dists(object):
         their fragment length and strands. """
 
     def __init__(self, max_allowed_fraglen=100000, fraction_even=0.5, bias=1.0):
-        self.sc_dist_unp = CollapsedScoreDist(fraction_even=fraction_even, bias=bias)
-        self.sc_dist_bad_end = CollapsedScoreDist(fraction_even=fraction_even, bias=bias)
-        self.sc_dist_conc = CollapsedScorePairDist(max_allowed_fraglen=max_allowed_fraglen,
-                                                   fraction_even=fraction_even, bias=bias)
-        self.sc_dist_disc = CollapsedScorePairDist(max_allowed_fraglen=max_allowed_fraglen,
-                                                   fraction_even=fraction_even, bias=bias)
+        if fraction_even >= 1.0:
+            self.sc_dist_unp = ScoreDist()
+            self.sc_dist_bad_end = ScoreDist()
+            self.sc_dist_conc = ScorePairDist(max_allowed_fraglen=max_allowed_fraglen)
+            self.sc_dist_disc = ScorePairDist(max_allowed_fraglen=max_allowed_fraglen)
+        else:
+            self.sc_dist_unp = CollapsedScoreDist(fraction_even=fraction_even, bias=bias)
+            self.sc_dist_bad_end = CollapsedScoreDist(fraction_even=fraction_even, bias=bias)
+            self.sc_dist_conc = CollapsedScorePairDist(max_allowed_fraglen=max_allowed_fraglen,
+                                                       fraction_even=fraction_even, bias=bias)
+            self.sc_dist_disc = CollapsedScorePairDist(max_allowed_fraglen=max_allowed_fraglen,
+                                                       fraction_even=fraction_even, bias=bias)
 
     def finalize(self):
         self.sc_dist_unp.finalize()
@@ -777,9 +783,11 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                     while _al.pipe.poll() is None:
                         time.sleep(0.5)
 
-                sam_fn = temp_man.get_filename('training.sam', 'tandem sam')
                 if args['write_training_sam'] or args['write_all']:
                     sam_fn = os.path.join(args['output_directory'], 'training.sam')
+                else:
+                    sam_fn = temp_man.get_filename('training.sam', 'tandem sam')
+
                 if aligner.supports_mix():
                     logging.info('Aligning tandem reads (%s, mix)' % lab)
                     aligner = aligner_class(align_cmd,
