@@ -285,7 +285,7 @@ class AlignmentReader(Thread):
                         if refid == al.refid and fw == al.orientation():
                             # Check offset
                             correct = abs(refoff - al.pos) < args['wiggle']
-                        assert training_nm in ['unp', 'conc', 'disc', 'bad_end', 'bad_end2']
+                        assert training_nm in ['unp', 'conc', 'disc', 'bad_end', 'bad_end2'], training_nm
                         # Add to training dataset
                         if training_nm == 'unp':
                             self.typ_hist['unp'] += 1
