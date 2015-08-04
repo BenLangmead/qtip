@@ -272,6 +272,14 @@ class AlignmentReader(Thread):
                         if len(name_split) == 6:
                             # unpaired
                             _, refid, fw, refoff, sc, training_nm = name_split
+                        if training_nm.startswith('bad_end_mate'):
+                            # the mate that's bad is specified in the read name
+                            # for both mates, so names can match and we avoid
+                            # complaints of some aligners
+                            if al.mate1 == (training_nm[-1] == '1'):
+                                name = 'bad_end'  # use this as training record
+                            else:
+                                name = 'bad_end2'  # ignore this
                         else:
                             # Paired.  Both mates must have same name.
                             assert len(name_split) == 10

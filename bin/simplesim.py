@@ -213,12 +213,13 @@ class FragmentSimSerial2(object):
                             draws[i].mate1, draws[i].ordlen
                         assert rl == fraglens[i]
                         rdseq = substr if fw else revcomp(substr)
-                        rdp1 = Read.from_simulator(rdseq, None, ref_id, ref_off, fw, sc, typ)
+                        rdp1 = Read.from_simulator(rdseq, None, ref_id, ref_off, fw, sc,
+                                                   'bad_end_mate' + '1' if mate1 else '2')
                         mutate(rdp1, qual, rd_aln, rf_aln)  # mutate unpaired read
                         rdseq2 = ''.join([random.choice('ACGT') for _ in xrange(ordlen)])
                         # TODO: borrow qualities rather than make them up
                         qual2 = 'I' * len(rdseq2)
-                        rdp2 = Read(rdp1.name + '2', rdseq2, qual2)
+                        rdp2 = Read(rdp1.name, rdseq2, qual2)
                         if not mate1:
                             rdp1, rdp2 = rdp2, rdp1
                         yield typ, rdp1, rdp2
