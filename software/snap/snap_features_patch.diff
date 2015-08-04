@@ -99,6 +99,19 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/BaseAligner.cpp snap/SNAPLib/BaseAl
                      primaryResult->mapq = computeMAPQ(probabilityOfAllCandidates, probabilityOfBestCandidate, bestScore, popularSeedsSkipped);
                      if (primaryResult->mapq >= MAPQ_LIMIT_FOR_SINGLE_HIT) {
                          primaryResult->status = SingleHit;
+diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/CommandProcessor.cpp snap/SNAPLib/CommandProcessor.cpp
+--- tmp/snap/SNAPLib/CommandProcessor.cpp	2015-07-28 15:15:02.000000000 -0400
++++ snap/SNAPLib/CommandProcessor.cpp	2015-08-04 10:54:20.000000000 -0400
+@@ -162,7 +162,8 @@ void RunDaemonMode(int argc, const char 
+ 
+ void ProcessTopLevelCommands(int argc, const char **argv)
+ {
+-	fprintf(stderr, "Welcome to SNAP version %s.\n\n", SNAP_VERSION);       // Can't use WriteStatusMessage, because we haven't parsed args yet to determine if -hdp is specified.  Just stick with stderr.
++	fprintf(stderr, "Welcome to SNAP version %s.\n", SNAP_VERSION);       // Can't use WriteStatusMessage, because we haven't parsed args yet to determine if -hdp is specified.  Just stick with stderr.
++	fprintf(stderr, "(With minor modifications by Ben Langmead to fit into tandem simulation framework)\n\n");
+ 
+ 	InitializeSeedSequencers();
+ 
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/FileFormat.h snap/SNAPLib/FileFormat.h
 --- tmp/snap/SNAPLib/FileFormat.h	2015-07-28 15:15:02.000000000 -0400
 +++ snap/SNAPLib/FileFormat.h	2015-07-28 15:03:35.000000000 -0400
@@ -115,13 +128,13 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/FileFormat.h snap/SNAPLib/FileForma
          bool alignedAsPair = false) const = 0; 
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/IntersectingPairedEndAligner.cpp snap/SNAPLib/IntersectingPairedEndAligner.cpp
 --- tmp/snap/SNAPLib/IntersectingPairedEndAligner.cpp	2015-07-28 15:15:02.000000000 -0400
-+++ snap/SNAPLib/IntersectingPairedEndAligner.cpp	2015-07-25 21:13:36.000000000 -0400
++++ snap/SNAPLib/IntersectingPairedEndAligner.cpp	2015-08-04 17:31:35.000000000 -0400
 @@ -855,6 +855,11 @@ doneScoring:
          for (unsigned whichRead = 0; whichRead < NUM_READS_PER_PAIR; whichRead++) {
              result->location[whichRead] = bestResultGenomeLocation[whichRead];
              result->direction[whichRead] = bestResultDirection[whichRead];
 +			result->features[whichRead].init(bestResultScore[whichRead],
-+											 0,
++											 0xffff,
 +											 probabilityOfAllPairs,
 +											 probabilityOfBestPair,
 +											 popularSeedsSkipped[0] + popularSeedsSkipped[1]);
