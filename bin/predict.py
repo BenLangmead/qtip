@@ -1043,7 +1043,7 @@ class MapqFit:
                 symbol = '*'
             elif better:
                 symbol = '+'
-            logging.debug("%s, %s=%0.3f, %s%s" % (dataset_shortname, 'oob' if use_oob else 'score', score, symbol))
+            logging.debug("%s, %s=%0.3f, %s%s" % (dataset_shortname, 'oob' if use_oob else 'score', score, str(params), symbol))
         best_params, best_pred = mf.best_predictor()
         logging.debug("BEST: %s, avg=%0.3f, %s" % (dataset_shortname, max(scores), str(best_params)))
         assert best_pred is not None
