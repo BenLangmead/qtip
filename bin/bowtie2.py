@@ -79,16 +79,16 @@ class Bowtie2(Aligner):
         if unpaired is not None:
             input_args.append(('--%s' % input_format) if input_format is not None else '-U')
             input_args.append(','.join(unpaired))
-            input_args.append(aligner_unpaired_args)
+            input_args.extend(aligner_unpaired_args)
         if paired is not None:
             assert input_format not in ['tab5', 'tab6', '12']
             input_args.extend(['-1', ','.join(map(itemgetter(0), paired))])
             input_args.extend(['-2', ','.join(map(itemgetter(1), paired))])
-            input_args.append(aligner_paired_args)
+            input_args.extend(aligner_paired_args)
         if paired_combined is not None:
             assert input_format is not None
             input_args.extend(['--%s' % input_format, ','.join(paired_combined)])
-            input_args.append(aligner_paired_args)
+            input_args.extend(aligner_paired_args)
         if unpaired is None and paired is None and paired_combined is None:
             assert input_format is not None
             input_args.extend(['--%s' % input_format, '-'])
@@ -105,7 +105,7 @@ class Bowtie2(Aligner):
             popen_stdout = PIPE
         index_args = ['-x', index]
         # Put all the arguments together
-        input_args.append(aligner_args)
+        input_args.extend(aligner_args)
         cmd += ' '
         cmd += ' '.join(input_args + output_args + index_args)
         logging.info('Bowtie 2 command: ' + cmd)

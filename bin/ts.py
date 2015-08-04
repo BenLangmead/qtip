@@ -444,14 +444,11 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         align_cmd = 'bowtie2 '
         if args['bt2_exe'] is not None:
             align_cmd = args['bt2_exe'] + " "
-        #align_cmd += ' '.join(aligner_args)
-        #align_cmd += ' --reorder --sam-no-qname-trunc --mapq-extra'
-        aligner_args += ' --reorder --sam-no-qname-trunc --mapq-extra'
+        aligner_args.extend(['--reorder', '--sam-no-qname-trunc', '--mapq-extra'])
     elif args['aligner'] == 'bwa-mem':
         align_cmd = 'bwa mem '
         if args['bwa_exe'] is not None:
             align_cmd = args['bwa_exe'] + ' mem '
-        #align_cmd += ' '.join(aligner_args)
         aligner_class, alignment_class = BwaMem, AlignmentBwaMem
     elif args['aligner'] == 'mosaik':
         if args['use_concurrency']:
@@ -460,13 +457,11 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         align_cmd = 'MosaikAlign '
         if args['mosaik_align_exe'] is not None:
             align_cmd = args['mosaik_align_exe'] + ' '
-        #align_cmd += ' '.join(aligner_args)
         aligner_class, alignment_class = Mosaik, AlignmentMosaik
     elif args['aligner'] == 'snap':
         align_cmd = 'snap-aligner '
         if args['snap_exe'] is not None:
             align_cmd = args['snap_exe'] + ' '
-        #align_cmd += ' '.join(aligner_args)
         aligner_class, alignment_class = SnapAligner, AlignmentSnap
     elif args['aligner'] is not None:
         raise RuntimeError('Aligner not supported: "%s"' % args['aligner'])

@@ -166,8 +166,8 @@ class SnapAligner(Aligner):
             cmd += ' ' + ' '.join(args_output)
             if len(cmd_toks) > 1:
                 cmd += ' ' + ' '.join(cmd_toks[1:])
-            cmd += ' ' + aligner_unpaired_args
-            cmd += ' ' + aligner_args
+            cmd += ' ' + ' '.join(aligner_unpaired_args)
+            cmd += ' ' + ' '.join(aligner_args)
 
         if len(args_paired) > 2:
             if len(cmd) > 0:
@@ -176,8 +176,8 @@ class SnapAligner(Aligner):
             cmd += ' ' + ' '.join(args_output)
             if len(cmd_toks) > 1:
                 cmd += ' ' + ' '.join(cmd_toks[1:])
-            cmd += ' ' + aligner_paired_args
-            cmd += ' ' + aligner_args
+            cmd += ' ' + ' '.join(aligner_paired_args)
+            cmd += ' ' + ' '.join(aligner_args)
 
         cmd = cmd_toks[0] + ' ' + cmd
 

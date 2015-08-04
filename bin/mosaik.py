@@ -25,6 +25,9 @@ class Mosaik(Aligner):
     
     def __init__(self,
                  cmd,
+                 aligner_args,
+                 aligner_unpaired_args,
+                 aligner_paired_args,
                  index,
                  unpaired=None,
                  paired=None,
@@ -70,8 +73,10 @@ class Mosaik(Aligner):
         input_args = []
         if unpaired is not None:
             input_args = ['-in', unpaired[0]]
+            input_args.extend(aligner_unpaired_args)
         if paired_combined is not None:
             input_args = ['-in', paired_combined[0]]
+            input_args.extend(aligner_paired_args)
         if unpaired is None and paired is None and paired_combined is None:
             input_args = ['-']
             popen_stdin = PIPE
@@ -87,6 +92,7 @@ class Mosaik(Aligner):
         if pairsOnly:
             options.append('-p')
         # Put all the arguments together
+        input_args.extend(aligner_args)
         cmd += ' '
         cmd += ' '.join(options + ['-ia', index] + input_args + output_args)
         logging.info('MosaikAlign command: ' + cmd)
