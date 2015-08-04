@@ -214,7 +214,7 @@ class FragmentSimSerial2(object):
                         assert rl == fraglens[i]
                         rdseq = substr if fw else revcomp(substr)
                         rdp1 = Read.from_simulator(rdseq, None, ref_id, ref_off, fw, sc,
-                                                   'bad_end_mate' + '1' if mate1 else '2')
+                                                   'bad_end_mate' + ('1' if mate1 else '2'))
                         mutate(rdp1, qual, rd_aln, rf_aln)  # mutate unpaired read
                         rdseq2 = ''.join([random.choice('ACGT') for _ in xrange(ordlen)])
                         # TODO: borrow qualities rather than make them up
