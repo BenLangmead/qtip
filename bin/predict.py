@@ -1035,17 +1035,10 @@ class MapqFit:
             params, pred = mf.next_predictor()
             if pred is None:
                 break
-            if use_oob:
-                score = _oob_score(pred)
-                scores.append(score)
-                best = score == max(scores)
-                logging.debug("%s, oob=%0.3f, %s%s" % (dataset_shortname, score, str(params), ' *' if best else ''))
-            else:
-                score = _crossval_score(pred)
-                scores.append(score)
-                best = score == max(scores)
-                logging.debug("%s, score=%0.3f, %s%s" % (dataset_shortname, score, str(params), ' *' if best else ''))
-            mf.set_score(score)
+            score = _oob_score(pred) if use_oob else _crossval_score(pred)
+            scores.append(score)
+            best = mf.set_score(score)
+            logging.debug("%s, %s=%0.3f, %s%s" % (dataset_shortname, 'oob' if use_oob else 'score', score, str(params), ' *' if best else ''))
         best_params, best_pred = mf.best_predictor()
         logging.debug("BEST: %s, avg=%0.3f, %s" % (dataset_shortname, max(scores), str(best_params)))
         assert best_pred is not None
@@ -1178,10 +1171,7 @@ class MapqFit:
 
 class ModelFamily(object):
     """ Encapsulates a model family and a simple interface for naively
-        searching the space of hyperparameters.
-
-        TODO: need to switch to some kind of worklist approach
-        """
+        searching the space of hyperparameters. """
 
     def __init__(self, new_predictor, params, round_to, min_separation, start_in_middle=True):
         """
@@ -1206,7 +1196,7 @@ class ModelFamily(object):
         self._add_neighbors_to_workset(center)
 
     def _add_neighbors_to_workset(self, center):
-        for i in xrange(len(self.params)):
+        for i in range(len(self.params)):
             if center[i] > 0:
                 neighbor = list(center[:])
                 neighbor[i] -= 1  # add next-lowest neighbor
@@ -1238,11 +1228,13 @@ class ModelFamily(object):
         assert self.last_params in self.added_to_workset
         score_rounded = int(score / self.round_to) * self.round_to
         if score_rounded < self.best_rounded:
-            return
+            return False
         if score > self.best + self.min_separation:
             self.best, self.best_rounded = score, score_rounded
             self.best_translated_params = self._idxs_to_params(self.last_params)
             self._add_neighbors_to_workset(self.last_params)
+            return True
+        return False
 
     def best_predictor(self):
         return self.best_translated_params, self.new_predictor(self.best_translated_params)
