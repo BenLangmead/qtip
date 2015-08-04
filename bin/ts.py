@@ -778,6 +778,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                         time.sleep(0.5)
 
                 sam_fn = temp_man.get_filename('training.sam', 'tandem sam')
+                if args['write_training_sam'] or args['write_all']:
+                    sam_fn = os.path.join(args['output_directory'], 'training.sam')
                 if aligner.supports_mix():
                     logging.info('Aligning tandem reads (%s, mix)' % lab)
                     aligner = aligner_class(align_cmd,
