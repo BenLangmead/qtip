@@ -49,7 +49,6 @@ import random
 import time
 import logging
 import errno
-import numpy as np
 from collections import defaultdict
 from traceback import print_tb
 try:
