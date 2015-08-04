@@ -25,6 +25,9 @@ class BwaMem(Aligner):
     
     def __init__(self,
                  cmd,
+                 aligner_args,
+                 aligner_unpaired_args,
+                 aligner_paired_args,
                  index,
                  unpaired=None,
                  paired=None,
@@ -68,14 +71,16 @@ class BwaMem(Aligner):
         input_args = []
         if unpaired is not None:
             input_args = [unpaired[0]]
+            input_args.append(aligner_unpaired_args)
         if paired is not None:
             assert len(paired[0]) == 2
             input_args = [paired[0][0], paired[0][1]]
+            input_args.append(aligner_paired_args)
         if paired_combined is not None:
             options.append('-p')
             input_args = [paired_combined[0]]
+            input_args.append(aligner_paired_args)
         if unpaired is None and paired is None and paired_combined is None:
-
             input_args = ['-']
             popen_stdin = PIPE
             self.input_is_queued = True
@@ -90,6 +95,7 @@ class BwaMem(Aligner):
         if pairs_only:
             options.append('-p')
         # Put all the arguments together
+        input_args.append(aligner_args)
         cmd += ' '
         cmd += ' '.join(options + [index] + input_args + output_args)
         logging.info('bwa mem command: ' + cmd)

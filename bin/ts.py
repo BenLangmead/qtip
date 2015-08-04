@@ -407,7 +407,7 @@ class Timing(object):
         return '\n'.join(ret) + '\n'
 
 
-def go(args, aligner_args):
+def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     """ Main driver for tandem simulator """
 
     random.seed(args['seed'])
@@ -444,13 +444,14 @@ def go(args, aligner_args):
         align_cmd = 'bowtie2 '
         if args['bt2_exe'] is not None:
             align_cmd = args['bt2_exe'] + " "
-        align_cmd += ' '.join(aligner_args)
-        align_cmd += ' --reorder --sam-no-qname-trunc --mapq-extra'
+        #align_cmd += ' '.join(aligner_args)
+        #align_cmd += ' --reorder --sam-no-qname-trunc --mapq-extra'
+        aligner_args += ' --reorder --sam-no-qname-trunc --mapq-extra'
     elif args['aligner'] == 'bwa-mem':
         align_cmd = 'bwa mem '
         if args['bwa_exe'] is not None:
             align_cmd = args['bwa_exe'] + ' mem '
-        align_cmd += ' '.join(aligner_args)
+        #align_cmd += ' '.join(aligner_args)
         aligner_class, alignment_class = BwaMem, AlignmentBwaMem
     elif args['aligner'] == 'mosaik':
         if args['use_concurrency']:
@@ -459,13 +460,13 @@ def go(args, aligner_args):
         align_cmd = 'MosaikAlign '
         if args['mosaik_align_exe'] is not None:
             align_cmd = args['mosaik_align_exe'] + ' '
-        align_cmd += ' '.join(aligner_args)
+        #align_cmd += ' '.join(aligner_args)
         aligner_class, alignment_class = Mosaik, AlignmentMosaik
     elif args['aligner'] == 'snap':
         align_cmd = 'snap-aligner '
         if args['snap_exe'] is not None:
             align_cmd = args['snap_exe'] + ' '
-        align_cmd += ' '.join(aligner_args)
+        #align_cmd += ' '.join(aligner_args)
         aligner_class, alignment_class = SnapAligner, AlignmentSnap
     elif args['aligner'] is not None:
         raise RuntimeError('Aligner not supported: "%s"' % args['aligner'])
@@ -499,7 +500,9 @@ def go(args, aligner_args):
             tim.start_timer('Aligning input reads')
 
         logging.info('Command for aligning input data: "%s"' % align_cmd)
-        aligner = aligner_class(align_cmd, args['index'],
+        aligner = aligner_class(align_cmd,
+                                aligner_args, aligner_unpaired_args, aligner_paired_args,
+                                args['index'],
                                 unpaired=unpaired_arg, paired=paired_arg,
                                 sam=sam_arg)
 
@@ -732,7 +735,6 @@ def go(args, aligner_args):
                 # Align
                 #
 
-                logging.info('Aligning tandem reads (%s)' % lab)
                 tim.start_timer('Aligning tandem reads')
 
                 def _wait_for_aligner(_al):
@@ -741,7 +743,10 @@ def go(args, aligner_args):
 
                 sam_fn = temp_man.get_filename('training.sam', 'tandem sam')
                 if aligner.supports_mix():
-                    aligner = aligner_class(align_cmd, args['index'],  # no concurrency
+                    logging.info('Aligning tandem reads (%s, mix)' % lab)
+                    aligner = aligner_class(align_cmd,
+                                            aligner_args, aligner_unpaired_args, aligner_paired_args,
+                                            args['index'],  # no concurrency
                                             unpaired=unpaired_arg, paired_combined=paired_combined_arg,
                                             sam=sam_fn, input_format=aligner.preferred_paired_format())
                     # the aligner_class gets to decide what order to do unpaired/paired
@@ -750,16 +755,22 @@ def go(args, aligner_args):
                 else:
                     paired_sam, unpaired_sam = None, None
                     if unpaired_arg is not None:
+                        logging.info('Aligning tandem reads (%s, unpaired)' % lab)
                         unpaired_sam = temp_man.get_filename('training_unpaired.sam', 'tandem sam')
-                        aligner = aligner_class(align_cmd, args['index'],  # no concurrency
+                        aligner = aligner_class(align_cmd,
+                                                aligner_args, aligner_unpaired_args, aligner_paired_args,
+                                                args['index'],  # no concurrency
                                                 unpaired=unpaired_arg, paired_combined=None,
                                                 sam=unpaired_sam, input_format=aligner.preferred_unpaired_format())
                         _wait_for_aligner(aligner)
                         logging.debug('Finished aligning unpaired tandem reads')
 
                     if paired_combined_arg is not None:
+                        logging.info('Aligning tandem reads (%s, paired)' % lab)
                         paired_sam = temp_man.get_filename('training_paired.sam', 'tandem sam')
-                        aligner = aligner_class(align_cmd, args['index'],  # no concurrency
+                        aligner = aligner_class(align_cmd,
+                                                aligner_args, aligner_unpaired_args, aligner_paired_args,
+                                                args['index'],  # no concurrency
                                                 unpaired=None, paired_combined=paired_combined_arg,
                                                 sam=paired_sam, input_format=aligner.preferred_paired_format())
                         _wait_for_aligner(aligner)
@@ -810,7 +821,9 @@ def go(args, aligner_args):
 
                 logging.info('Opening aligner process using concurrency')
                 # Does the aligner always get unpaireds before paireds or vice versa?
-                aligner = aligner_class(align_cmd, args['index'], pairs_only=paired)
+                aligner = aligner_class(align_cmd,
+                                        aligner_args, aligner_unpaired_args, aligner_paired_args,
+                                        args['index'], pairs_only=paired)
                 sam_fn = os.path.join(args['output_directory'], 'training.sam')
                 training_sam_fh = open(sam_fn, 'w') if (args['write_training_sam'] or args['write_all']) else None
                 cor_dist, incor_dist = defaultdict(int), defaultdict(int)
@@ -1006,28 +1019,27 @@ def add_args(parser):
                              'but requires more memory.  Doesn\'t work with all aligners.')
 
 
-def go_profile(args, aligner_args):
+def go_profile(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     if args['profile']:
         import cProfile
-        cProfile.run('go(args, aligner_args)')
+        cProfile.run('go(args, aligner_args, aligner_unpaired_args, aligner_paired_args)')
     else:
-        go(args, aligner_args)
+        go(args, aligner_args, aligner_unpaired_args, aligner_paired_args)
 
 
 def parse_aligner_parameters_from_argv(_argv):
     argv = _argv[:]
-    aligner_args = []
-    in_args = False
-    new_argv = None
-    for i, ag in enumerate(argv):
-        if in_args:
-            aligner_args.append(ag)
-        elif ag == '--':
-            new_argv = argv[:i]
-            in_args = True
-    if new_argv is None:
-        new_argv = argv
-    return new_argv, aligner_args
+    sections = [[]]
+    for arg in argv:
+        if arg == '--':
+            sections.append([])
+        else:
+            sections[-1].append(arg)
+    new_argv = sections[0]
+    aligner_args = [] if len(sections) < 1 else sections[1]
+    aligner_unpaired_args = [] if len(sections) < 2 else sections[2]
+    aligner_paired_args = [] if len(sections) < 3 else sections[3]
+    return new_argv, aligner_args, aligner_unpaired_args, aligner_paired_args
 
 
 if __name__ == "__main__":
@@ -1051,7 +1063,7 @@ if __name__ == "__main__":
     _parser.add_argument('--verbose', action='store_const', const=True, default=False, help='Be talkative')
     _parser.add_argument('--version', action='store_const', const=True, default=False, help='Print version and quit')
 
-    _argv, _aligner_args = parse_aligner_parameters_from_argv(sys.argv)
+    _argv, _aligner_args, _aligner_unpaired_args, _aligner_paired_args = parse_aligner_parameters_from_argv(sys.argv)
     _args = _parser.parse_args(_argv[1:])
 
-    go_profile(vars(_args), _aligner_args)
+    go_profile(vars(_args), _aligner_args, _aligner_unpaired_args, _aligner_paired_args)

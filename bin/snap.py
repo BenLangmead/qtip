@@ -77,6 +77,9 @@ class SnapAligner(Aligner):
 
     def __init__(self,
                  cmd,
+                 aligner_args,
+                 aligner_unpaired_args,
+                 aligner_paired_args,
                  index,
                  unpaired=None,  # -fastq
                  paired=None,  # -pairedFastq
@@ -163,6 +166,8 @@ class SnapAligner(Aligner):
             cmd += ' ' + ' '.join(args_output)
             if len(cmd_toks) > 1:
                 cmd += ' ' + ' '.join(cmd_toks[1:])
+            cmd += ' ' + aligner_unpaired_args
+            cmd += ' ' + aligner_args
 
         if len(args_paired) > 2:
             if len(cmd) > 0:
@@ -171,6 +176,8 @@ class SnapAligner(Aligner):
             cmd += ' ' + ' '.join(args_output)
             if len(cmd_toks) > 1:
                 cmd += ' ' + ' '.join(cmd_toks[1:])
+            cmd += ' ' + aligner_paired_args
+            cmd += ' ' + aligner_args
 
         cmd = cmd_toks[0] + ' ' + cmd
 
