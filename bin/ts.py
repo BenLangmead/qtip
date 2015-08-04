@@ -45,7 +45,6 @@ __email__ = "langmea@cs.jhu.edu"
 
 import os
 import sys
-from string import maketrans
 import random
 import time
 import logging
@@ -73,12 +72,6 @@ from tempman import TemporaryFileManager
 from score_dists import CollapsedScoreDist, ScoreDist, CollapsedScorePairDist, ScorePairDist
 
 VERSION = '0.1.0'
-
-_revcomp_trans = maketrans("ACGTacgt", "TGCAtgca")
-
-
-def revcomp(s):
-    return s[::-1].translate(_revcomp_trans)
 
 
 class Dists(object):

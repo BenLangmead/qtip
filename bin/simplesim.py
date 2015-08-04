@@ -12,7 +12,12 @@ from read import Read
 from reference import iter_fasta_chunks_fast
 from collections import defaultdict
 
-_revcomp_trans = string.maketrans("ACGTacgt", "TGCAtgca")
+
+_revcomp_trans = None
+try:
+    _revcomp_trans = string.maketrans("ACGTacgt", "TGCAtgca")
+except AttributeError:
+    _revcomp_trans = str.maketrans("ACGTacgt", "TGCAtgca")
 
 
 def revcomp(s):
