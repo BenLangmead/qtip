@@ -1036,9 +1036,9 @@ def parse_aligner_parameters_from_argv(_argv):
         else:
             sections[-1].append(arg)
     new_argv = sections[0]
-    aligner_args = [] if len(sections) < 1 else sections[1]
-    aligner_unpaired_args = [] if len(sections) < 2 else sections[2]
-    aligner_paired_args = [] if len(sections) < 3 else sections[3]
+    aligner_args = [] if len(sections) < 2 else sections[1]
+    aligner_unpaired_args = [] if len(sections) < 3 else sections[2]
+    aligner_paired_args = [] if len(sections) < 4 else sections[3]
     return new_argv, aligner_args, aligner_unpaired_args, aligner_paired_args
 
 
