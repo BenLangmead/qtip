@@ -627,7 +627,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                     or writes them to various files and returns those. """
                 type_to_format = {'conc': paired_format,
                                   'disc': paired_format,
-                                  'bad_end': unpaired_format,
+                                  'bad_end': paired_format,
                                   'unp': unpaired_format}
                 write_training_reads = args['write_training_reads'] or args['write_all']
                 training_out_fn, training_out_fh = {}, {}
