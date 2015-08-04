@@ -265,7 +265,10 @@ class AlignmentReader(Thread):
                 if self.dataset is not None:
                     is_training = (al.name[0] == '!' and al.name.startswith('!!ts!!'))
                     if al.is_aligned() and is_training:
-                        name_split = al.name.split('!!ts-sep!!')
+                        name = al.name
+                        if name.endswith('/1') or name.endswith('/2'):
+                            name = name[:-2]
+                        name_split = name.split('!!ts-sep!!')
                         if len(name_split) == 6:
                             # unpaired
                             _, refid, fw, refoff, sc, training_nm = name_split
