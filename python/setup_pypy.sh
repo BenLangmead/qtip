@@ -3,7 +3,7 @@
 setup_pypy() {
     URL=$1
     base=`basename $URL`
-    pkg=`echo $URL | sed 's/\.tar\.bz2$//'`
+    pkg=`echo $base | sed 's/\.tar\.bz2$//'`
     env_nm=$2
     if [ ! -d $pkg ] ; then
         wget -O $base $URL
@@ -21,6 +21,7 @@ setup_pypy() {
     if ! pip list | grep numpy ; then
         git clone git@bitbucket.org:pypy/numpy.git
         cd numpy && pypy setup.py install
+        rm -rf numpy
     fi
     
     pip list
