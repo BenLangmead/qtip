@@ -99,6 +99,17 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/BaseAligner.cpp snap/SNAPLib/BaseAl
                      primaryResult->mapq = computeMAPQ(probabilityOfAllCandidates, probabilityOfBestCandidate, bestScore, popularSeedsSkipped);
                      if (primaryResult->mapq >= MAPQ_LIMIT_FOR_SINGLE_HIT) {
                          primaryResult->status = SingleHit;
+diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/ChimericPairedEndAligner.cpp snap/SNAPLib/ChimericPairedEndAligner.cpp
+--- tmp/snap/SNAPLib/ChimericPairedEndAligner.cpp	2015-07-28 15:15:02.000000000 -0400
++++ snap/SNAPLib/ChimericPairedEndAligner.cpp	2015-08-05 09:03:57.000000000 -0400
+@@ -188,6 +188,7 @@ void ChimericPairedEndAligner::align(
+ 			*(resultCount[r]) = singleEndSecondaryResultsThisTime;
+ 
+ 			result->status[r] = singleResult.status;
++			result->features[r] = singleResult.features;
+ 			result->mapq[r] = singleResult.mapq / 3;   // Heavy quality penalty for chimeric reads
+ 			result->direction[r] = singleResult.direction;
+ 			result->location[r] = singleResult.location;
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/CommandProcessor.cpp snap/SNAPLib/CommandProcessor.cpp
 --- tmp/snap/SNAPLib/CommandProcessor.cpp	2015-07-28 15:15:02.000000000 -0400
 +++ snap/SNAPLib/CommandProcessor.cpp	2015-08-04 10:54:20.000000000 -0400
