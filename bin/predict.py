@@ -961,7 +961,6 @@ class MapqFit:
                     'diff_2']  # difference for opposite mate
             if 'diff_conc' in data:
                 labs.append('diff_conc')  # concordant difference
-            #labs.append('fraglen_z')  # # stddevs diff for fraglen
             labs.append('fraglen')
             if data['rdlen_1'].nunique() > 1:
                 labs.append('rdlen_1')
@@ -1257,14 +1256,24 @@ def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.01):
                                round_to, min_separation=min_separation)
 
 
-def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.01):
+# def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.01):
+#     # These perform quite well
+#     def _gen(params):
+#         return ExtraTreesRegressor(n_estimators=params[0], max_depth=params[1],
+#                                    random_state=random_seed,
+#                                    max_features=params[2],
+#                                    oob_score=True, bootstrap=True)
+#     return lambda: ModelFamily(_gen, [range(5, 85, 5), range(3, 16, 2), [0.25, 0.5, 1.0]],
+#                                round_to, min_separation=min_separation)
+
+def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.002):
     # These perform quite well
     def _gen(params):
         return ExtraTreesRegressor(n_estimators=params[0], max_depth=params[1],
                                    random_state=random_seed,
-                                   max_features=params[2],
+                                   max_features=0.5,
                                    oob_score=True, bootstrap=True)
-    return lambda: ModelFamily(_gen, [range(5, 85, 5), range(3, 16, 2), [0.25, 0.5, 1.0]],
+    return lambda: ModelFamily(_gen, [range(5, 85, 2), range(3, 16, 1)],
                                round_to, min_separation=min_separation)
 
 
