@@ -324,7 +324,7 @@ def ranking_error(pcor, cor, rounded=False):
             # spread error over this grouping of tied pcors
             frac = float(nincor) / ntot
             assert frac <= 1.0
-            err += frac * sum(xrange(sofar, sofar + ntot))
+            err += frac * sum(range(sofar, sofar + ntot))
         sofar += ntot
     return err
 
@@ -346,7 +346,7 @@ def cum_squared_error(pcor, cor, rounded=False):
     pcor_order = sorted(range(len(pcor)), key=lambda x: pcor[x], reverse=True)
     pcor = np.array([pcor[x] for x in pcor_order])
     cor = np.array([cor[x] for x in pcor_order])
-    assert all(pcor[i] >= pcor[i+1] for i in xrange(len(pcor)-1))
+    assert all(pcor[i] >= pcor[i+1] for i in range(len(pcor)-1))
     return np.cumsum((pcor - cor) ** 2)
 
 
@@ -384,7 +384,7 @@ def drop_rate_cum_sum(pcor, cor):
     cumsum, cumsums = 0, []
     for p, tup in sorted(tally.iteritems(), reverse=True):
         ncor, nincor = tup
-        for i in xrange(ncor + nincor):
+        for i in range(ncor + nincor):
             cumsum += (float(nincor) / (ncor + nincor))
             cumsums.append(cumsum)
     return cumsums
@@ -541,10 +541,10 @@ def quantile_error_plot(mapq_lists, labs, colors, cor, title=None, quantiles=10,
         else:
             mapq_sorted, pcor_sorted, cor_sorted = mapq_list, mapq_to_pcor_np(mapq_list), cor
         mse.append(mseor(pcor_sorted, cor_sorted))
-        partition_starts = [int(round(i*n/quantiles)) for i in xrange(quantiles+1)]
+        partition_starts = [int(round(i*n/quantiles)) for i in range(quantiles+1)]
         estimated_lists.append([])
         actual_lists.append([])
-        for i in xrange(quantiles):
+        for i in range(quantiles):
             st, en = partition_starts[i], partition_starts[i+1]
             ncor = sum(cor_sorted[st:en])
             ncor_est = sum(pcor_sorted[st:en])
@@ -585,7 +585,7 @@ def plot_subsampling_series(seriess, labs=None, colors=None):
     fig = plt.figure(figsize=(14, 12))
 
     if labs is None:
-        labs = [str(i+1) for i in xrange(len(seriess))]
+        labs = [str(i+1) for i in range(len(seriess))]
     if colors is None:
         colors = ['r', 'b', 'g', 'c', 'm'][:len(seriess)]
         assert len(colors) == len(seriess)
@@ -749,7 +749,7 @@ class MapqPredictions:
         """ Return indexes of in correct alignments in order
             from highest to lowest predicted pcor """
         assert self.correct is not None
-        return [x for x in xrange(len(self.correct)-1, -1, -1) if not self.correct[x]]
+        return [x for x in range(len(self.correct)-1, -1, -1) if not self.correct[x]]
 
     def top_incorrect(self, n=50):
         assert self.data is not None
@@ -805,7 +805,7 @@ class MapqPredictions:
                 logging.info('  Finding correct runs')
             self.correct = correct = self.correct[pcor_order]
             end, run = True, 0
-            for i in xrange(len(correct)-1, -1, -1):
+            for i in range(len(correct)-1, -1, -1):
                 if correct[i] and end:
                     self.correct_end += 1
                 elif end:
@@ -998,7 +998,7 @@ class MapqFit:
             subset given by sample_fraction. """
         n_training_samples = x_train.shape[0]
         if sample_fraction < 1.0:
-            sample_indexes = random.sample(xrange(n_training_samples), int(round(n_training_samples * sample_fraction)))
+            sample_indexes = random.sample(range(n_training_samples), int(round(n_training_samples * sample_fraction)))
             x_train = x_train[sample_indexes, ]
             mapq_orig_train = mapq_orig_train.iloc[sample_indexes]
             y_train = np.array([y_train[i] for i in sample_indexes])
@@ -1353,21 +1353,16 @@ def go(args):
     df_test = AlignmentTableReader(os.path.join(input_dir, 'test'),
                                    use_normalizers=use_normalizers, normalizers=df_training.normalizers)
 
+    nrep = args['subsampling_replicates']
     if args['subsampling_series'] is not None:
         logging.info('Doing subsampling series')
         ss_odir = os.path.join(odir, 'subsampled')
         fractions = map(float, args['subsampling_series'].split(','))
-        perf_dicts = {'test': [{'fraction': [],
-                               'rank_err_diff_round_pct': [],
-                               'auc_diff_round_pct': [],
-                               'mse_diff_round_pct': [],
-                               'mapq_avg': [],
-                               'mapq_std': [],
-                               'params': []} for _ in xrange(args['subsampling_replicates'])]}
-        perf_dicts['training'] = copy.deepcopy(perf_dicts['test'])
+        perf_dicts = {'test': [defaultdict(list) for _ in range(nrep)],
+                      'training': [defaultdict(list) for _ in range(nrep)]}
         for fraction in fractions:
             logging.info('  Fraction=%0.3f' % fraction)
-            for repl in xrange(1, args['subsampling_replicates']+1):
+            for repl in range(1, nrep+1):
                 my_seed = hash(str(args['seed'] + repl)) % 4294967296
                 assert my_seed >= 0
                 gc.collect()
