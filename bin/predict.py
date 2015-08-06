@@ -23,7 +23,7 @@ from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor
 from collections import defaultdict, Counter
 
 
-VERSION = '0.1.0'
+VERSION = '0.2.0'
 
 
 def pcor_to_mapq_np(pcor):
@@ -1396,21 +1396,25 @@ def go(args):
                         with open(my_fit_fn, 'wb') as ofh:
                             cPickle.dump(ss_fit, ofh, 2)
 
-                if args['write_feature_importances'] or args['write_all']:
-                    logging.info('      Writing feature importances')
-                    for ds, model in ss_fit.trained_models.iteritems():
-                        my_fi_fn = os.path.join(my_odir, '%s_feature_importances.tsv' % ds)
-                        with open(my_fi_fn, 'w') as fh:
-                            importances = model.feature_importances_
-                            ranks = np.argsort(importances)[::-1]
-                            inv_ranks = [0] * len(ranks)
-                            for i, r in enumerate(ranks):
-                                inv_ranks[r] = i
-                            i = 0
-                            fh.write('feature\timportance\trank\n')
-                            for im, r in zip(importances, inv_ranks):
-                                fh.write('%s\t%0.4f\t%d\n' % (ss_fit.col_names[ds][i], im, r))
-                                i += 1
+                feat_import_colnames = []
+                feat_import_values = []
+                logging.info('      Gathering and writing feature importances')
+                write_importances = args['write_feature_importances'] or args['write_all']
+                for ds, model in sorted(ss_fit.trained_models.items()):
+                    my_fi_fn = os.path.join(my_odir, '%s_feature_importances.tsv' % ds)
+                    with open(my_fi_fn if write_importances else os.devnull, 'w') as fh:
+                        importances = model.feature_importances_
+                        ranks = np.argsort(importances)[::-1]
+                        inv_ranks = [0] * len(ranks)
+                        for i, r in enumerate(ranks):
+                            inv_ranks[r] = i
+                        i = 0
+                        fh.write('feature\timportance\trank\n')
+                        for im, r in zip(importances, inv_ranks):
+                            feat_import_colnames.append(ds + '_' + ss_fit.col_names[ds][i])
+                            feat_import_values.append(im)
+                            fh.write('%s\t%0.4f\t%d\n' % (ss_fit.col_names[ds][i], im, r))
+                            i += 1
 
                 if args['write_oob_scores'] or args['write_all']:
                     logging.info('      Writing out-of-bag scores')
@@ -1430,7 +1434,6 @@ def go(args):
                 # Prediction-related outputs
                 #
 
-                # TODO: do this for training as well as test data
                 for df, name in [(df_test, 'test'), (df_training, 'training')]:
                     pred_odir = os.path.join(my_odir, name)
                     mkdir_quiet(pred_odir)
@@ -1450,6 +1453,9 @@ def go(args):
                     perf_dicts[name][repl-1]['mapq_avg'].append(pred_overall.mapq_avg)
                     perf_dicts[name][repl-1]['mapq_std'].append(pred_overall.mapq_std)
                     perf_dicts[name][repl-1]['params'].append(str(ss_fit.trained_params))
+                    for feat, val in zip(feat_import_colnames, feat_import_values):
+                        perf_dicts[name][repl-1][feat].append(val)
+                    # TODO: tease out ranking error due to conc, disc, bad_end
 
                     # TODO: print columns giving SSE error for each distinct MAPQ
                     if args['write_roc_table'] or args['write_all']:
