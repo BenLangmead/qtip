@@ -1,3 +1,3 @@
 Command to make the patch:
 
-``` diff -rupN -x "Xcode" -x ".git" bwa-0.7.12/ bwa-0.7.12-patched/ ```
+``` cd ~/git ; diff -rupN -x "Xcode" -x ".git" bwa bwa-mod > ~/git/mapq/software/bwa/bwa_conc_flags_0.7.12.patch ```
