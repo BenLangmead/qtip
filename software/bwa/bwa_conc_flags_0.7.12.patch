@@ -1,10 +1,10 @@
-diff -rupN bwa-0.7.12/bwamem.c bwa-0.7.12-patched/bwamem.c
---- bwa-0.7.12/bwamem.c	2014-12-23 15:35:48.000000000 -0500
-+++ bwa-0.7.12-patched/bwamem.c	2015-07-27 21:17:41.000000000 -0400
-@@ -934,6 +934,14 @@ void mem_aln2sam(const mem_opt_t *opt, c
+diff -rupN -x Xcode -x .git bwa/bwamem.c bwa-mod/bwamem.c
+--- bwa/bwamem.c	2015-07-08 13:14:28.000000000 -0400
++++ bwa-mod/bwamem.c	2015-08-06 11:54:57.000000000 -0400
+@@ -933,6 +933,14 @@ void mem_aln2sam(const mem_opt_t *opt, c
+ 			ksprintf(str, "\tpa:f:%.3f", (double)p->score / p->alt_sc);
  	}
  	if (p->XA) { kputsn("\tXA:Z:", 6, str); kputs(p->XA, str); }
- 	if (s->comment) { kputc('\t', str); kputs(s->comment, str); }
 +	if ((p->flag & 2) != 0) {
 +		if (p->pair_score > 0) { kputsn("\tZP:i:", 6, str); kputw(p->pair_score, str); }
 +		if (p->pair_sub > 0) { kputsn("\tZp:i:", 6, str); kputw(p->pair_sub, str); }
@@ -13,12 +13,12 @@ diff -rupN bwa-0.7.12/bwamem.c bwa-0.7.12-patched/bwamem.c
 +		kputc(',', str);
 +		kputw((int)(p->pair_frac_rep * 100.0), str);
 +	}
+ 	if (s->comment) { kputc('\t', str); kputs(s->comment, str); }
  	if ((opt->flag&MEM_F_REF_HDR) && p->rid >= 0 && bns->anns[p->rid].anno != 0 && bns->anns[p->rid].anno[0] != 0) {
  		int tmp;
- 		kputsn("\tXR:Z:", 6, str);
-diff -rupN bwa-0.7.12/bwamem.h bwa-0.7.12-patched/bwamem.h
---- bwa-0.7.12/bwamem.h	2014-12-23 15:35:48.000000000 -0500
-+++ bwa-0.7.12-patched/bwamem.h	2015-07-27 21:18:18.000000000 -0400
+diff -rupN -x Xcode -x .git bwa/bwamem.h bwa-mod/bwamem.h
+--- bwa/bwamem.h	2015-07-08 13:14:28.000000000 -0400
++++ bwa-mod/bwamem.h	2015-08-06 11:52:41.000000000 -0400
 @@ -94,6 +94,8 @@ typedef struct { // This struct is only 
  	char *XA;        // alternative mappings
  
@@ -28,17 +28,26 @@ diff -rupN bwa-0.7.12/bwamem.h bwa-0.7.12-patched/bwamem.h
  } mem_aln_t;
  
  #ifdef __cplusplus
-diff -rupN bwa-0.7.12/bwamem_pair.c bwa-0.7.12-patched/bwamem_pair.c
---- bwa-0.7.12/bwamem_pair.c	2014-12-28 15:45:41.000000000 -0500
-+++ bwa-0.7.12-patched/bwamem_pair.c	2015-07-27 21:30:03.000000000 -0400
-@@ -346,6 +346,10 @@ int mem_sam_pe(const mem_opt_t *opt, con
+diff -rupN -x Xcode -x .git bwa/bwamem_pair.c bwa-mod/bwamem_pair.c
+--- bwa/bwamem_pair.c	2015-07-08 13:14:28.000000000 -0400
++++ bwa-mod/bwamem_pair.c	2015-08-06 12:22:38.000000000 -0400
+@@ -346,6 +346,19 @@ int mem_sam_pe(const mem_opt_t *opt, con
  				aa[i][n_aa[i]++] = g[i];
  			}
  		}
++		// Might be less work if we installed these earlier
 +		h[0].pair_score = h[1].pair_score = o;
 +		h[0].pair_sub = h[1].pair_sub = subo;
 +		h[0].pair_nsub = h[1].pair_nsub = n_sub;
 +		h[0].pair_frac_rep = h[1].pair_frac_rep = a[0].a[0].frac_rep + a[1].a[0].frac_rep;
++		for (j = 0; j < 2; ++j) {
++			for (i = 0; i < n_aa[j]; ++i) {
++				aa[j][i].pair_score = o;
++				aa[j][i].pair_sub = subo;
++				aa[j][i].pair_nsub = n_sub;
++				aa[j][i].pair_frac_rep = a[0].a[0].frac_rep + a[1].a[0].frac_rep;
++			}
++		}
  		for (i = 0; i < n_aa[0]; ++i)
  			mem_aln2sam(opt, bns, &str, &s[0], n_aa[0], aa[0], i, &h[1]); // write read1 hits
  		s[0].sam = strdup(str.s); str.l = 0;
