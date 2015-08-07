@@ -28,6 +28,23 @@ class ReservoirSampler(object):
         self.k = k
         self.r = []
         self.n = 0
+
+    def add_step_1(self):
+        """ Step 1 of stateful add: check whether this will actually get added """
+        if self.n < self.k:
+            return self.n
+        else:
+            j = random.randint(0, self.n)
+            return j if j < self.k else None
+
+    def add_step_2(self, j, obj):
+        """ Step 2 of stateful add: actually add it """
+        if j >= len(self.r):
+            assert j == len(self.r)
+            self.r.append(obj)
+        else:
+            self.r[j] = obj
+        self.n += 1
     
     def add(self, obj):
         """ Add object to sampling domain """
