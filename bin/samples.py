@@ -234,6 +234,7 @@ class DatasetOnDisk(object):
         assert al1.concordant and al2.concordant
         rec1 = PairedTuple.from_alignments(al1, al2)
         rec2 = PairedTuple.from_alignments(al2, al1)
+        self._len += 2
         if self.data_conc is None:
             self.data_conc_fn = self.temp_man.get_filename('%s_conc.csv' % self.name, 'dataset %s' % self.name)
             self.data_conc = open(self.data_conc_fn, 'w')
@@ -247,6 +248,7 @@ class DatasetOnDisk(object):
         assert al1.discordant and al2.discordant
         rec1 = PairedTuple.from_alignments(al1, al2)
         rec2 = PairedTuple.from_alignments(al2, al1)
+        self._len += 2
         if self.data_disc is None:
             self.data_disc_fn = self.temp_man.get_filename('%s_disc.csv' % self.name, 'dataset %s' % self.name)
             self.data_disc = open(self.data_disc_fn, 'w')
@@ -258,6 +260,7 @@ class DatasetOnDisk(object):
     def add_bad_end(self, al, unaligned, correct):
         """ Add a discordant paired-end alignment to our dataset. """
         assert al.paired
+        self._len += 1
         if self.data_bad_end is None:
             self.data_bad_end_fn = self.temp_man.get_filename('%s_bad_end.csv' % self.name, 'dataset %s' % self.name)
             self.data_bad_end = open(self.data_bad_end_fn, 'w')
@@ -267,6 +270,7 @@ class DatasetOnDisk(object):
     def add_unpaired(self, al, correct):
         """ Add an alignment for a simulated unpaired read to our dataset. """
         assert not al.paired
+        self._len += 1
         if self.data_unp is None:
             self.data_unp_fn = self.temp_man.get_filename('%s_unp.csv' % self.name, 'dataset %s' % self.name)
             self.data_unp = open(self.data_unp_fn, 'w')

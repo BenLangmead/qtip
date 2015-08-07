@@ -579,6 +579,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             logging.info('  Input alignments written to "%s"' % sam_fn)
 
         test_data.finalize()
+        if len(test_data) == 0:
+            raise RuntimeError('Error: No alignments produced from input reads')
 
         # Writing test dataset
         if args['write_test_data'] or args['write_all']:
