@@ -582,11 +582,13 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         if len(test_data) == 0:
             raise RuntimeError('Error: No alignments produced from input reads')
 
+        logging.info('Parsed %d test records from input alignment output' % len(test_data))
+
         # Writing test dataset
         if args['write_test_data'] or args['write_all']:
             test_csv_fn_prefix = os.path.join(args['output_directory'], 'test')
             test_data.save(test_csv_fn_prefix)
-            logging.info('Test data (CSV format) written to "%s*"' % test_csv_fn_prefix)
+            logging.info('  Test records written to "%s*"' % test_csv_fn_prefix)
 
         test_data.purge()
 
