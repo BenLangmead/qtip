@@ -537,9 +537,24 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         
         result_test_q = Queue()
         if not args['use_concurrency']:
+
+            _finish_profiling = None
+            if args['profile_parsing']:
+                import cProfile
+                import pstats
+                import StringIO
+                pr = cProfile.Profile()
+                pr.enable()
+
+                def _finish_profiling():
+                    pr.disable()
+                    s = StringIO.StringIO()
+                    ps = pstats.Stats(pr, stream=s).sort_stats('tottime')
+                    ps.print_stats(30)
+                    print(s.getvalue())
+
             tim.start_timer('Parsing input read alignments')
             with open(sam_fn, 'r') as sam_fh:
-                # TODO: support parsing of BAM, so we can use MOSAIK
                 othread = AlignmentReader(
                     args,
                     sam_fh,                # SAM/BAM file
@@ -550,12 +565,15 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                     cor_dist,              # dist. of correct alignment deviations
                     incor_dist,            # dist. of incorrect alignment deviations
                     result_test_q,         # result queue
-                    sam_ofh=input_sam_fh)  # SAM output filehandle
+                    sam_ofh=input_sam_fh)  # SAM output file handle
                 othread.run()
+            tim.end_timer('Parsing input read alignments')
+
+            if args['profile_parsing']:
+                _finish_profiling()
 
             temp_man.update_peak()
             temp_man.remove_group('input sam')
-            tim.end_timer('Parsing input read alignments')
         else:
             # Create the thread that eavesdrops on output from aligner
             othread = AlignmentReader(
@@ -1066,6 +1084,8 @@ def add_args(parser):
                         help='Same as specifying all --write-* options')
     parser.add_argument('--compress-output', action='store_const', const=True, default=False,
                         help='gzip all output files')
+    parser.add_argument('--profile-parsing', action='store_const', const=True, default=False,
+                        help='output profiling info related to parsing')
 
     # Resource usage
     parser.add_argument('--use-concurrency', action='store_const', const=True, default=False,
