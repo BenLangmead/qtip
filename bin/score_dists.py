@@ -82,7 +82,6 @@ class ScoreDist(object):
         if not self.empty():
             self.avg_fraglen = float(self.tot_len) / self.num_added
 
-'''
 class CollapsedScoreDist(object):
 
     def __init__(self, small_k=100, big_k=10000, fraction_even=0.5, bias=1.0):
@@ -125,7 +124,8 @@ class CollapsedScoreDist(object):
 
     def add(self, al, correct, ref, ordlen=0):
         sc = al.bestScore
-        # TODO: don't call stacked_alignment unless we have to -- some calls to sample.add will not add to reservoir
+        # TODO: don't call stacked_alignment unless we have to -- some calls
+        # to sample.add will not add to any reservoirs
         rd_aln, rf_aln, rd_len, rf_len = al.stacked_alignment(align_soft_clipped=True, ref=ref)
         self.max_fraglen = max(self.max_fraglen, rf_len)
         self.tot_len += rf_len
@@ -152,7 +152,6 @@ class CollapsedScoreDist(object):
         self.finalized = True
         if not self.empty():
             self.avg_fraglen = float(self.tot_len) / self.num_added
-'''
 
 class ScorePairDist(object):
 
@@ -215,7 +214,6 @@ class ScorePairDist(object):
             self.avg_fraglen = float(self.tot_len) / self.num_added
 
 
-'''
 class CollapsedScorePairDist(object):
 
     def __init__(self, small_k=30, big_k=10000, max_allowed_fraglen=100000, fraction_even=0.5, bias=1.0):
@@ -269,6 +267,8 @@ class CollapsedScorePairDist(object):
     def add(self, al1, al2, correct1, correct2, ref):
         """ Convert given alignment pair to a tuple and add it to the
             reservoir sampler. """
+        # TODO: don't call stacked_alignment unless we have to -- some calls
+        # to sample.add will not add to any reservoirs
         sc1, sc2 = al1.bestScore, al2.bestScore
         # Make note of fragment length
         fraglen = Alignment.fragment_length(al1, al2)
@@ -315,4 +315,3 @@ class CollapsedScorePairDist(object):
         self.finalized = True
         if not self.empty():
             self.avg_fraglen = float(self.tot_len) / self.num_added
-'''
