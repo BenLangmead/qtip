@@ -202,6 +202,23 @@ class AlignmentReader(Thread):
         """ Collect SAM output """
         args = self.args
         has_readline = hasattr(self.sam_q, 'read')
+
+        def _read_with_readline():
+            _ln = self.sam_q.readline()
+            return _ln, len(_ln) == 0
+
+        def _read_with_queue():
+            while True:
+                try:
+                    _ln = self.sam_q.get(block=True, timeout=0.5)
+                    if _ln is None:
+                        return None, True
+                    return _ln, False
+                except Empty:
+                    continue  # keep trying
+
+        _read_line = _read_with_readline if has_readline else _read_with_queue
+
         try:
             last_al, last_correct = None, None
             nal, nunp, nignored, npair = 0, 0, 0, 0
@@ -210,18 +227,10 @@ class AlignmentReader(Thread):
             # iterations so that we can match up the two ends of a pair
             correct = None
             while True:
-                try:
-                    if has_readline:
-                        ln = self.sam_q.readline()
-                        if len(ln) == 0:
-                            break
-                    else:
-                        ln = self.sam_q.get(block=True, timeout=0.5)
-                        if ln is None:
-                            break
-                except Empty:
-                    continue  # keep trying
-                
+                ln, break_now = _read_line()
+                if break_now:
+                    break
+
                 # Send SAM to SAM output filehandle
                 if self.sam_ofh is not None:
                     self.sam_ofh.write(ln)
@@ -292,7 +301,7 @@ class AlignmentReader(Thread):
                             else:
                                 training_nm = 'bad_end2'  # ignore this
                         sc, refoff = int(sc), int(refoff)
-                        self.sc_diffs[sc - al.bestScore] += 1
+                        #self.sc_diffs[sc - al.bestScore] += 1
                         correct = False
                         # Check reference id, orientation
                         if refid == al.refid and fw == al.orientation():

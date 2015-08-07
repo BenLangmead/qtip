@@ -17,38 +17,15 @@ import logging
 import gc
 import cPickle
 import copy
-from itertools import imap, izip
+from itertools import imap
 from sklearn import cross_validation
 from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor
 from collections import defaultdict, Counter
+from mapq import pcor_to_mapq, mapq_to_pcor_np, pcor_to_mapq_np
+from metrics import cum_squared_error, drop_rate_cum_sum, tally_cor_per, mseor, ranking_error, auc, roc_table
 
 
 VERSION = '0.2.0'
-
-
-def pcor_to_mapq_np(pcor):
-    old = np.seterr(divide='ignore')
-    ret = np.abs(-10.0 * np.log10(1.0 - pcor))
-    np.seterr(**old)
-    return ret
-
-
-def mapq_to_pcor_np(mapq):
-    return 1.0 - 10.0 ** (-0.1 * mapq)
-
-
-def round_pcor_np(pcor):
-    return mapq_to_pcor_np(np.round(pcor_to_mapq_np(pcor)))
-
-
-def pcor_to_mapq(p):
-    """ Convert probability correct (pcor) to mapping quality (MAPQ) """
-    return int(round(abs(-10.0 * math.log10(1.0 - p)) if p < 1.0 else float('inf')))
-
-
-def mapq_to_pcor(p):
-    """ Convert mapping quality (MAPQ) to probability correct (pcor) """
-    return (1.0 - (10.0 ** (-0.1 * p))) if p < float('inf') else 1.0
 
 
 class Normalizers(object):
@@ -170,6 +147,7 @@ class AlignmentTableReader(object):
         if df.shape[0] == 0:
             return
 
+        norm = None
         if self.use_normalizers:
             assert sn in self.normalizers, (sn, self.normalizers)
             norm = self.normalizers[sn]
@@ -229,127 +207,6 @@ class AlignmentTableReader(object):
         return o in self.readers
 
 
-def tuples_to_unpaired_matrix(tups, normalizers):
-    """ Convert a list of UnpairedTuples for unpaired alignments into a
-        matrix suitable for use with a predictor in predict.py. """
-    pass
-
-
-def tuples_to_bad_end_matrix(tups, normalizers):
-    """ Convert a list of UnpairedTuples for bad-end alignments into a
-        matrix suitable for use with a predictor in predict.py. """
-    pass
-
-
-def tuples_to_concordant_matrix(ptups, normalizers):
-    """ Convert a list of PairedTuples for concordant alignments into a matrix
-        suitable for use with a predictor in predict.py. """
-    pass
-
-
-def tuples_to_discordant_matrix(ptups, normalizers):
-    """ Convert a list of PairedTuples for discordant alignments into a matrix
-        suitable for use with a predictor in predict.py. """
-    pass
-
-
-def tally_cor_per(level, cor):
-    """ Some predictions from our model are the same; this helper function
-        gathers all the correct/incorrect information for each group of equal
-        predictions. """
-    tally = defaultdict(lambda: [0, 0])
-    for p, c in izip(level, cor):
-        c = 0 if c else 1
-        tally[p][c] += 1
-    return tally
-
-
-def auc(pcor, cor, rounded=False):
-    """ Calculate area under curve given predictions and correct/incorrect
-        information. """
-    if rounded:
-        pcor = round_pcor_np(pcor)
-    area, tot_cor, tot_incor = 0, 0, 0
-    last_tot_cor, last_tot_incor = 0, 0
-    for pcor, ci in sorted(tally_cor_per(pcor, cor).iteritems(), reverse=True):
-        tot_cor += ci[0]
-        tot_incor += ci[1]
-        cor_diff = tot_cor - last_tot_cor
-        incor_diff = tot_incor - last_tot_incor
-        if incor_diff > 0:
-            area += (0.5 * cor_diff * incor_diff)
-            area += last_tot_cor * incor_diff
-        last_tot_cor, last_tot_incor = tot_cor, tot_incor
-    return area
-
-
-def roc_table(pcor, cor, rounded=False, mapqize=False):
-    """ Return the ranking error given a list of pcors and a parallel list of
-        correct/incorrect booleans.  Round off to nearest MAPQ first if
-        rounded=True.  """
-    assert len(pcor) == len(cor)
-    if rounded:
-        pcor = round_pcor_np(pcor)
-    tally = tally_cor_per(pcor, cor)
-    cum_cor, cum_incor = 0, 0
-    mapqs, cors, incors, cum_cors, cum_incors = [], [], [], [], []
-    for p in sorted(tally.iterkeys(), reverse=True):
-        ncor, nincor = tally[p]
-        cum_cor += ncor
-        cum_incor += nincor
-        mapqs.append(pcor_to_mapq(p) if mapqize else p)
-        cors.append(ncor)
-        incors.append(nincor)
-        cum_cors.append(cum_cor)
-        cum_incors.append(cum_incor)
-    return pandas.DataFrame.from_dict({'mapq': mapqs, 'cor': cors, 'incor': incors,
-                                       'cum_cor': cum_cors, 'cum_incor': cum_incors})
-
-
-def ranking_error(pcor, cor, rounded=False):
-    """ Return the ranking error given a list of pcors and a parallel list of
-        correct/incorrect booleans.  Round off to nearest MAPQ first if
-        rounded=True.  """
-    assert len(pcor) == len(cor)
-    if rounded:
-        pcor = round_pcor_np(pcor)
-    tally = tally_cor_per(pcor, cor)
-    err, sofar = 0, 0
-    # from low-confidence to high confidence
-    for p in sorted(tally.iterkeys()):
-        ncor, nincor = tally[p]
-        ntot = ncor + nincor
-        assert ntot > 0
-        if nincor > 0:
-            # spread error over this grouping of tied pcors
-            frac = float(nincor) / ntot
-            assert frac <= 1.0
-            err += frac * sum(range(sofar, sofar + ntot))
-        sofar += ntot
-    return err
-
-
-def mseor(pcor, cor, rounded=False):
-    """ Return the mean squared error between the pcors (in [0, 1]) and and
-        cors (in {0, 1}).  This is a measure of how close our predictions are
-        to true correct/incorrect. """
-    if rounded:
-        pcor = round_pcor_np(pcor)
-    return np.mean((pcor - cor) ** 2) / np.mean((np.mean(cor) - cor) ** 2)
-
-
-def cum_squared_error(pcor, cor, rounded=False):
-    """ Return the cumulative squared error between pcors and cors, sorted
-        from highest to lowest pcor. """
-    if rounded:
-        pcor = round_pcor_np(pcor)
-    pcor_order = sorted(range(len(pcor)), key=lambda x: pcor[x], reverse=True)
-    pcor = np.array([pcor[x] for x in pcor_order])
-    cor = np.array([cor[x] for x in pcor_order])
-    assert all(pcor[i] >= pcor[i+1] for i in range(len(pcor)-1))
-    return np.cumsum((pcor - cor) ** 2)
-
-
 def plot_drop_rate_v_squared_error_difference(pcor, pcor2, cor, log2ize=False):
     cumsum1 = cum_squared_error(pcor, cor)
     cumsum2 = cum_squared_error(pcor2, cor)
@@ -368,26 +225,10 @@ def plot_drop_rate_v_squared_error_difference(pcor, pcor2, cor, log2ize=False):
         axes.set_xticklabels(map(lambda x: 2 ** x, np.linspace(-1, -maxx, maxx)), rotation=90)
     axes.set_ylabel('Difference in cumulative MSE')
     axes.set_title('Drop rate comparison on -log2 scale')
-    axes.fill_between(xs, ys, where=ys>=0, interpolate=True, color='red')
-    axes.fill_between(xs, ys, where=ys<=0, interpolate=True, color='green')
+    axes.fill_between(xs, ys, where=ys >= 0, interpolate=True, color='red')
+    axes.fill_between(xs, ys, where=ys <= 0, interpolate=True, color='green')
     axes.grid(True)
     return fig
-
-
-def drop_rate_cum_sum(pcor, cor):
-    """ Generate a vector giving (something like) the cumulative sum of
-        incorrect alignments up to each p-value, from high to low p-value.
-        When many p-values are tied, we distribute the incorrect fraction over
-        all the elements in that range so that the answer doesn't depend on
-        how equal p-values are ordered. """
-    tally = tally_cor_per(pcor, cor)
-    cumsum, cumsums = 0, []
-    for p, tup in sorted(tally.iteritems(), reverse=True):
-        ncor, nincor = tup
-        for i in range(ncor + nincor):
-            cumsum += (float(nincor) / (ncor + nincor))
-            cumsums.append(cumsum)
-    return cumsums
 
 
 def plot_drop_rate(pcor, cor, pcor2=None, log2ize=False, rasterize=False):
@@ -873,6 +714,7 @@ class MapqPredictions:
         self.mapq_std, self.mapq_orig_std = float(np.std(mapq)), float(np.std(mapq_orig))
 
 
+"""
 def parse_sam(fh, ofh, alignment_class, normalizers, fit, ival=10000):
 
     def _rewrite(_ln, _mapq):
@@ -941,18 +783,19 @@ def parse_sam(fh, ofh, alignment_class, normalizers, fit, ival=10000):
             last_al, last_ln = al, ln
         else:
             last_al, last_ln = None, None
+"""
 
 
 class MapqFit:
+    """
+    """
 
     @staticmethod
-    def _df_to_mat(data, shortname, remove_labels=None, include_ztzs=True):
+    def _df_to_mat(data, shortname, include_ztzs=True):
         """ Convert a data frame read with read_dataset into a matrix
             suitable for use with scikit-learn, and parallel vectors
             giving the original MAPQ predictions and whether or not the
             alignments are correct. """
-        if remove_labels is None:
-            remove_labels = set()
         if shortname == 'c':
             # extract relevant paired-end features from training data
             labs = ['best1_1',  # score of best alignment for mate
@@ -979,13 +822,10 @@ class MapqFit:
             mapq_header = 'mapq'
         if include_ztzs:
             for colname in sorted(data.columns.values):
-                if colname.startswith('ztz'):
+                if colname.startswith('ztz') and data[colname].nunique() > 1:
                     labs.append(colname)
         for lab in labs:
             assert not np.isnan(data[lab]).any()
-        for to_remove in remove_labels:
-            if to_remove in labs:
-                labs.remove(to_remove)
         data_mat = data[labs].values
         correct = np.array(map(lambda x: x == 1, data['correct']))
         assert not np.isinf(data_mat).any() and not np.isnan(data_mat).any()
@@ -1046,15 +886,11 @@ class MapqFit:
         best_params, best_pred = mf.best_predictor()
         logging.debug("BEST: %s, avg=%0.3f, %s" % (dataset_shortname, max(scores), str(best_params)))
         assert best_pred is not None
-        return best_pred, best_params, scores
+        return best_pred, best_params, max(scores)
 
     datasets = zip('dbcu', ['Discordant', 'Bad-end', 'Concordant', 'Unpaired'], [True, False, True, False])
 
-    def _fit(self, dfs, logger=logging.info, sample_fraction=1.0, sample_fractions=None, remove_labels=None,
-             include_ztzs=True):
-
-        if sample_fractions is None:
-            sample_fractions = {}
+    def _fit(self, dfs, logger=logging.info, sample_fraction=1.0, include_ztzs=True):
 
         for ds, ds_long, paired in self.datasets:
             if ds not in dfs:
@@ -1068,11 +904,10 @@ class MapqFit:
             random.seed(self.random_seed)
             np.random.seed(self.random_seed)
             # extract features, convert to matrix
-            x_train, mapq_orig_train, y_train, col_names = self._df_to_mat(train, ds, remove_labels=remove_labels,
-                                                                           include_ztzs=include_ztzs)
+            x_train, mapq_orig_train, y_train, col_names = self._df_to_mat(train, ds, include_ztzs=include_ztzs)
             self.col_names[ds] = col_names
-            # optionally downsample
-            frac = sample_fractions[ds] if ds in sample_fractions else sample_fraction
+            # optionally subsample
+            frac = sample_fraction
             if frac < 1.0:
                 logger('Sampling %0.2f%% of %d rows of %s training data' % (100.0 * frac, train.shape[0], ds_long))
                 x_train, mapq_orig_train, y_train = \
@@ -1080,18 +915,15 @@ class MapqFit:
                 logger('  Now has %d rows' % x_train.shape[0])
 
             # use cross-validation to pick a model
-            self.trained_models[ds], params, scores = \
+            self.trained_models[ds], self.trained_params, self.crossval_avg[ds] = \
                 self._crossval_fit(self.model_gen, x_train, y_train, ds)
-
-            self.trained_params = params
-            self.crossval_avg[ds] = max(scores)
 
             # fit all the training data with the model
             self.trained_models[ds].fit(x_train, y_train)
 
     def predict(self, dfs,
                 keep_names=False, keep_data=False, keep_per_category=False, verbose=False,
-                logger=logging.info, remove_labels=None):
+                logger=logging.info):
 
         pred_overall = MapqPredictions()
         pred_per_category = {}
@@ -1107,7 +939,7 @@ class MapqFit:
             for test_chunk in dfs.dataset_iter(ds):
                 nchunk += 1
                 logger('  Making predictions for %s chunk %d, %d rows' % (ds_long, nchunk, test_chunk.shape[0]))
-                x_test, mapq_orig_test, y_test, col_names = self._df_to_mat(test_chunk, ds, remove_labels=remove_labels)
+                x_test, mapq_orig_test, y_test, col_names = self._df_to_mat(test_chunk, ds)
                 y_test = np.array(map(lambda c: c == 1, test_chunk.correct))
                 pcor = self.trained_models[ds].predict(x_test)  # make predictions
                 pcor = np.array(self.postprocess_predictions(pcor, ds_long))
@@ -1130,8 +962,9 @@ class MapqFit:
         else:
             return pred_overall
 
+    """
     def predict_unpaired(self, al):
-        """ Given unpaided alignment, use fit model to predict a MAPQ for it """
+        " Given unpaided alignment, use fit model to predict a MAPQ for it "
         # TODO: need to normalize best, secbest the same way we normally do
         # Many aspects:
         # 1. Need to parse and extract raw fields from SAM
@@ -1147,8 +980,7 @@ class MapqFit:
         pcor = self.trained_models['u'].predict(x_test)  # make predictions
 
     def rewrite_sam(self, fn_in, fn_out):
-        """ Read SAM input line by line.  Output new lines
-        """
+        " Read SAM input line by line.  Output new lines "
         with open(fn_in) as ifh:
             with open(fn_out) as ofh:
                 for ln in ifh:
@@ -1156,10 +988,15 @@ class MapqFit:
                         toks = ln.split()
 
                     ofh.write(ln)
+    """
 
-    def __init__(self, dfs, model_gen, random_seed=628599,
-                 logger=logging.info, sample_fraction=1.0, sample_fractions=None,
-                 remove_labels=None, include_ztzs=True):
+    def __init__(self,
+                 dfs,  # dictionary of data frames, one per alignment type
+                 model_gen,  # function that takes vector of hyperparameters, returns new model object
+                 random_seed=628599,
+                 logger=logging.info,
+                 sample_fraction=1.0,  # fraction of training data to actually use
+                 include_ztzs=True):
 
         assert random_seed >= 0
         self.model_gen = model_gen
@@ -1169,8 +1006,7 @@ class MapqFit:
         self.crossval_std = {}
         self.col_names = {}
         self.trained_params = None
-        self._fit(dfs, logger=logger, sample_fraction=sample_fraction, sample_fractions=sample_fractions,
-                  remove_labels=remove_labels, include_ztzs=include_ztzs)
+        self._fit(dfs, logger=logger, sample_fraction=sample_fraction, include_ztzs=include_ztzs)
 
 
 class ModelFamily(object):
@@ -1184,7 +1020,7 @@ class ModelFamily(object):
         params: list of lists
         """
         self.new_predictor = new_predictor  # returns new predictor given parameters
-        self.params = params  # space of possible paramter choices
+        self.params = params  # space of possible parameter choices
         self.last_params = None  # remember last set of params used for predictor
         self.round_to = round_to
         self.min_separation = min_separation  # have to improve by at least this much to declare new best
@@ -1255,16 +1091,6 @@ def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.01):
     return lambda: ModelFamily(_gen, [range(5, 105, 10), range(2, 10)],
                                round_to, min_separation=min_separation)
 
-
-# def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.01):
-#     # These perform quite well
-#     def _gen(params):
-#         return ExtraTreesRegressor(n_estimators=params[0], max_depth=params[1],
-#                                    random_state=random_seed,
-#                                    max_features=params[2],
-#                                    oob_score=True, bootstrap=True)
-#     return lambda: ModelFamily(_gen, [range(5, 85, 5), range(3, 16, 2), [0.25, 0.5, 1.0]],
-#                                round_to, min_separation=min_separation)
 
 def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.002):
     # These perform quite well
@@ -1338,7 +1164,6 @@ def make_plots(pred, odir, args, prefix=''):
 
 
 def go(args):
-    remove_labels = None
     odir = args['output_directory']
     mkdir_quiet(odir)
 
@@ -1393,8 +1218,7 @@ def go(args):
                     # Fit model
                     logging.info('      Fitting')
                     ss_fit = MapqFit(df_training, fam, random_seed=my_seed, logger=logging.info,
-                                     sample_fraction=fraction, remove_labels=remove_labels,
-                                     include_ztzs=not args['ignore_ztzs'])
+                                     sample_fraction=fraction, include_ztzs=not args['ignore_ztzs'])
                     if args['serialize_fit']:
                         logging.info('      Serializing fit object')
                         with open(my_fit_fn, 'wb') as ofh:
@@ -1443,8 +1267,7 @@ def go(args):
                     mkdir_quiet(pred_odir)
                     logging.info('      Making %s predictions' % name)
                     pred_overall, _ = ss_fit.predict(
-                        df, verbose=args['verbose'], keep_names=True, keep_data=True,
-                        keep_per_category=True, remove_labels=remove_labels)
+                        df, verbose=args['verbose'], keep_names=True, keep_data=True, keep_per_category=True)
                     logging.info('        Outputting top incorrect alignments')
                     output_top_incorrect(pred_overall, pred_odir, args)
                     logging.info('        Making plots')
@@ -1500,12 +1323,6 @@ def go(args):
             with open(fit_fn, 'wb') as ofh:
                 cPickle.dump(fit, ofh, 2)
 
-    do_rewrite = True
-    #if do_rewrite:
-        #logging.info('Rewriting SAM')
-        #fit.rewrite_sam(os.path.join(input_dir, 'input.sam'),
-        #                os.path.join(input_dir, 'output.sam'))
-
     logging.info('Done')
 
 
@@ -1521,8 +1338,7 @@ def go_profile(args):
     if args['profile']:
         pr.disable()
         s = StringIO.StringIO()
-        sortby = 'tottime'
-        ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+        ps = pstats.Stats(pr, stream=s).sort_stats('tottime')
         ps.print_stats(30)
         print s.getvalue()
 
