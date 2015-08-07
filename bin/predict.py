@@ -1,7 +1,5 @@
 """
 Given a directory with output from ts.py, predict new MAPQs.
-
-TODO: normalizers that deal naturally with various-length reads
 """
 
 __author__ = 'langmead'
@@ -11,7 +9,6 @@ import os
 import sys
 import math
 import random
-import matplotlib.pyplot as plt
 import numpy as np
 import logging
 import gc
@@ -28,28 +25,27 @@ from metrics import cum_squared_error, drop_rate_cum_sum, tally_cor_per, mseor, 
 VERSION = '0.2.0'
 
 
-class Normalizers(object):
-    """ Values that help us to normalize a new dataset prior to making MAPQ
-        predictions.  "Normalize" here means that the alignment scores and
-        fragment lengths are converted to standardized units.  There is a
-        weakness here: when a new dataset contains reads of various lengths,
-        we don't necessarily want simple, scalar min/max alignment scores
-        here, since these will normalize reads of various lengths as though
-        they all live in the same range of relevant alignment scores. """
-
-    def __init__(self):
-        self.minv = None
-        self.maxv = None
-        self.minv_1 = None
-        self.maxv_1 = None
-        self.minv_2 = None
-        self.maxv_2 = None
-
-
 class AlignmentTableReader(object):
 
     """ Reads a table of information describing alignments.  These are tables
         output by ts.py.  Tables might describe training or test alignments.
+
+        The trickiest issue here is whether and how to normalize certain
+        features, like alignment scores.  The goal would be to make scores
+        more comparable across reads of different lengths.  A read of length
+        1000 with alignment score 80 should probably not be considered "close
+        to" a read of length 100 with alignment score 80.
+
+        If we know the minimum and maximum possible alignment score (which
+        depend on the alignment tool's scoring function, which might in turn
+        depend on read length), we can standardize to that interval.  We can't
+        generally expect to have that information, though.  Even if we had it,
+        we might have to pass a different interval for each read, since they
+        can vary in length.
+
+        To avoid these issues, we simply add read length as a feature.  This
+        has no effect for uniform-length data, since we also remove zero-
+        variance features.
     """
 
     #            short name   suffix
@@ -58,42 +54,24 @@ class AlignmentTableReader(object):
                 ('c',         '_conc.csv'),
                 ('b',         '_bad_end.csv')]
 
-    def __init__(self, prefix, use_normalizers=True, learn_normalizers=False, normalizers=None):
+    def __init__(self, prefix, chunksize=50000):
         self.prefix = prefix
-        self.normalizers = {}
         self.dfs = {}
         self.readers = {}
-        self.use_normalizers = use_normalizers
-        assert learn_normalizers or normalizers is not None or not use_normalizers
-        if learn_normalizers:
-            assert use_normalizers
-            for sn, suf in self.datasets:
-                fn = self.prefix + suf
-                if any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2'])):
-                    self.dfs[sn] = self._fn_to_iterator(fn, chunksize=None)
+        for sn, suf in self.datasets:
+            fn = self.prefix + suf
+            if any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2'])):
+                self.dfs[sn] = self._fn_to_iterator(fn, chunksize=chunksize)
 
-                    def _new_iter(_sn):
-                        def _inner():
-                            return iter([self.dfs[_sn].copy()])
-                        return _inner
+                def _new_iter(_sn):
+                    def _inner():
+                        return iter([self.dfs[_sn].copy()])
+                    return _inner
 
-                    self.readers[sn] = _new_iter(sn)
-            self._extract_normalizers(self.dfs)
-        else:
-            self.normalizers = normalizers
-            for sn, suf in self.datasets:
-                fn = self.prefix + suf
-                if any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2'])):
-
-                    def _new_iter(_fn):
-                        def _inner():
-                            return self._fn_to_iterator(_fn)
-                        return _inner
-
-                    self.readers[sn] = _new_iter(fn)
+                self.readers[sn] = _new_iter(sn)
 
     @staticmethod
-    def _fn_to_iterator(fn, chunksize=50000):
+    def _fn_to_iterator(fn, chunksize):
         if os.path.exists(fn):
             return pandas.io.parsers.read_csv(fn, quoting=2, chunksize=chunksize)
         elif os.path.exists(fn + '.gz'):
@@ -103,43 +81,12 @@ class AlignmentTableReader(object):
         else:
             raise RuntimeError('No such file: "%s"' % fn)
 
-    def _extract_normalizers(self, dfs):
-        """ Calculates normalization factors based on the alignment table.
-            Stores results in self.normalizers dictionary. """
-        for sn, df in dfs.iteritems():
-            if df is None:
-                continue
-            if sn == 'c':
-                norm_conc = self.normalizers['c'] = Normalizers()
-                norm_conc.minv_1 = df['best1_1'].min()
-                norm_conc.maxv_1 = df['best1_1'].max()
-                norm_conc.minv_2 = df['best1_2'].min()
-                norm_conc.maxv_2 = df['best1_2'].max()
-            elif sn == 'd':
-                norm_disc = self.normalizers['d'] = Normalizers()
-                norm_disc.minv_1 = df['best1_1'].min()
-                norm_disc.maxv_1 = df['best1_1'].max()
-            elif sn in 'bu':
-                norm = self.normalizers[sn] = Normalizers()
-                norm.minv = df['best1'].min()
-                norm.maxv = df['best1'].max()
-            else:
-                raise RuntimeError('Bad shortname: "%s"' % sn)
+    @staticmethod
+    def _postprocess_data_frame(df, sn):
+        """ Changes 'correct' column to use 0/1 and replaces NAs in the score
+            difference columns with small values. """
 
-    def _postprocess_data_frame(self, df, sn):
-        """ Applies normalization to a data frame containing a chunk of rows
-            from the alignment table.  Requires that we have normalizers,
-            which may or may not have been learned from this alignment table.
-        """
-        def _normalize_and_standardize(_df, nm, best_nm, secbest_nm, mn, diff):
-            _df[nm] = (_df[best_nm].astype(float) - _df[secbest_nm]) / diff
-            _df[nm] = _df[nm].fillna(np.nanmax(_df[nm])).fillna(0)
-            _df[best_nm] = (_df[best_nm].astype(float) - mn) / diff
-            _df[best_nm] = _df[best_nm].fillna(np.nanmax(_df[best_nm])).fillna(0)
-            assert not any([math.isnan(x) for x in _df[nm]])
-            assert not any([math.isnan(x) for x in _df[best_nm]])
-
-        def _standardize(_df, nm, best_nm, secbest_nm):
+        def _fill_nas(_df, nm, best_nm, secbest_nm):
             _df[nm] = _df[best_nm].astype(float) - _df[secbest_nm]
             _df[nm] = _df[nm].fillna(np.nanmax(_df[nm])).fillna(0)
             assert not any([math.isnan(x) for x in _df[nm]])
@@ -147,55 +94,34 @@ class AlignmentTableReader(object):
         if df.shape[0] == 0:
             return
 
-        norm = None
-        if self.use_normalizers:
-            assert sn in self.normalizers, (sn, self.normalizers)
-            norm = self.normalizers[sn]
-
         # Turn the correct column into 0/1
         if df['correct'].count() == len(df['correct']):
             df['correct'] = df['correct'].map(lambda x: 1 if x == 'T' else 0)
 
         if sn in 'c':
-            # normalize alignment scores
-            if self.use_normalizers:
-                minv_1 = df['minv_1'].fillna(norm.minv_1)
-                maxv_1 = df['maxv_1'].fillna(norm.maxv_1)
-                minv_2 = df['minv_2'].fillna(norm.minv_2)
-                maxv_2 = df['maxv_2'].fillna(norm.maxv_2)
-                _normalize_and_standardize(df, 'diff_1', 'best1_1', 'best2_1', minv_1, maxv_1 - minv_1)
-                _normalize_and_standardize(df, 'diff_2', 'best1_2', 'best2_2', minv_2, maxv_2 - minv_2)
-            else:
-                _standardize(df, 'diff_1', 'best1_1', 'best2_1')
-                _standardize(df, 'diff_2', 'best1_2', 'best2_2')
+            _fill_nas(df, 'diff_1', 'best1_1', 'best2_1')
+            _fill_nas(df, 'diff_2', 'best1_2', 'best2_2')
 
-            # normalize concordant alignment scores
             if math.isnan(df['best1conc'].sum()) or math.isnan(df['best2conc'].sum()):
-                # assume the worst
                 logging.warning('Difference of concordants not available, so using minimum of mates')
                 df['diff_conc'] = df[['diff_1', 'diff_2']].min(axis=1)
-            elif self.use_normalizers:
-                minconc, maxconc = norm.minv_1 + norm.minv_2, norm.maxv_1 + norm.maxv_2
-                _normalize_and_standardize(df, 'diff_conc', 'best1conc', 'best2conc', minconc, maxconc - minconc)
             else:
-                _standardize(df, 'diff_conc', 'best1conc', 'best2conc')
+                _fill_nas(df, 'diff_conc', 'best1conc', 'best2conc')
+
+            for sc_lab in ['diff_1', 'best1_1', 'best2_1',
+                           'diff_2', 'best1_2', 'best2_2']:
+                assert not math.isnan(df[sc_lab])
 
         elif sn == 'd':
-            if self.use_normalizers:
-                minv_1 = df['minv_1'].fillna(norm.minv_1)
-                maxv_1 = df['maxv_1'].fillna(norm.maxv_1)
-                _normalize_and_standardize(df, 'diff_1', 'best1_1', 'best2_1', minv_1, maxv_1 - minv_1)
-            else:
-                _standardize(df, 'diff_1', 'best1_1', 'best2_1')
+            _fill_nas(df, 'diff_1', 'best1_1', 'best2_1')
+            for sc_lab in ['diff_1', 'best1_1', 'best2_1']:
+                assert not math.isnan(df[sc_lab])
 
         else:
             assert sn in 'ub'
-            if self.use_normalizers:
-                minv = df['minv'].fillna(norm.minv)
-                maxv = df['maxv'].fillna(norm.maxv)
-                _normalize_and_standardize(df, 'diff', 'best1', 'best2', minv, maxv - minv)
-            else:
-                _standardize(df, 'diff', 'best1', 'best2')
+            _fill_nas(df, 'diff', 'best1', 'best2')
+            for sc_lab in ['diff', 'best1', 'best2']:
+                assert not math.isnan(df[sc_lab])
 
         return df
 
@@ -205,323 +131,6 @@ class AlignmentTableReader(object):
 
     def __contains__(self, o):
         return o in self.readers
-
-
-def plot_drop_rate_v_squared_error_difference(pcor, pcor2, cor, log2ize=False):
-    cumsum1 = cum_squared_error(pcor, cor)
-    cumsum2 = cum_squared_error(pcor2, cor)
-    ln = len(pcor)
-    x_log = np.linspace(1.0/ln, (ln - 1.0) / ln, ln - 1.0)
-    if log2ize:
-        x_log = -np.log2(x_log[::-1])
-    maxx = math.ceil(np.log2(ln))
-    fig = plt.figure(figsize=(10, 4))
-    axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
-    cumsum_diff = np.subtract(cumsum1, cumsum2)
-    xs, ys = x_log, cumsum_diff[:-1]
-    axes.plot(xs, ys, color='k', label='Model')
-    axes.set_xlabel('MAPQ drop rate')
-    if log2ize:
-        axes.set_xticklabels(map(lambda x: 2 ** x, np.linspace(-1, -maxx, maxx)), rotation=90)
-    axes.set_ylabel('Difference in cumulative MSE')
-    axes.set_title('Drop rate comparison on -log2 scale')
-    axes.fill_between(xs, ys, where=ys >= 0, interpolate=True, color='red')
-    axes.fill_between(xs, ys, where=ys <= 0, interpolate=True, color='green')
-    axes.grid(True)
-    return fig
-
-
-def plot_drop_rate(pcor, cor, pcor2=None, log2ize=False, rasterize=False):
-    """  """
-    cumsum = drop_rate_cum_sum(pcor, cor)
-    cumsum2 = None if pcor2 is None else drop_rate_cum_sum(pcor2, cor)
-    ln = len(pcor)
-    x_log = np.linspace(1.0/ln, (ln - 1.0) / ln, ln - 1.0)
-    if log2ize:
-        x_log = -np.log2(x_log[::-1])
-    maxx = math.ceil(np.log2(ln))
-    fig = plt.figure(figsize=(10, 4))
-    axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
-    axes.plot(x_log, cumsum[:-1], color='r', label='Model', rasterized=rasterize)
-    if cumsum2 is not None:
-        axes.plot(x_log, cumsum2[:-1], color='k', label='Original', rasterized=rasterize)
-    axes.set_xlabel('MAPQ drop rate')
-    if log2ize:
-        axes.set_xticklabels(map(lambda x: 2 ** x, np.linspace(-1, -maxx, maxx)), rotation=90)
-    axes.set_ylabel('Cumulative # incorrect alignments')
-    axes.set_title('Drop rate comparison on -log2 scale')
-    axes.legend(loc=2)
-    axes.grid(True)
-    return fig
-
-
-def plot_drop_rate_difference(pcor, pcor2, cor, log2ize=False, rasterize=False):
-    cumsum1, cumsum2 = drop_rate_cum_sum(pcor, cor), drop_rate_cum_sum(pcor2, cor)
-    ln = len(pcor)
-    x_log = np.linspace(1.0/ln, (ln - 1.0) / ln, ln - 1.0)
-    if log2ize:
-        x_log = -np.log2(x_log[::-1])
-    maxx = math.ceil(np.log2(ln))
-    fig = plt.figure(figsize=(10, 4))
-    axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
-    cumsum_diff = np.subtract(cumsum1, cumsum2)
-    xs, ys = x_log, cumsum_diff[:-1]
-    axes.plot(xs, ys, color='k', label='Model', rasterized=rasterize)
-    axes.set_xlabel('MAPQ drop rate')
-    if log2ize:
-        axes.set_xticklabels(map(lambda x: 2 ** x, np.linspace(-1, -maxx, maxx)), rotation=90)
-    axes.set_ylabel('Difference in cumulative # incorrect alignments')
-    axes.set_title('Drop rate comparison on -log2 scale')
-    axes.fill_between(xs, ys, where=ys>=0, interpolate=True, color='red')
-    axes.fill_between(xs, ys, where=ys<=0, interpolate=True, color='green')
-    axes.grid(True)
-    return fig
-
-
-def plot_drop_rate_v_squared_error(pcor, cor, pcor2=None, log2ize=False, rasterize=False):
-    """  """
-    cumsum = cum_squared_error(pcor, cor)
-    cumsum2 = None if pcor2 is None else cum_squared_error(pcor2, cor)
-    ln = len(pcor)
-    x_log = np.linspace(1.0/ln, (ln - 1.0) / ln, ln - 1.0)
-    if log2ize:
-        x_log = -np.log2(x_log[::-1])
-    maxx = math.ceil(np.log2(ln))
-    fig = plt.figure(figsize=(10, 4))
-    axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
-    axes.plot(x_log, cumsum[:-1], color='r', label='Model', rasterized=rasterize)
-    if cumsum2 is not None:
-        axes.plot(x_log, cumsum2[:-1], color='k', label='Original', rasterized=rasterize)
-    axes.set_xlabel('MAPQ drop rate')
-    if log2ize:
-        axes.set_xticklabels(map(lambda x: 2 ** x, np.linspace(-1, -maxx, maxx)), rotation=90)
-    axes.set_ylabel('Cumulative squared error')
-    axes.set_title('Drop rate comparison on -log2 scale')
-    axes.legend(loc=2)
-    axes.grid(True)
-    return fig
-
-
-def bucket_error_plot(mapq_lists, labs, colors, cor, title=None):
-    """ Plot predicted MAPQ versus actual MAPQ, both rounded to
-        nearest integer.  Omit MAPQs where the number of incorrect
-        alignments is 0 (making MAPQ infinity) """
-    observed_mapq_lists = []
-    actual_mapq_lists = []
-    mx = 0
-    for mapq_list in mapq_lists:
-        # round MAPQs off to integers
-        mapq = map(round, mapq_list)
-        # stratify by mapq & count correct/incorrect
-        tally = tally_cor_per(mapq, cor)
-        observed_mapq_lists.append([])
-        actual_mapq_lists.append([])
-        for p, tup in sorted(tally.iteritems()):
-            ncor, nincor = tup
-            if nincor > 0:  # ignore buckets where all are correct
-                ntot = ncor + nincor
-                observed_mapq_lists[-1].append(p)
-                actual_mapq = pcor_to_mapq(float(ncor) / ntot)
-                actual_mapq_lists[-1].append(actual_mapq)
-                mx = max(max(mx, p), actual_mapq)
-    fig = plt.figure(figsize=(8, 8))
-    axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
-    axes.set_xlabel('Reported MAPQ')
-    axes.set_ylabel('Actual MAPQ')
-    if title is not None:
-        axes.set_title(title)
-    for o, a, l, c in zip(observed_mapq_lists, actual_mapq_lists, labs, colors):
-        axes.scatter(o, a, label=l, color=c)
-    axes.plot([0, mx], [0, mx], color='r')
-    axes.set_xlim((0, mx))
-    axes.set_ylim((0, mx))
-    axes.legend(loc=2)
-    axes.grid(True)
-    return fig
-
-
-def log2ize_p_minus(p, mx=10.0):
-    """ Given a probability p, rescale it so that ps are mapped
-        to values in [0, mx] and the right-hand end is magnified. """
-    return abs(math.log(1 - (1 - (2 ** -mx)) * p, 2))
-
-
-def unlog2ize_p_minus(p, mx=10.0):
-    """ Inverse of log2ize_p_minus """
-    return abs((2 ** -p) - 1)/(1 - (2 ** -mx))
-
-
-def quantile_error_plot(mapq_lists, labs, colors, cor, title=None, quantiles=10,
-                        already_sorted=False, exclude_mapq_gt=None, prob_scale=False,
-                        log2ize=False):
-    # One problem is how to determine the quantiles when there are multiple methods being compared
-    estimated_lists = []
-    actual_lists = []
-    n_filtered = []
-    mse = []
-    mx = 0
-    scale = (lambda x: x)
-    if log2ize:
-        scale = log2ize_p_minus
-    elif not prob_scale:
-        scale = pcor_to_mapq
-    for mapq_list in mapq_lists:
-        # remove MAPQs greater than ceiling
-        n_before = len(mapq_list)
-        if exclude_mapq_gt is not None:
-            mapq_list = filter(lambda x: x <= exclude_mapq_gt, mapq_list)
-        n_filtered.append(n_before - len(mapq_list))
-        # stratify by mapq & count correct/incorrect
-        n = len(mapq_list)
-        assert n >= quantiles
-        if not already_sorted:
-            sorted_order = sorted(range(n), key=lambda x: mapq_list[x])
-            mapq_sorted = [mapq_list[x] for x in sorted_order]
-            pcor_sorted = np.array(mapq_to_pcor_np(mapq_sorted))
-            cor_sorted = np.array([cor[x] for x in sorted_order])
-        else:
-            mapq_sorted, pcor_sorted, cor_sorted = mapq_list, mapq_to_pcor_np(mapq_list), cor
-        mse.append(mseor(pcor_sorted, cor_sorted))
-        partition_starts = [int(round(i*n/quantiles)) for i in range(quantiles+1)]
-        estimated_lists.append([])
-        actual_lists.append([])
-        for i in range(quantiles):
-            st, en = partition_starts[i], partition_starts[i+1]
-            ncor = sum(cor_sorted[st:en])
-            ncor_est = sum(pcor_sorted[st:en])
-            assert ncor_est < (en-st)
-            estimated_lists[-1].append(scale(float(ncor_est)/(en-st)))
-            if ncor == (en-st) and not prob_scale:
-                actual_lists[-1].append(None)
-            else:
-                actual_lists[-1].append(scale(float(ncor)/(en-st)))
-        mx = max(mx, max(max(estimated_lists[-1]), max(actual_lists[-1])))
-    assert not math.isinf(mx)
-    fig = plt.figure(figsize=(6, 6))
-    axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
-    if prob_scale:
-        axes.set_xlabel('Predicted probability correct')
-        axes.set_ylabel('Actual fraction correct')
-    else:
-        axes.set_xlabel('Reported MAPQ')
-        axes.set_ylabel('Actual MAPQ')
-    if title is not None:
-        axes.set_title(title)
-    for o, a, l, c, mse in zip(estimated_lists, actual_lists, labs, colors, mse):
-        assert len(o) == len(a)
-        a = [mx * 1.04 if m is None else m for m in a]
-        axes.scatter(o, a, label='%s (MSE=%0.3f)' % (l, mse), color=c, alpha=0.5, s=60)
-    axes.plot([-mx, 2*mx], [-mx, 2*mx], color='r')  # red line at y=x
-    axes.set_xlim((-.02*mx, 1.02*mx))
-    axes.set_ylim((-.02*mx, 1.02*mx))
-    fracs = [0.0, 0.5, 0.9, 0.95, 0.99, 0.999, 1.0]
-    axes.xaxis.set_ticks(map(log2ize_p_minus, fracs))
-    axes.yaxis.set_ticks(map(log2ize_p_minus, fracs))
-    axes.xaxis.set_ticklabels(map(str, fracs))
-    axes.yaxis.set_ticklabels(map(str, fracs))
-    axes.legend(loc=4)  # lower-right corner
-
-
-def plot_subsampling_series(seriess, labs=None, colors=None):
-    fig = plt.figure(figsize=(14, 12))
-
-    if labs is None:
-        labs = [str(i+1) for i in range(len(seriess))]
-    if colors is None:
-        colors = ['r', 'b', 'g', 'c', 'm'][:len(seriess)]
-        assert len(colors) == len(seriess)
-
-    ax1 = fig.add_subplot(4, 1, 1)
-    min_rank_err, max_rank_err = float('inf'), float('-inf')
-    for series, lab, color in zip(seriess, labs, colors):
-        ax1.plot(series.fraction, series.rank_err_diff_round_pct, 'o-', color=color, label=lab)
-        max_rank_err = max(max_rank_err, max(series.rank_err_diff_round_pct))
-        min_rank_err = min(min_rank_err, min(series.rank_err_diff_round_pct))
-    ax1.axhline(y=0, linewidth=2, color='k')
-    ax1.set_xlabel('Subsampling fraction')
-    ax1.set_ylabel('% diff, ranking error')
-    ax1.set_ylim([min(-20.0, min_rank_err), max(20.0, max_rank_err)])
-    ax1.legend(loc=1)
-    ax1.grid(True)
-
-    ax2 = fig.add_subplot(4, 1, 2)
-    min_mse, max_mse = float('inf'), float('-inf')
-    for series, lab, color in zip(seriess, labs, colors):
-        ax2.plot(series.fraction, series.mse_diff_round_pct, 'o-', color=color, label=lab)
-        max_mse = max(max_mse, max(series.mse_diff_round_pct))
-        min_mse = min(min_mse, min(series.mse_diff_round_pct))
-    ax2.axhline(y=0, linewidth=2, color='k')
-    ax2.set_xlabel('Subsampling fraction')
-    ax2.set_ylabel('% diff, MSE')
-    ax2.set_ylim([min(-50.0, min_mse), max(50.0, max_mse)])
-    ax2.legend(loc=1)
-    ax2.grid(True)
-
-    ax3 = fig.add_subplot(4, 1, 3)
-    min_auc, max_auc = float('inf'), float('-inf')
-    for series, lab, color in zip(seriess, labs, colors):
-        ax3.plot(series.fraction, series.auc_diff_round_pct, 'o-', color=color, label=lab)
-        max_auc = max(max_auc, max(series.auc_diff_round_pct))
-        min_auc = min(min_auc, min(series.auc_diff_round_pct))
-    ax3.axhline(y=0, linewidth=2, color='k')
-    ax3.set_xlabel('Subsampling fraction')
-    ax3.set_ylabel('% diff, AUC')
-    ax3.set_ylim([min(-1.1, min_auc), max(1.1, max_auc)])
-    ax3.legend(loc=1)
-    ax3.grid(True)
-
-    ax4 = fig.add_subplot(4, 1, 4)
-    max_mapq_avg = 0.0
-    for series, lab, color in zip(seriess, labs, colors):
-        ax4.plot(series.fraction, series.mapq_avg, 'o-', color=color, label=lab)
-        max_mapq_avg = max(max_mapq_avg, max(series.mapq_avg))
-    ax4.axhline(y=0, linewidth=2, color='k')
-    ax4.set_xlabel('Subsampling fraction')
-    ax4.set_ylabel('Average MAPQ')
-    ax4.set_ylim([0., max(80., max_mapq_avg * 1.02)])
-    ax4.legend(loc=1)
-    ax4.grid(True)
-
-    return fig
-
-
-def plot_fit(model, x_lim=(0.0, 1.0), y_lim=(0.0, 1.0), dx=0.01, dy=0.01, zmin=0.0, zmax=60.0):
-    grid = np.mgrid[slice(y_lim[0], y_lim[1] + dy, dy),
-                    slice(x_lim[0], x_lim[1] + dx, dx)]
-    dim_x = 1 + ((x_lim[1] - x_lim[0]) / dx)
-    dim_y = 1 + ((y_lim[1] - y_lim[0]) / dy)
-    assert grid.shape == (2, dim_x, dim_y), "%s, (2, %d, %d)" % (str(grid.shape), dim_x, dim_y)
-    xy = np.column_stack([grid[0].flatten(), grid[1].flatten()])
-    z = np.array(pcor_to_mapq_np(MapqFit.postprocess_predictions(model.predict(xy), '')), dtype=np.float32).reshape((dim_x, dim_y))
-
-    # x and y are bounds, so z should be the value *inside* those bounds.
-    # Therefore, remove the last value from the z array.
-    z = z[:-1, :-1].transpose()
-    z = z[::-1, :]
-    if zmin is None:
-        zmin = z.min()
-    if zmax is None:
-        zmax = z.max()
-
-    # pick the desired colormap, sensible levels, and define a normalization
-    # instance which takes data values and translates those into levels.
-    cmap = plt.get_cmap('Blues')
-
-    fitplt = plt.figure(figsize=(10, 10))
-    axes = fitplt.add_subplot(111)
-
-    extents = [x_lim[0], x_lim[1], y_lim[0], y_lim[1]]
-
-    im = axes.imshow(z, cmap=cmap, extent=extents, vmax=zmax, vmin=zmin, origin='upper')
-
-    cbar = fitplt.colorbar(im)
-    cbar.set_label('MAPQ')
-
-    # set the limits of the plot to the limits of the data
-    axes.set_xlabel('Best score, 0=min, 1=max')
-    axes.set_ylabel('Difference between best and second-best score, 0=min, 1=max')
-    axes.set_title('Predicted MAPQ for X, Y in [0, 1]')
-    return fitplt, axes
 
 
 class MapqPredictions:
@@ -805,8 +414,11 @@ class MapqFit:
             if 'diff_conc' in data:
                 labs.append('diff_conc')  # concordant difference
             labs.append('fraglen')
+            data['rdlen_12'] = data['rdlen_1'] = data['rdlen_2']
             if data['rdlen_1'].nunique() > 1:
                 labs.append('rdlen_1')
+            if data['rdlen_12'].nunique() > 1:
+                labs.append('rdlen_12')
             mapq_header = 'mapq_1'
         elif shortname == 'd':
             # extract relevant discordant paired-end features
@@ -832,7 +444,7 @@ class MapqFit:
         return data_mat, data[mapq_header], correct, labs
 
     @staticmethod
-    def _downsample(x_train, mapq_orig_train, y_train, sample_fraction):
+    def _subsample(x_train, mapq_orig_train, y_train, sample_fraction):
         """ Return a random subset of the data, MAPQs and labels.  Size of
             subset given by sample_fraction. """
         n_training_samples = x_train.shape[0]
@@ -911,7 +523,7 @@ class MapqFit:
             if frac < 1.0:
                 logger('Sampling %0.2f%% of %d rows of %s training data' % (100.0 * frac, train.shape[0], ds_long))
                 x_train, mapq_orig_train, y_train = \
-                    self._downsample(x_train, mapq_orig_train, y_train, frac)
+                    self._subsample(x_train, mapq_orig_train, y_train, frac)
                 logger('  Now has %d rows' % x_train.shape[0])
 
             # use cross-validation to pick a model
@@ -1181,11 +793,8 @@ def go(args):
 
     logging.info('Reading datasets')
     input_dir = args['input_directory']
-    use_normalizers = not args['no_normalization']
-    df_training = AlignmentTableReader(os.path.join(input_dir, 'training'),
-                                       use_normalizers=use_normalizers, learn_normalizers=use_normalizers)
-    df_test = AlignmentTableReader(os.path.join(input_dir, 'test'),
-                                   use_normalizers=use_normalizers, normalizers=df_training.normalizers)
+    df_training = AlignmentTableReader(os.path.join(input_dir, 'training'))
+    df_test = AlignmentTableReader(os.path.join(input_dir, 'test'))
 
     nrep = args['subsampling_replicates']
     if args['subsampling_series'] is not None:
@@ -1357,8 +966,6 @@ def add_predict_args(parser):
                         help='Tolerance when searching for best model parameters')
     parser.add_argument('--subsampling-fraction', metavar='float', type=float, default=1.0,
                         help='Subsample the training down to this fraction before fitting model')
-    parser.add_argument('--no-normalization', action='store_const', const=True, default=False,
-                        help='Don\'t normalize score differences with respect to minimum and maximum')
     parser.add_argument('--ignore-ztzs', action='store_const', const=True, default=False,
                         help='Don\'t include features specified in the ZT:Z extra flag')
 

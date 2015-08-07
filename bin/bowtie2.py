@@ -171,8 +171,6 @@ class AlignmentBowtie2(Alignment):
     __xlsRe = re.compile('Xs:i:([-]?[0-9]+)')  # 3rd best
     __zupRe = re.compile('ZP:i:([-]?[0-9]+)')  # best concordant
     __zlpRe = re.compile('Zp:i:([-]?[0-9]+)')  # 2nd best concordant
-    __kNRe = re.compile('YN:i:([-]?[0-9]+)')  # min valid score
-    __knRe = re.compile('Yn:i:([-]?[0-9]+)')  # max valid score
     __ztRe = re.compile('ZT:Z:([^\s]*)')  # extra features
 
     def __init__(self):
@@ -242,9 +240,8 @@ class AlignmentBowtie2(Alignment):
             self.mdz = se.group(1)
         # Parse Xs:i
         se = self.__xlsRe.search(self.extra)
-        self.thirdBestScore = None
         if se is not None:
-            self.thirdBestScore = int(se.group(1))
+            self.secondBestScore = max(self.secondBestScore, int(se.group(1)))
         # Parse ZP:i
         se = self.__zupRe.search(self.extra)
         self.bestConcordantScore = None
@@ -255,43 +252,30 @@ class AlignmentBowtie2(Alignment):
         self.secondBestConcordantScore = None
         if se is not None:
             self.secondBestConcordantScore = int(se.group(1))
-        # Parse YS:i
-        se = self.__ysRe.search(self.extra)
-        self.mateBest = None
-        if se is not None:
-            self.mateBest = int(se.group(1))
-        # Parse YN:i
-        self.minValid = None
-        se = self.__kNRe.search(self.extra)
-        if se is not None:
-            self.minValid = int(se.group(1))
-        # Parse Yn:i
-        self.maxValid = None
-        se = self.__knRe.search(self.extra)
-        if se is not None:
-            self.maxValid = int(se.group(1))
         # Parse ZT.Z
         self.ztzs = None
         se = self.__ztRe.search(self.extra)
         if se is not None:
             self.ztzs = se.group(1).split(',')
-        self.al_type = None
-        se = self.__ytRe.search(self.extra)
-        if se is not None:
-            self.al_type = se.group(1)
-        if self.al_type == 'CP':
-            assert self.paired
-            assert self.concordant
-            assert not self.discordant
-        if self.al_type == 'DP':
-            assert self.paired
-            assert not self.concordant
-            assert self.discordant
-        if self.al_type == 'UP':
-            assert self.paired
-            assert not self.concordant
-            #assert not self.discordant
-        assert self.rep_ok()
+        if False:
+            # Sanity checks
+            self.al_type = None
+            se = self.__ytRe.search(self.extra)
+            if se is not None:
+                self.al_type = se.group(1)
+            if self.al_type == 'CP':
+                assert self.paired
+                assert self.concordant
+                assert not self.discordant
+            if self.al_type == 'DP':
+                assert self.paired
+                assert not self.concordant
+                assert self.discordant
+            if self.al_type == 'UP':
+                assert self.paired
+                assert not self.concordant
+                #assert not self.discordant
+            assert self.rep_ok()
     
     def rep_ok(self):
         # Call parent's repOk

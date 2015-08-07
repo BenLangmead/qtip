@@ -74,14 +74,10 @@ class UnpairedTuple(object):
     """ Unpaired training/test tuple.  An optional "other end length" field is
         0 for unpaired alignments and >0 for bad-end alignments. """
 
-    def __init__(self, rdname, rdlen, minv, maxv, bestsc, best2sc, mapq, ztzs, ordlen=0):
-        assert minv is None or minv <= bestsc <= maxv
+    def __init__(self, rdname, rdlen, bestsc, best2sc, mapq, ztzs, ordlen=0):
         self.rdname = rdname            # read name
         self.mapq = mapq                # original mapq
         self.first = True
-        # scaling factors
-        self.minv = minv                # min valid score
-        self.maxv = maxv                # max valid score
         # features for learning
         self.rdlen = rdlen              # read len
         self.ordlen = ordlen            # read len of opposite end
@@ -90,19 +86,13 @@ class UnpairedTuple(object):
         self.ztzs = ztzs or []
 
     # header names
-    csv_names = ['name', 'best1', 'best2', 'minv', 'maxv', 'rdlen', 'mapq', 'ordlen']
+    csv_names = ['name', 'best1', 'best2', 'rdlen', 'mapq', 'ordlen']
     
     @classmethod
     def from_alignment(cls, al, ordlen=0):
         """ Create unpaired training/test tuple from Alignment object """
         secbest = al.secondBestScore
-        if hasattr(al, 'thirdBestScore'):
-            secbest = max(secbest, al.thirdBestScore)
-        min_valid, max_valid = None, None
-        if hasattr(al, 'minValid'):
-            assert hasattr(al, 'maxValid')
-            min_valid, max_valid = al.minValid, al.maxValid
-        return cls(al.name, len(al), min_valid, max_valid, al.bestScore, secbest, al.mapq, al.ztzs, ordlen)
+        return cls(al.name, len(al), al.bestScore, secbest, al.mapq, al.ztzs, ordlen)
 
     @classmethod
     def append_csv_header(cls, fh, num_ztzs):
@@ -114,7 +104,6 @@ class UnpairedTuple(object):
         if correct is not None:
             correct_str = 'T' if correct else 'F'
         ls = [self.rdname, self.bestsc, _str_or_na(self.best2sc),
-              _str_or_na(self.minv), _str_or_na(self.maxv),
               self.rdlen, self.mapq, _str_or_na(self.ordlen)] + self.ztzs + [correct_str]
         ls = map(str, ls)
         fh.write(','.join(ls) + '\n')
@@ -122,22 +111,16 @@ class UnpairedTuple(object):
 
 class PairedTuple(object):
     """ Concordant paired-end training/test tuple.  One per mate alignment. """
-    def __init__(self, rdname1, rdlen1, minv1, maxv1,
+    def __init__(self, rdname1, rdlen1,
                  bestsc1, best2sc1, mapq1,
-                 rdname2, rdlen2, minv2, maxv2,
+                 rdname2, rdlen2,
                  bestsc2, best2sc2, mapq2,
                  bestconcsc, best2concsc,
                  al1ztzs, fraglen):
-        assert minv1 is None or minv1 <= bestsc1 <= maxv1
-        assert minv2 is None or minv2 <= bestsc2 <= maxv2
         self.rdname1 = rdname1          # read name #1
         self.rdname2 = rdname2          # read name #2
         self.rdlen1 = rdlen1            # read len #1
         self.rdlen2 = rdlen2            # read len #2
-        self.minv1 = minv1              # min valid score #1
-        self.minv2 = minv2              # min valid score #2
-        self.maxv1 = maxv1              # max valid score #1
-        self.maxv2 = maxv2              # max valid score #2
         self.bestsc1 = bestsc1          # best #1
         self.bestsc2 = bestsc2          # best #2
         self.best2sc1 = best2sc1        # 2nd-best score #1
@@ -149,23 +132,14 @@ class PairedTuple(object):
         self.fraglen = fraglen          # fragment length
         self.ztzs1 = al1ztzs or []
 
-    csv_names = ['name_1', 'best1_1', 'best2_1', 'minv_1', 'maxv_1', 'rdlen_1', 'mapq_1',
-                 'name_2', 'best1_2', 'best2_2', 'minv_2', 'maxv_2', 'rdlen_2', 'mapq_2',
+    csv_names = ['name_1', 'best1_1', 'best2_1', 'rdlen_1', 'mapq_1',
+                 'name_2', 'best1_2', 'best2_2', 'rdlen_2', 'mapq_2',
                  'best1conc', 'best2conc', 'fraglen']
 
     @classmethod
     def from_alignments(cls, al1, al2):
         """ Create unpaired training/test tuple from pair of Alignments """
         secbest1, secbest2 = al1.secondBestScore, al2.secondBestScore
-        if hasattr(al1, 'thirdBestScore'):
-            assert hasattr(al2, 'thirdBestScore')
-            secbest1 = max(secbest1, al1.thirdBestScore)
-            secbest2 = max(secbest2, al2.thirdBestScore)
-        min_valid1, min_valid2 = None, None
-        max_valid1, max_valid2 = None, None
-        if hasattr(al1, 'minValid'):
-            min_valid1, min_valid2 = al1.minValid, al2.minValid
-            max_valid1, max_valid2 = al1.maxValid, al2.maxValid
         best_concordant_score, second_best_concordant_score = None, None
         if hasattr(al1, 'bestConcordantScore'):
             assert hasattr(al2, 'bestConcordantScore')
@@ -175,10 +149,8 @@ class PairedTuple(object):
             assert al1.secondBestConcordantScore == al2.secondBestConcordantScore
             best_concordant_score, second_best_concordant_score = \
                 al1.bestConcordantScore, al1.secondBestConcordantScore
-        return cls(al1.name, len(al1), min_valid1, max_valid1, al1.bestScore,
-                   secbest1, al1.mapq,
-                   al2.name, len(al2), min_valid2, max_valid2, al2.bestScore,
-                   secbest2, al2.mapq,
+        return cls(al1.name, len(al1), al1.bestScore, secbest1, al1.mapq,
+                   al2.name, len(al2), al2.bestScore, secbest2, al2.mapq,
                    best_concordant_score, second_best_concordant_score,
                    al1.ztzs,
                    Alignment.fragment_length(al1, al2))
@@ -193,9 +165,9 @@ class PairedTuple(object):
         if correct is not None:
             correct_str = 'T' if correct else 'F'
         ls = [self.rdname1, self.bestsc1, _str_or_na(self.best2sc1),
-              _str_or_na(self.minv1), _str_or_na(self.maxv1), self.rdlen1, self.mapq1,
+              self.rdlen1, self.mapq1,
               self.rdname2, self.bestsc2, _str_or_na(self.best2sc2),
-              _str_or_na(self.minv2), _str_or_na(self.maxv2), self.rdlen2, self.mapq2,
+              self.rdlen2, self.mapq2,
               _str_or_na(self.bestconcsc), _str_or_na(self.best2concsc), self.fraglen] + self.ztzs1 + [correct_str]
         ls = map(str, ls)
         fh.write(','.join(ls) + '\n')
@@ -210,8 +182,7 @@ class DatasetOnDisk(object):
         rescaling. """
 
     def __init__(self, name, temp_man):
-        # Data for individual reads and mates.  Tuples are (rdlen, minValid,
-        # maxValid, bestSc, scDiff)
+        # Data for individual reads and mates.  Tuples are (rdlen, bestSc, scDiff)
         self.data_unp, self.data_unp_fn = None, None
         # Data for concordant pairs.  Tuples are two tuples as described above,
         # one for each mate, plus the fragment length.  Label says whether the
