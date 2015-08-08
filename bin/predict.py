@@ -62,17 +62,20 @@ class AlignmentTableReader(object):
             fn = self.prefix + suf
             if any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2'])):
 
-                def _new_iterator(fn, chunksize):
-                    if os.path.exists(fn):
-                        return pandas.io.parsers.read_csv(fn, quoting=2, chunksize=chunksize)
-                    elif os.path.exists(fn + '.gz'):
-                        return pandas.io.parsers.read_csv(fn + '.gz', quoting=2, chunksize=chunksize, compression='gzip')
-                    elif os.path.exists(fn + '.bz2'):
-                        return pandas.io.parsers.read_csv(fn + '.bz2', quoting=2, chunksize=chunksize, compression='bz2')
-                    else:
-                        raise RuntimeError('No such file: "%s"' % fn)
+                def gen_new_iterator(_fn, _chunksize):
+                    def _new_iterator():
+                        if os.path.exists(fn):
+                            return pandas.io.parsers.read_csv(_fn, quoting=2, chunksize=_chunksize)
+                        elif os.path.exists(fn + '.gz'):
+                            return pandas.io.parsers.read_csv(_fn + '.gz', quoting=2, chunksize=_chunksize, compression='gzip')
+                        elif os.path.exists(fn + '.bz2'):
+                            return pandas.io.parsers.read_csv(_fn + '.bz2', quoting=2, chunksize=_chunksize, compression='bz2')
+                        else:
+                            raise RuntimeError('No such file: "%s"' % fn)
 
-                self.readers[sn] = lambda: _new_iterator(fn, chunksize=chunksize)
+                    return _new_iterator
+
+                self.readers[sn] = gen_new_iterator(fn, chunksize)
 
     @staticmethod
     def _postprocess_data_frame(df, sn):
