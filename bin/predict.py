@@ -106,18 +106,18 @@ class AlignmentTableReader(object):
 
             for sc_lab in ['diff_1', 'best1_1', 'best2_1',
                            'diff_2', 'best1_2', 'best2_2']:
-                assert not math.isnan(df[sc_lab])
+                assert not math.isnan(df[sc_lab].sum())
 
         elif sn == 'd':
             _fill_nas(df, 'diff_1', 'best1_1', 'best2_1')
             for sc_lab in ['diff_1', 'best1_1', 'best2_1']:
-                assert not math.isnan(df[sc_lab])
+                assert not math.isnan(df[sc_lab].sum())
 
         else:
             assert sn in 'ub'
             _fill_nas(df, 'diff', 'best1', 'best2')
             for sc_lab in ['diff', 'best1', 'best2']:
-                assert not math.isnan(df[sc_lab])
+                assert not math.isnan(df[sc_lab].sum())
 
         return df
 
