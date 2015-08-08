@@ -61,25 +61,18 @@ class AlignmentTableReader(object):
         for sn, suf in self.datasets:
             fn = self.prefix + suf
             if any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2'])):
-                self.dfs[sn] = self._fn_to_iterator(fn, chunksize=chunksize)
 
-                def _new_iter(_sn):
-                    def _inner():
-                        return iter([self.dfs[_sn].copy()])
-                    return _inner
+                def _new_iterator(fn, chunksize):
+                    if os.path.exists(fn):
+                        return pandas.io.parsers.read_csv(fn, quoting=2, chunksize=chunksize)
+                    elif os.path.exists(fn + '.gz'):
+                        return pandas.io.parsers.read_csv(fn + '.gz', quoting=2, chunksize=chunksize, compression='gzip')
+                    elif os.path.exists(fn + '.bz2'):
+                        return pandas.io.parsers.read_csv(fn + '.bz2', quoting=2, chunksize=chunksize, compression='bz2')
+                    else:
+                        raise RuntimeError('No such file: "%s"' % fn)
 
-                self.readers[sn] = _new_iter(sn)
-
-    @staticmethod
-    def _fn_to_iterator(fn, chunksize):
-        if os.path.exists(fn):
-            return pandas.io.parsers.read_csv(fn, quoting=2, chunksize=chunksize)
-        elif os.path.exists(fn + '.gz'):
-            return pandas.io.parsers.read_csv(fn + '.gz', quoting=2, chunksize=chunksize, compression='gzip')
-        elif os.path.exists(fn + '.bz2'):
-            return pandas.io.parsers.read_csv(fn + '.bz2', quoting=2, chunksize=chunksize, compression='bz2')
-        else:
-            raise RuntimeError('No such file: "%s"' % fn)
+                self.readers[sn] = lambda: _new_iterator(fn, chunksize=chunksize)
 
     @staticmethod
     def _postprocess_data_frame(df, sn):
