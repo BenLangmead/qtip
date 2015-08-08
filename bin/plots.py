@@ -2,8 +2,8 @@ __author__ = 'langmead'
 
 import math
 import numpy as np
-from bin.mapq import pcor_to_mapq, pcor_to_mapq_np
-from bin.metrics import cum_squared_error, drop_rate_cum_sum, tally_cor_per, mseor
+from mapq import pcor_to_mapq, pcor_to_mapq_np
+from metrics import cum_squared_error, drop_rate_cum_sum, tally_cor_per, mseor
 import matplotlib.pyplot as plt
 
 
