@@ -65,7 +65,7 @@ class AlignmentTableReader(object):
 
                 def _new_iter(_sn):
                     def _inner():
-                        return iter([self.dfs[_sn].copy()])
+                        return iter([self.dfs[_sn]])
                     return _inner
 
                 self.readers[sn] = _new_iter(sn)
