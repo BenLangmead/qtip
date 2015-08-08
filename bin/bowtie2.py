@@ -181,8 +181,6 @@ class AlignmentBowtie2(Alignment):
         self.pos = None
         self.mapq = None
         self.cigar = None
-        self.rnext = None
-        self.pnext = None
         self.tlen = None
         self.seq = None
         self.qual = None
@@ -205,7 +203,7 @@ class AlignmentBowtie2(Alignment):
         """ Parse ln, which is a line of SAM output from Bowtie 2.  The line
             must correspond to an aligned read. """
         self.name, self.flags, self.refid, self.pos, self.mapq, self.cigar, \
-            self.rnext, self.pnext, self.tlen, self.seq, self.qual, self.extra = \
+            _, _, self.tlen, self.seq, self.qual, self.extra = \
             string.split(ln, '\t', 11)
         assert self.flags != "*"
         assert self.pos != "*"
@@ -215,7 +213,6 @@ class AlignmentBowtie2(Alignment):
         self.pos = int(self.pos) - 1
         self.mapq = int(self.mapq)
         self.tlen = int(self.tlen)
-        self.pnext = int(self.pnext)
         self.fw = (flags & 16) == 0
         self.mate1 = (flags & 64) != 0
         self.mate2 = (flags & 128) != 0
