@@ -63,9 +63,9 @@ class AlignmentTableReader(object):
             if any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2'])):
                 self.dfs[sn] = self._fn_to_iterator(fn, chunksize=chunksize)
 
-                def _new_iter(_sn):
+                def _new_iter(_sn):  # a function that returns a new iterator
                     def _inner():
-                        return iter([self.dfs[_sn]])
+                        return iter(self.dfs[_sn]())
                     return _inner
 
                 self.readers[sn] = _new_iter(sn)
