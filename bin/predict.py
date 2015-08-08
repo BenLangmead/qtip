@@ -18,8 +18,9 @@ from itertools import imap
 from sklearn import cross_validation
 from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor
 from collections import defaultdict, Counter
-from mapq import pcor_to_mapq, mapq_to_pcor_np, pcor_to_mapq_np
-from metrics import cum_squared_error, drop_rate_cum_sum, tally_cor_per, mseor, ranking_error, auc, roc_table
+import matplotlib.pyplot as plt
+from plots import plot_drop_rate, plot_drop_rate_difference, plot_subsampling_series, bucket_error_plot
+from metrics import mseor, ranking_error, auc, roc_table
 
 
 VERSION = '0.2.0'
