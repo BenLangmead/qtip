@@ -64,14 +64,14 @@ class AlignmentTableReader(object):
 
                 def gen_new_iterator(_fn, _chunksize):
                     def _new_iterator():
-                        if os.path.exists(fn):
+                        if os.path.exists(_fn):
                             return pandas.io.parsers.read_csv(_fn, quoting=2, chunksize=_chunksize)
-                        elif os.path.exists(fn + '.gz'):
+                        elif os.path.exists(_fn + '.gz'):
                             return pandas.io.parsers.read_csv(_fn + '.gz', quoting=2, chunksize=_chunksize, compression='gzip')
-                        elif os.path.exists(fn + '.bz2'):
+                        elif os.path.exists(_fn + '.bz2'):
                             return pandas.io.parsers.read_csv(_fn + '.bz2', quoting=2, chunksize=_chunksize, compression='bz2')
                         else:
-                            raise RuntimeError('No such file: "%s"' % fn)
+                            raise RuntimeError('No such file: "%s"' % _fn)
 
                     return _new_iterator
 
