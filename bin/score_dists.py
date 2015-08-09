@@ -58,11 +58,12 @@ class ScoreDist(object):
         score, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen = self.sample.draw()
         return ReadTemplate(score, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen)
 
-    def add(self, al, correct, ref, ordlen=0):
+    def add(self, al, correct, ref, ordlen=0, use_ref_for_edit_distance=False):
         pos = self.sample.add_step_1()
         if pos is not None:
             sc = al.bestScore
-            rd_aln, rf_aln, rd_len, rf_len = al.stacked_alignment(align_soft_clipped=True, ref=ref)
+            rd_aln, rf_aln, rd_len, rf_len =\
+                al.stacked_alignment(use_ref_for_edit_distance=use_ref_for_edit_distance, ref=ref)
             self.sample.add_step_2(pos, (sc, al.fw, al.qual, rd_aln, rf_aln, rf_len, al.mate1, ordlen))
             self.max_fraglen = max(self.max_fraglen, rf_len)
             self.tot_len += rf_len
@@ -122,11 +123,12 @@ class CollapsedScoreDist(object):
             self.correct_mass += p_correct
         return ReadTemplate(score, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen)
 
-    def add(self, al, correct, ref, ordlen=0):
+    def add(self, al, correct, ref, ordlen=0, use_ref_for_edit_distance=False):
         sc = al.bestScore
         # TODO: don't call stacked_alignment unless we have to -- some calls
         # to sample.add will not add to any reservoirs
-        rd_aln, rf_aln, rd_len, rf_len = al.stacked_alignment(align_soft_clipped=True, ref=ref)
+        rd_aln, rf_aln, rd_len, rf_len =\
+            al.stacked_alignment(use_ref_for_edit_distance=use_ref_for_edit_distance, ref=ref)
         self.max_fraglen = max(self.max_fraglen, rf_len)
         self.tot_len += rf_len
         if sc not in self.score_to_sample:
@@ -180,7 +182,7 @@ class ScorePairDist(object):
                             ReadTemplate(sc_2, fw_2, qual_2, rd_aln_2, rf_aln_2, rf_len_2, mate1_2, rf_len_1),
                             fraglen, upstream1)
 
-    def add(self, al1, al2, correct1, correct2, ref):
+    def add(self, al1, al2, correct1, correct2, ref, use_ref_for_edit_distance=False):
         """ Convert given alignment pair to a tuple and add it to the
             reservoir sampler. """
         fraglen = Alignment.fragment_length(al1, al2)
@@ -192,8 +194,10 @@ class ScorePairDist(object):
             # Make note of which end is upstream
             upstream1 = al1.pos < al2.pos
             # Get stacked alignment
-            rd_aln_1, rf_aln_1, rd_len_1, rf_len_1 = al1.stacked_alignment(align_soft_clipped=True, ref=ref)
-            rd_aln_2, rf_aln_2, rd_len_2, rf_len_2 = al2.stacked_alignment(align_soft_clipped=True, ref=ref)
+            rd_aln_1, rf_aln_1, rd_len_1, rf_len_1 =\
+                al1.stacked_alignment(use_ref_for_edit_distance=use_ref_for_edit_distance, ref=ref)
+            rd_aln_2, rf_aln_2, rd_len_2, rf_len_2 =\
+                al2.stacked_alignment(use_ref_for_edit_distance=use_ref_for_edit_distance, ref=ref)
             assert fraglen == 0 or max(rf_len_1, rf_len_2) <= fraglen
             self.sample.add_step_2(pos, (sc1 + sc2,
                                          (al1.fw, al1.qual, rd_aln_1, rf_aln_1, sc1, rf_len_1, True, rf_len_2),
@@ -264,7 +268,7 @@ class CollapsedScorePairDist(object):
                             ReadTemplate(sc_2, fw_2, qual_2, rd_aln_2, rf_aln_2, rf_len_2, mate1_2, rf_len_1),
                             fraglen, upstream1)
 
-    def add(self, al1, al2, correct1, correct2, ref):
+    def add(self, al1, al2, correct1, correct2, ref, use_ref_for_edit_distance=False):
         """ Convert given alignment pair to a tuple and add it to the
             reservoir sampler. """
         # TODO: don't call stacked_alignment unless we have to -- some calls
@@ -277,8 +281,10 @@ class CollapsedScorePairDist(object):
         # Make note of which end is upstream
         upstream1 = al1.pos < al2.pos
         # Get stacked alignment
-        rd_aln_1, rf_aln_1, rd_len_1, rf_len_1 = al1.stacked_alignment(align_soft_clipped=True, ref=ref)
-        rd_aln_2, rf_aln_2, rd_len_2, rf_len_2 = al2.stacked_alignment(align_soft_clipped=True, ref=ref)
+        rd_aln_1, rf_aln_1, rd_len_1, rf_len_1 =\
+            al1.stacked_alignment(use_ref_for_edit_distance=use_ref_for_edit_distance, ref=ref)
+        rd_aln_2, rf_aln_2, rd_len_2, rf_len_2 =\
+            al2.stacked_alignment(use_ref_for_edit_distance=use_ref_for_edit_distance, ref=ref)
         assert fraglen == 0 or max(rf_len_1, rf_len_2) <= fraglen
         score = sc1 + sc2
         if score not in self.score_to_sample:
