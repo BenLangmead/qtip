@@ -39,6 +39,7 @@ class ReservoirSampler(object):
 
     def add_step_2(self, j, obj):
         """ Step 2 of stateful add: actually add it """
+        assert j is not None
         if j >= len(self.r):
             assert j == len(self.r)
             self.r.append(obj)
