@@ -545,7 +545,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         dists = Dists(args['max_allowed_fraglen'],
                       fraction_even=args['fraction_even'],
                       bias=args['low_score_bias'],
-                      use_ref_for_edit_distance=args['ref-soft-clipping'],
+                      use_ref_for_edit_distance=args['ref_soft_clipping'],
                       reservoir_size=args['input_model_size'])
         cor_dist, incor_dist = defaultdict(int), defaultdict(int)
         
