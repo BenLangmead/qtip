@@ -2,6 +2,7 @@
 sam.py
 """
 
+import re
 
 class Cigar(object):
     """ Encapsulates a CIGAR string and the information it encodes about the
@@ -9,22 +10,12 @@ class Cigar(object):
 
     op_map = {'M': 0, '=': 0, 'X': 0, 'I': 1, 'D': 2, 'N': 3, 'S': 4, 'H': 5, 'P': 6}
 
-    @staticmethod
-    def cigar_to_list(cigar_string):
-        ret = []
-        i = 0
-        while i < len(cigar_string):
-            run = 0
-            while i < len(cigar_string) and cigar_string[i].isdigit():
-                run *= 10
-                run += int(cigar_string[i])
-                i += 1
-            assert i < len(cigar_string)
-            op = cigar_string[i]
-            i += 1
-            assert op in Cigar.op_map
-            ret.append([Cigar.op_map[op], run])
-        return ret
+    digre = re.compile('([01-9]+)')
+
+    @classmethod
+    def cigar_to_list(cls, cigar_string):
+        spl = cls.digre.split(cigar_string)
+        return zip(map(cls.op_map.get, spl[2::2]), map(int, spl[1::2]))
 
     def reference_length(self):
         """ Return the number of characters spanned by the reference side of
