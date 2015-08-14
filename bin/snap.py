@@ -243,13 +243,6 @@ class AlignmentSnap(Alignment):
     """ Encapsulates a SNAP SAM alignment record.  Parses certain
         important SAM extra fields output by snap-aligner. """
 
-    __asRe = re.compile('AS:i:([-]?[0-9]+)')  # best score
-    __xsRe = re.compile('XS:i:([-]?[0-9]+)')  # second-best score
-    __mdRe = re.compile('MD:Z:([^\s]+)')  # MD:Z string
-    __zupRe = re.compile('ZP:i:([-]?[0-9]+)')  # best concordant
-    __zlpRe = re.compile('Zp:i:([-]?[0-9]+)')  # 2nd best concordant
-    __ztRe = re.compile('ZT:Z:([^\s]*)')  # extra features
-
     def __init__(self):
         super(AlignmentSnap, self).__init__()
         self.name = None
@@ -274,6 +267,7 @@ class AlignmentSnap(Alignment):
         self.secondBestConcordantScore = None
         self.ztzs = None
         self.mdz = None
+        self.sanity = False
 
     def parse(self, ln):
         """ Parse ln, which is a line of SAM output from SNAP.  The line
@@ -296,37 +290,21 @@ class AlignmentSnap(Alignment):
         assert self.paired == ((flags & 1) != 0)
         self.concordant = ((flags & 2) != 0)
         self.discordant = ((flags & 2) == 0) and ((flags & 4) == 0) and ((flags & 8) == 0)
-        # Parse AS:i
-        se = self.__asRe.search(self.extra)
-        self.bestScore = None
-        if se is not None:
-            self.bestScore = int(se.group(1))
-        # Parse XS:i
-        se = self.__xsRe.search(self.extra)
-        self.secondBestScore = None
-        if se is not None:
-            self.secondBestScore = int(se.group(1))
-        # Parse ZP:i
-        se = self.__zupRe.search(self.extra)
-        self.bestConcordantScore = None
-        if se is not None:
-            self.bestConcordantScore = int(se.group(1))
-        # Parse Zp:i
-        se = self.__zlpRe.search(self.extra)
-        self.secondBestConcordantScore = None
-        if se is not None:
-            self.secondBestConcordantScore = int(se.group(1))
-        # Parse ZT.Z
-        self.ztzs = None
-        se = self.__ztRe.search(self.extra)
-        if se is not None:
-            self.ztzs = se.group(1).split(',')
-        # Parse MD:Z
-        self.mdz = None
-        se = self.__mdRe.search(self.extra)
-        if se is not None:
-            self.mdz = se.group(1)
-        assert self.rep_ok()
+        extra_parse = {x[:4]: x[5:] for x in self.extra.split('\t')}
+        if 'AS:i' in extra_parse:
+            self.bestScore = int(extra_parse['AS:i'])
+        if 'XS:i' in extra_parse:
+            self.secondBestScore = int(extra_parse['XS:i'])
+        if self.concordant:
+            if 'ZP:i' in extra_parse:
+                self.bestConcordantScore = int(extra_parse['ZP:i'])
+            if 'Zp:i' in extra_parse:
+                self.secondBestConcordantScore = int(extra_parse['Zp:i'])
+        if 'ZT:Z' in extra_parse:
+            self.ztzs = extra_parse['ZT:Z'].split(',')
+        if 'MD:Z' in extra_parse:
+            self.mdz = extra_parse['MD:Z']
+        assert not self.sanity or self.rep_ok()
 
     def rep_ok(self):
         # Call parent's repOk

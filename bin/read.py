@@ -1,5 +1,6 @@
 import re
 import random
+import logging
 from sam import Cigar, Mdz, cigar_mdz_to_stacked, cigar_ref_to_stacked
 from abc import ABCMeta, abstractmethod
 from align import editDistance
@@ -209,9 +210,11 @@ class Alignment(object):
                     rdstr = re.sub(self.__nonAcgt, 'N', rdstr)
                     assert refr - refl <= unal_ln + fudge
                     if use_ref_for_edit_distance:
+                        logging.debug('GETTING BASES FROM REFERENCE')
                         refstr = ref.get(self.refid, refl, refr - refl).upper()
                         refstr = re.sub(self.__nonAcgt, 'N', refstr)
                     else:
+                        logging.debug('GETTING RANDOM BASES')
                         refstr = ''.join([random.choice('ACGT') for _ in range(refr - refl)])
                     assert len(rdstr) == len(refstr)
 
