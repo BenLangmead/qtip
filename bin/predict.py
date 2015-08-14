@@ -362,11 +362,11 @@ class MapqFit:
                 if colname.startswith('ztz') and data[colname].nunique() > 1:
                     labs.append(colname)
         if training:
-            assert self.training_labs is None
-            self.training_labs = labs
+            assert shortname not in self.training_labs
+            self.training_labs[shortname] = labs
         else:
-            assert self.training_labs is not None
-            labs = self.training_labs
+            assert shortname in self.training_labs
+            labs = self.training_labs[shortname]
         for lab in labs:
             assert not np.isnan(data[lab]).any()
         data_mat = data[labs].values
@@ -521,7 +521,7 @@ class MapqFit:
         self.crossval_std = {}
         self.col_names = {}
         self.trained_params = None
-        self.training_labs = None
+        self.training_labs = {}
         self.include_ztzs = include_ztzs
         self._fit(dfs, logger=logger, sample_fraction=sample_fraction)
 
