@@ -129,6 +129,7 @@ class Alignment(object):
     def __init__(self):
         self.cigar = None
         self.cigar_obj = None
+        self.left_clip = self.right_clip = None
 
     def is_aligned(self):
         """ Return true iff read aligned """
