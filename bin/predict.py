@@ -521,6 +521,7 @@ class MapqFit:
         self.crossval_std = {}
         self.col_names = {}
         self.trained_params = None
+        self.training_labs = None
         self.include_ztzs = include_ztzs
         self._fit(dfs, logger=logger, sample_fraction=sample_fraction)
 
