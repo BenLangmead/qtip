@@ -165,13 +165,36 @@ class Alignment(object):
 
     def soft_clipped_left(self):
         """ Return amt soft-clipped from LHS """
-        self.parse_cigar()
-        return self.cigar_obj.cigar_list[0][1] if (self.cigar_obj.cigar_list[0][0] == 4) else 0
+        if self.left_clip is not None:
+            return self.left_clip
+        elif self.cigar_obj is not None:
+            self.left_clip = self.cigar_obj.cigar_list[0][1] if (self.cigar_obj.cigar_list[0][0] == 4) else 0
+            return self.left_clip
+        if True:
+            for i, c in enumerate(self.cigar):
+                if not str.isdigit(c):
+                    if c != 'S':
+                        self.left_clip = 0;
+                        return 0
+                    self.left_clip = int(self.cigar[:i])
+                    return self.left_clip
+        else:
+            self.parse_cigar()
+            return self.cigar_obj.cigar_list[0][1] if (self.cigar_obj.cigar_list[0][0] == 4) else 0
 
     def soft_clipped_right(self):
         """ Return amt soft-clipped from RHS """
+        if self.right_clip is not None:
+            return self.right_clip
+        elif self.cigar_obj is not None:
+            self.right_clip = self.cigar_obj.cigar_list[-1][1] if (self.cigar_obj.cigar_list[-1][0] == 4) else 0
+            return self.right_clip
+        if self.cigar[-1] != 'S':
+            self.right_clip = 0
+            return 0
         self.parse_cigar()
-        return self.cigar_obj.cigar_list[-1][1] if (self.cigar_obj.cigar_list[-1][0] == 4) else 0
+        self.right_clip = self.cigar_obj.cigar_list[-1][1] if (self.cigar_obj.cigar_list[-1][0] == 4) else 0
+        return self.right_clip
 
     def stacked_alignment(self, use_ref_for_edit_distance, ref=None):
         """ Return a stacked alignment corresponding to this
