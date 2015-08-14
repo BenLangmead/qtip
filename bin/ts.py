@@ -397,13 +397,13 @@ class AlignmentReader(Thread):
                     try:
                         if mate1 is not None:
                             if al.concordant:
-                                self.dists.add_concordant_pair(mate1, mate2, correct1, correct2, self.ref)
+                                self.dists.add_concordant_pair(mate1, mate2, correct1, correct2)
                             elif al.discordant:
-                                self.dists.add_discordant_pair(mate1, mate2, correct1, correct2, self.ref)
+                                self.dists.add_discordant_pair(mate1, mate2, correct1, correct2)
                             else:
-                                self.dists.add_bad_end_read(al, correct, len(last_al.seq), self.ref)
+                                self.dists.add_bad_end_read(al, correct, ordln=len(last_al.seq))
                         elif not al.paired:
-                            self.dists.add_unpaired_read(al, correct, self.ref)
+                            self.dists.add_unpaired_read(al, correct)
                     except ReferenceOOB:
                         pass
                 
