@@ -86,20 +86,28 @@ class Dists(object):
                  fraction_even=0.5,
                  bias=1.0,
                  use_ref_for_edit_distance=False,
+                 reference=None,
                  reservoir_size=10000):
-        if fraction_even >= 1.0:
-            self.sc_dist_unp = ScoreDist(big_k=reservoir_size)
-            self.sc_dist_bad_end = ScoreDist(big_k=reservoir_size)
-            self.sc_dist_conc = ScorePairDist(big_k=reservoir_size, max_allowed_fraglen=max_allowed_fraglen)
-            self.sc_dist_disc = ScorePairDist(big_k=reservoir_size, max_allowed_fraglen=max_allowed_fraglen)
-        else:
-            self.sc_dist_unp = CollapsedScoreDist(big_k=reservoir_size, fraction_even=fraction_even, bias=bias)
-            self.sc_dist_bad_end = CollapsedScoreDist(big_k=reservoir_size, fraction_even=fraction_even, bias=bias)
-            self.sc_dist_conc = CollapsedScorePairDist(big_k=reservoir_size, max_allowed_fraglen=max_allowed_fraglen,
-                                                       fraction_even=fraction_even, bias=bias)
-            self.sc_dist_disc = CollapsedScorePairDist(big_k=reservoir_size, max_allowed_fraglen=max_allowed_fraglen,
-                                                       fraction_even=fraction_even, bias=bias)
         self.use_ref_for_edit_distance = use_ref_for_edit_distance
+        self.reference = reference
+        if fraction_even >= 1.0:
+            self.sc_dist_unp = ScoreDist(reference=self.reference, big_k=reservoir_size)
+            self.sc_dist_bad_end = ScoreDist(reference=self.reference, big_k=reservoir_size)
+            self.sc_dist_conc = ScorePairDist(reference=self.reference, big_k=reservoir_size,
+                                              max_allowed_fraglen=max_allowed_fraglen)
+            self.sc_dist_disc = ScorePairDist(reference=self.reference, big_k=reservoir_size,
+                                              max_allowed_fraglen=max_allowed_fraglen)
+        else:
+            self.sc_dist_unp = CollapsedScoreDist(reference=self.reference, big_k=reservoir_size,
+                                                  fraction_even=fraction_even, bias=bias)
+            self.sc_dist_bad_end = CollapsedScoreDist(reference=self.reference, big_k=reservoir_size,
+                                                      fraction_even=fraction_even, bias=bias)
+            self.sc_dist_conc = CollapsedScorePairDist(reference=self.reference,
+                                                       big_k=reservoir_size, max_allowed_fraglen=max_allowed_fraglen,
+                                                       fraction_even=fraction_even, bias=bias)
+            self.sc_dist_disc = CollapsedScorePairDist(reference=self.reference,
+                                                       big_k=reservoir_size, max_allowed_fraglen=max_allowed_fraglen,
+                                                       fraction_even=fraction_even, bias=bias)
 
     def finalize(self):
         self.sc_dist_unp.finalize()
@@ -107,25 +115,21 @@ class Dists(object):
         self.sc_dist_conc.finalize()
         self.sc_dist_disc.finalize()
 
-    def add_concordant_pair(self, al1, al2, correct1, correct2, ref):
+    def add_concordant_pair(self, al1, al2, correct1, correct2):
         """ Add concordant paired-end read alignment to the model """
-        self.sc_dist_conc.add(al1, al2, correct1, correct2, ref,
-                              use_ref_for_edit_distance=self.use_ref_for_edit_distance)
+        self.sc_dist_conc.add(al1, al2, correct1, correct2, use_ref_for_edit_distance=self.use_ref_for_edit_distance)
 
-    def add_discordant_pair(self, al1, al2, correct1, correct2, ref):
+    def add_discordant_pair(self, al1, al2, correct1, correct2):
         """ Add discordant paired-end read alignment to the model """
-        self.sc_dist_disc.add(al1, al2, correct1, correct2, ref,
-                              use_ref_for_edit_distance=self.use_ref_for_edit_distance)
+        self.sc_dist_disc.add(al1, al2, correct1, correct2, use_ref_for_edit_distance=self.use_ref_for_edit_distance)
 
-    def add_unpaired_read(self, al, correct, ref):
+    def add_unpaired_read(self, al, correct):
         """ Add unpaired read alignment to the model """
-        self.sc_dist_unp.add(al, correct, ref,
-                             use_ref_for_edit_distance=self.use_ref_for_edit_distance)
+        self.sc_dist_unp.add(al, correct, use_ref_for_edit_distance=self.use_ref_for_edit_distance)
 
-    def add_bad_end_read(self, al, correct, ordlen, ref):
+    def add_bad_end_read(self, al, correct, ordlen):
         """ Add bad-end read alignment to the model """
-        self.sc_dist_bad_end.add(al, correct, ref, ordlen,
-                                 use_ref_for_edit_distance=self.use_ref_for_edit_distance)
+        self.sc_dist_bad_end.add(al, correct, ordlen=ordlen, use_ref_for_edit_distance=self.use_ref_for_edit_distance)
 
     def has_pairs(self):
         return not self.sc_dist_conc.empty() or not self.sc_dist_disc.empty() or not self.sc_dist_bad_end.empty()
@@ -502,6 +506,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     # for storing temp files and keep track of how big they get
     temp_man = TemporaryFileManager(args['temp_directory'])
 
+    # Note: this is only needed when either MD:Z information is missing from
+    # alignments or when --ref-soft-clipping is specified
     logging.info('Loading reference data')
     with ReferenceIndexed(args['ref']) as ref:
     
@@ -546,6 +552,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                       fraction_even=args['fraction_even'],
                       bias=args['low_score_bias'],
                       use_ref_for_edit_distance=args['ref_soft_clipping'],
+                      reference=ref,
                       reservoir_size=args['input_model_size'])
         cor_dist, incor_dist = defaultdict(int), defaultdict(int)
         
@@ -1056,7 +1063,7 @@ def add_args(parser):
     parser.add_argument('--input-model-size', metavar='int', type=int, default=10000, required=False,
                         help='Number of templates to keep when building input model.')
     parser.add_argument('--ref-soft-clipping', action='store_const', const=True, default=False,
-                        help='Use reference bases (instead of random bases) to re-align soft clipped bases.')
+                        help='Use bases from reference (instead of random bases) to re-align soft clipped bases.')
 
     parser.add_argument('--wiggle', metavar='int', type=int, default=30, required=False,
                         help='Wiggle room to allow in starting position when determining whether alignment is correct')

@@ -168,7 +168,7 @@ class Alignment(object):
         res = self.__cigarRclip.match(self.cigar)
         return 0 if res is None else int(res.group(1))
 
-    def stacked_alignment(self, use_ref_for_edit_distance=True, ref=None):
+    def stacked_alignment(self, use_ref_for_edit_distance, ref=None):
         """ Return a stacked alignment corresponding to this
             alignment.  Optionally re-align the soft-clipped portions
             of the read so that the stacked alignment includes all
