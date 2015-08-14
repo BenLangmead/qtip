@@ -119,9 +119,7 @@ class Alignment(object):
         """
     
     __nonAcgt = re.compile('[^ACGT]')
-    __cigarLclip = re.compile('^([0-9]+)S.*')
-    __cigarRclip = re.compile('.*[^0-9]([0-9]+)S$')
-    
+
     __metaclass__ = ABCMeta
     
     @abstractmethod
@@ -129,7 +127,8 @@ class Alignment(object):
         pass
     
     def __init__(self):
-        pass
+        self.cigar = None
+        self.cigar_obj = None
 
     def is_aligned(self):
         """ Return true iff read aligned """
@@ -158,23 +157,30 @@ class Alignment(object):
     def __len__(self):
         """ Return read length """
         return len(self.seq)
-    
+
+    def parse_cigar(self):
+        """ Parse self.cigar into self.cigar_list if we haven't already. """
+        if self.cigar_obj is None:
+            self.cigar_obj = Cigar(self.cigar)
+
     def soft_clipped_left(self):
         """ Return amt soft-clipped from LHS """
-        res = self.__cigarLclip.match(self.cigar)
-        return 0 if res is None else int(res.group(1))
+        self.parse_cigar()
+        return self.cigar_obj.cigar_list[0][1] if (self.cigar_obj.cigar_list[0][0] == 4) else 0
 
     def soft_clipped_right(self):
         """ Return amt soft-clipped from RHS """
-        res = self.__cigarRclip.match(self.cigar)
-        return 0 if res is None else int(res.group(1))
+        self.parse_cigar()
+        return self.cigar_obj.cigar_list[-1][1] if (self.cigar_obj.cigar_list[-1][0] == 4) else 0
 
     def stacked_alignment(self, use_ref_for_edit_distance, ref=None):
         """ Return a stacked alignment corresponding to this
             alignment.  Optionally re-align the soft-clipped portions
             of the read so that the stacked alignment includes all
             characters from read. """
-        cigar = Cigar(self.cigar)
+        self.parse_cigar()
+        cigar = self.cigar_obj
+        assert cigar is not None
         if self.mdz is not None:
             rd_aln, rf_aln = cigar_mdz_to_stacked(self.seq, cigar, Mdz(self.mdz))
         else:
@@ -228,7 +234,6 @@ class Alignment(object):
                     else:
                         rd_aln.append(rd_aln_new)
                         rf_aln.append(rf_aln_new)
-
 
         rd_aln, rf_aln = ''.join(rd_aln), ''.join(rf_aln)
         rd_len = len(rd_aln) - rd_aln.count('-')

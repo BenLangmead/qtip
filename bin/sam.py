@@ -4,6 +4,7 @@ sam.py
 
 import re
 
+
 class Cigar(object):
     """ Encapsulates a CIGAR string and the information it encodes about the
         shape of an alignment. """
