@@ -131,7 +131,7 @@ class AlignmentTableReader(object):
 
 
 class MapqPredictions:
-    """ Encpsulates mapq predictions for a dataset for evaluation purposes. """
+    """ Encapsulates mapq predictions for a dataset for evaluation purposes. """
 
     def __init__(self):
         # all these lists are parallel
@@ -199,6 +199,7 @@ class MapqPredictions:
         return [x for x in range(len(self.correct)-1, -1, -1) if not self.correct[x]]
 
     def top_incorrect(self, n=50):
+        """ Get incorrect alignments with highest predicted MAPQ """
         assert self.data is not None
         return [self.data[x] for x in self.incorrect_indexes()[:n]]
 
@@ -320,84 +321,10 @@ class MapqPredictions:
         self.mapq_std, self.mapq_orig_std = float(np.std(mapq)), float(np.std(mapq_orig))
 
 
-"""
-def parse_sam(fh, ofh, alignment_class, normalizers, fit, ival=10000):
-
-    def _rewrite(_ln, _mapq):
-        toks = _ln.split()
-        toks[4] = str(round(_mapq))
-        # TODO: could optionally include decimal MAPQ in extra field
-        ofh.write('\t'.join(toks) + '\n')
-
-    last_al, last_ln = None, None
-    nal, nignored, npair, nunp = 0, 0, 0, 0
-    for ln in fh:
-        if ln[0] == '@':
-            ofh.write(ln)
-            continue  # skip headers
-
-        # Parse SAM record
-        al = alignment_class()
-        al.parse(ln)
-        nal += 1
-        if al.flags >= 2048:
-            nignored += 1
-            ofh.write(ln)
-            continue
-        elif al.paired:
-            npair += 1
-        else:
-            nunp += 1
-
-        if (nal % ival) == 0:
-            logging.info('      # alignments parsed: %d (%d paired, %d unpaired, %d ignored)' %
-                         (nal, npair, nunp, nignored))
-
-        if al.paired and last_al is not None:
-            assert al.concordant == last_al.concordant
-            assert al.discordant == last_al.discordant
-            assert al.mate1 != last_al.mate1
-            mate1, mate2 = (al, last_al) if al.mate1 else (last_al, al)
-            ln1, ln2 = (ln, last_ln) if al.mate1 else (last_ln, ln)
-            # if only one end aligned, ensure 'al' is the one that aligned
-            if not al.is_aligned() and last_al.is_aligned():
-                al, last_al = last_al, al
-                ln, last_ln = last_ln, ln
-        else:
-            mate1, mate2 = None, None
-
-        if al.is_aligned():
-            if mate1 is not None:
-                if al.concordant:
-                    mapq1, mapq2 = fit.predict_concordant(mate1, mate2)
-                    ofh.write(_rewrite(ln1, mapq1))
-                    ofh.write(_rewrite(ln2, mapq2))
-                elif al.discordant:
-                    mapq1, mapq2 = fit.predict_discordant(mate1, mate2)
-                    ofh.write(_rewrite(ln1, mapq1))
-                    ofh.write(_rewrite(ln2, mapq2))
-                else:
-                    mapq = fit.predict_bad_end(al, last_al)
-                    ofh.write(_rewrite(ln, mapq))
-            elif not al.paired:
-                mapq = fit.predict_unpaired(al)
-                ofh.write(_rewrite(ln, mapq))
-        else:
-            ofh.write(ln)
-
-        if mate1 is None and al.paired:
-            last_al, last_ln = al, ln
-        else:
-            last_al, last_ln = None, None
-"""
-
-
 class MapqFit:
-    """
-    """
+    """ Encapsulates an object that fits models and makes predictions """
 
-    @staticmethod
-    def _df_to_mat(data, shortname, include_ztzs=True):
+    def _df_to_mat(self, data, shortname, training):
         """ Convert a data frame read with read_dataset into a matrix
             suitable for use with scikit-learn, and parallel vectors
             giving the original MAPQ predictions and whether or not the
@@ -412,6 +339,7 @@ class MapqFit:
                 labs.append('diff_conc')  # concordant difference
             labs.append('fraglen')
             data['rdlen_12'] = data['rdlen_1'] = data['rdlen_2']
+            # TODO: we want to make these decisions based on how the model was trained, not on how the test data look
             if data['rdlen_1'].nunique() > 1:
                 labs.append('rdlen_1')
             if data['rdlen_12'].nunique() > 1:
@@ -429,10 +357,16 @@ class MapqFit:
             if data['rdlen'].nunique() > 1:
                 labs.append('rdlen')
             mapq_header = 'mapq'
-        if include_ztzs:
+        if self.include_ztzs:
             for colname in sorted(data.columns.values):
                 if colname.startswith('ztz') and data[colname].nunique() > 1:
                     labs.append(colname)
+        if training:
+            assert self.training_labs is None
+            self.training_labs = labs
+        else:
+            assert self.training_labs is not None
+            labs = self.training_labs
         for lab in labs:
             assert not np.isnan(data[lab]).any()
         data_mat = data[labs].values
@@ -499,7 +433,7 @@ class MapqFit:
 
     datasets = zip('dbcu', ['Discordant', 'Bad-end', 'Concordant', 'Unpaired'], [True, False, True, False])
 
-    def _fit(self, dfs, logger=logging.info, sample_fraction=1.0, include_ztzs=True):
+    def _fit(self, dfs, logger=logging.info, sample_fraction=1.0):
 
         for ds, ds_long, paired in self.datasets:
             if ds not in dfs:
@@ -513,7 +447,7 @@ class MapqFit:
             random.seed(self.random_seed)
             np.random.seed(self.random_seed)
             # extract features, convert to matrix
-            x_train, mapq_orig_train, y_train, col_names = self._df_to_mat(train, ds, include_ztzs=include_ztzs)
+            x_train, mapq_orig_train, y_train, col_names = self._df_to_mat(train, ds, True)
             self.col_names[ds] = col_names
             # optionally subsample
             frac = sample_fraction
@@ -548,7 +482,7 @@ class MapqFit:
             for test_chunk in dfs.dataset_iter(ds):
                 nchunk += 1
                 logger('  Making predictions for %s chunk %d, %d rows' % (ds_long, nchunk, test_chunk.shape[0]))
-                x_test, mapq_orig_test, y_test, col_names = self._df_to_mat(test_chunk, ds)
+                x_test, mapq_orig_test, y_test, col_names = self._df_to_mat(test_chunk, ds, False)
                 y_test = np.array(map(lambda c: c == 1, test_chunk.correct))
                 pcor = self.trained_models[ds].predict(x_test)  # make predictions
                 pcor = np.array(self.postprocess_predictions(pcor, ds_long))
@@ -571,34 +505,6 @@ class MapqFit:
         else:
             return pred_overall
 
-    """
-    def predict_unpaired(self, al):
-        " Given unpaided alignment, use fit model to predict a MAPQ for it "
-        # TODO: need to normalize best, secbest the same way we normally do
-        # Many aspects:
-        # 1. Need to parse and extract raw fields from SAM
-        # 2. Need to get normalizers from the training data (should we copy
-        #    the normalizers to the MapqFit object so we don't have to keep
-        #    anything besides the picked fit?)
-        # 3.
-        assert 'u' in self.trained_models
-        secbest = al.secondBestScore
-        if hasattr(al, 'thirdBestScore'):
-            secbest = max(secbest, al.thirdBestScore)
-        x_test = [al.bestScore, secbest]
-        pcor = self.trained_models['u'].predict(x_test)  # make predictions
-
-    def rewrite_sam(self, fn_in, fn_out):
-        " Read SAM input line by line.  Output new lines "
-        with open(fn_in) as ifh:
-            with open(fn_out) as ofh:
-                for ln in ifh:
-                    if ln[0] != '@':
-                        toks = ln.split()
-
-                    ofh.write(ln)
-    """
-
     def __init__(self,
                  dfs,  # dictionary of data frames, one per alignment type
                  model_gen,  # function that takes vector of hyperparameters, returns new model object
@@ -615,7 +521,8 @@ class MapqFit:
         self.crossval_std = {}
         self.col_names = {}
         self.trained_params = None
-        self._fit(dfs, logger=logger, sample_fraction=sample_fraction, include_ztzs=include_ztzs)
+        self.include_ztzs = include_ztzs
+        self._fit(dfs, logger=logger, sample_fraction=sample_fraction)
 
 
 class ModelFamily(object):
@@ -713,6 +620,7 @@ def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.002):
 
 
 def model_family(args):
+    """ Given command-line arguments, return appropriate model family """
     if args['model_family'] == 'RandomForest':
         return random_forest_models(args['seed'], args['optimization_tolerance'])
     elif args['model_family'] == 'ExtraTrees':
@@ -722,7 +630,7 @@ def model_family(args):
 
 
 def mkdir_quiet(dr):
-    # Create output directory if needed
+    """ Create directory if needed; don't complain """
     import errno
     if not os.path.isdir(dr):
         try:
@@ -733,6 +641,7 @@ def mkdir_quiet(dr):
 
 
 def output_top_incorrect(pred, odir, args):
+    """ Output incorrect alignments with largest predicted MAPQ """
     mkdir_quiet(odir)
     if args['write_top_incorrect'] or args['write_all']:
         df = pred.summarize_incorrect(1000)
