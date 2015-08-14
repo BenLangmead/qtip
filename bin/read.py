@@ -210,11 +210,11 @@ class Alignment(object):
                     rdstr = re.sub(self.__nonAcgt, 'N', rdstr)
                     assert refr - refl <= unal_ln + fudge
                     if use_ref_for_edit_distance:
-                        logging.debug('GETTING BASES FROM REFERENCE')
+                        #logging.debug('GETTING BASES FROM REFERENCE')
                         refstr = ref.get(self.refid, refl, refr - refl).upper()
                         refstr = re.sub(self.__nonAcgt, 'N', refstr)
                     else:
-                        logging.debug('GETTING RANDOM BASES')
+                        #logging.debug('GETTING RANDOM BASES')
                         refstr = ''.join([random.choice('ACGT') for _ in range(refr - refl)])
                     assert len(rdstr) == len(refstr)
 
