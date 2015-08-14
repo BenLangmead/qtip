@@ -13,7 +13,10 @@ import random
 import numpy as np
 import logging
 import gc
-import cPickle
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
 import copy
 from itertools import imap
 from sklearn import cross_validation
@@ -735,7 +738,7 @@ def go(args):
                     # Read model fit from a pickled file
                     logging.info('      Loading predictions from file')
                     with open(my_fit_fn, 'rb') as fh:
-                        ss_fit = cPickle.load(fh)
+                        ss_fit = pickle.load(fh)
                 else:
                     # Fit model
                     logging.info('      Fitting')
@@ -744,7 +747,7 @@ def go(args):
                     if args['serialize_fit']:
                         logging.info('      Serializing fit object')
                         with open(my_fit_fn, 'wb') as ofh:
-                            cPickle.dump(ss_fit, ofh, 2)
+                            pickle.dump(ss_fit, ofh, 2)
 
                 feat_import_colnames = []
                 feat_import_values = []
@@ -834,7 +837,7 @@ def go(args):
     if os.path.exists(fit_fn) and not args['overwrite_fit']:
         logging.info('Loading fit from file')
         with open(fit_fn, 'rb') as fh:
-            fit = cPickle.load(fh)
+            fit = pickle.load(fh)
     else:
         logging.info('Fitting and making predictions')
         my_seed = hash(str(args['seed']) + '-1') % 4294967296
@@ -843,7 +846,7 @@ def go(args):
         if args['serialize_fit']:
             logging.info('Serializing fit object')
             with open(fit_fn, 'wb') as ofh:
-                cPickle.dump(fit, ofh, 2)
+                pickle.dump(fit, ofh, 2)
 
     logging.info('Done')
 

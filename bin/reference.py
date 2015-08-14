@@ -1,7 +1,10 @@
 import os
 import re
 from abc import ABCMeta, abstractmethod
-from cPickle import load, dump
+try:
+    from cPickle import load, dump
+except ImportError:
+    from pickle import load, dump
 
 
 def iter_fasta_chunks(fasta_filenames, chunk_size=500000):
