@@ -160,7 +160,7 @@ class Alignment(object):
         return len(self.seq)
 
     def parse_cigar(self):
-        """ Parse self.cigar into self.cigar_list if we haven't already. """
+        """ Lazily parse self.cigar into self.cigar_obj """
         if self.cigar_obj is None:
             self.cigar_obj = Cigar(self.cigar)
 
@@ -171,17 +171,13 @@ class Alignment(object):
         elif self.cigar_obj is not None:
             self.left_clip = self.cigar_obj.cigar_list[0][1] if (self.cigar_obj.cigar_list[0][0] == 4) else 0
             return self.left_clip
-        if True:
-            for i, c in enumerate(self.cigar):
-                if not str.isdigit(c):
-                    if c != 'S':
-                        self.left_clip = 0;
-                        return 0
-                    self.left_clip = int(self.cigar[:i])
-                    return self.left_clip
-        else:
-            self.parse_cigar()
-            return self.cigar_obj.cigar_list[0][1] if (self.cigar_obj.cigar_list[0][0] == 4) else 0
+        for i, c in enumerate(self.cigar):
+            if not str.isdigit(c):
+                if c != 'S':
+                    self.left_clip = 0;
+                    return 0
+                self.left_clip = int(self.cigar[:i])
+                return self.left_clip
 
     def soft_clipped_right(self):
         """ Return amt soft-clipped from RHS """

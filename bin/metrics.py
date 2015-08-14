@@ -1,5 +1,4 @@
 import numpy as np
-import pandas
 from collections import defaultdict
 from mapq import round_pcor_np, pcor_to_mapq
 
@@ -38,6 +37,7 @@ def roc_table(pcor, cor, rounded=False, mapqize=False):
     """ Return the ranking error given a list of pcors and a parallel list of
         correct/incorrect booleans.  Round off to nearest MAPQ first if
         rounded=True.  """
+    import pandas
     assert len(pcor) == len(cor)
     if rounded:
         pcor = round_pcor_np(pcor)

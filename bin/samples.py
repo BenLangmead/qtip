@@ -58,7 +58,6 @@ For concordantly-aligned paired-end examples:
 import shutil
 import os
 from read import Alignment
-from pandas import DataFrame, read_csv
 
 try:
     import numpypy as np
@@ -262,10 +261,11 @@ class DatasetOnDisk(object):
 
     @staticmethod
     def _from_file(fn, names):
+        import pandas
         if fn is not None and os.path.exists(fn):
-            return read_csv(fn, names=names)
+            return pandas.read_csv(fn, names=names)
         else:
-            return DataFrame.from_dict(dict.fromkeys(names, []))
+            return pandas.DataFrame.from_dict(dict.fromkeys(names, []))
 
     def finalize(self):
         for fh in [self.data_conc, self.data_bad_end, self.data_disc, self.data_unp]:
