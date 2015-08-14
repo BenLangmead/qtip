@@ -5,6 +5,7 @@ Given a directory with output from ts.py, predict new MAPQs.
 __author__ = 'langmead'
 
 import pandas
+import warnings
 import os
 import sys
 import math
@@ -85,7 +86,12 @@ class AlignmentTableReader(object):
 
         def _fill_nas(_df, nm, best_nm, secbest_nm):
             _df[nm] = _df[best_nm].astype(float) - _df[secbest_nm]
-            _df[nm] = _df[nm].fillna(np.nanmax(_df[nm])).fillna(0)
+            with warnings.catch_warnings(record=True) as w:
+                _df[nm] = _df[nm].fillna(np.nanmax(_df[nm])).fillna(0)
+                if len(w) > 0:
+                    assert len(w) == 1
+                    assert issubclass(w[0].category, RuntimeWarning)
+                    _df[nm] = _df[nm].fillna(0)
             assert not any([math.isnan(x) for x in _df[nm]])
 
         if df.shape[0] == 0:
