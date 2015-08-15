@@ -236,7 +236,6 @@ class AlignmentReader(Thread):
         try:
             last_al, last_correct = None, None
             nal, nunp, nignored, npair = 0, 0, 0, 0
-            #n_mate_first, n_mate_second = 0, 0
             # Following loop involves maintaining 'last_al' across
             # iterations so that we can match up the two ends of a pair
             correct = None
