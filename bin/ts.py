@@ -315,7 +315,6 @@ class AlignmentReader(Thread):
                             else:
                                 training_nm = 'bad_end2'  # ignore this
                         sc, refoff = int(sc), int(refoff)
-                        #self.sc_diffs[sc - al.bestScore] += 1
                         correct = False
                         # Check reference id, orientation
                         if refid == al.refid and fw == al.orientation():
@@ -327,8 +326,6 @@ class AlignmentReader(Thread):
                             self.typ_hist['unp'] += 1
                             self.dataset.add_unpaired(al, correct)
                         elif mate1 is not None:
-                            #n_mate_second += 1
-                            #assert n_mate_second == n_mate_first, (n_mate_first, n_mate_second)
                             correct1, correct2 = correct, last_correct
                             if last_al.mate1:
                                 correct1, correct2 = correct2, correct1
@@ -347,8 +344,6 @@ class AlignmentReader(Thread):
                                 self.dataset.add_bad_end(al, last_al, correct)
                             elif training_nm != 'bad_end2':
                                 raise RuntimeError('Bad training data type: "%s"' % training_nm)
-                        #elif al.paired:
-                        #    n_mate_first += 1
 
                     elif is_training:
                         pass
@@ -356,41 +351,44 @@ class AlignmentReader(Thread):
                     elif al.is_aligned():
                         # Test data
                         if mate1 is not None:
-                            #n_mate_second += 1
-                            #assert n_mate_second == n_mate_first, (n_mate_first, n_mate_second)
                             if not al.concordant and not al.discordant:
                                 # bad-end
-                                correct, dist = is_correct(al, args)
-                                if not correct and dist < 20 * args['wiggle']:
-                                    self.dist_hist_incor[dist] += 1
-                                elif correct:
-                                    self.dist_hist_cor[dist] += 1
+                                correct, dist = None, None
+                                if args['input_reads_simulated']:
+                                    correct, dist = is_correct(al, args)
+                                    if not correct and dist < 20 * args['wiggle']:
+                                        self.dist_hist_incor[dist] += 1
+                                    elif correct:
+                                        self.dist_hist_cor[dist] += 1
                                 self.dataset.add_bad_end(al, last_al, correct)
                             else:
-                                correct1, dist1 = is_correct(mate1, args)
-                                correct2, dist2 = is_correct(mate2, args)
-                                if not correct1 and dist1 < 20 * args['wiggle']:
-                                    self.dist_hist_incor[dist1] += 1
-                                elif correct1:
-                                    self.dist_hist_cor[dist1] += 1
-                                if not correct2 and dist2 < 20 * args['wiggle']:
-                                    self.dist_hist_incor[dist2] += 1
-                                elif correct2:
-                                    self.dist_hist_cor[dist2] += 1
+                                correct1, dist1 = None, None
+                                correct2, dist2 = None, None
+                                if args['input_reads_simulated']:
+                                    correct1, dist1 = is_correct(mate1, args)
+                                    correct2, dist2 = is_correct(mate2, args)
+                                    if not correct1 and dist1 < 20 * args['wiggle']:
+                                        self.dist_hist_incor[dist1] += 1
+                                    elif correct1:
+                                        self.dist_hist_cor[dist1] += 1
+                                    if not correct2 and dist2 < 20 * args['wiggle']:
+                                        self.dist_hist_incor[dist2] += 1
+                                    elif correct2:
+                                        self.dist_hist_cor[dist2] += 1
                                 if al.concordant:
                                     self.dataset.add_concordant(mate1, mate2, correct1, correct2)
                                 elif al.discordant:
                                     self.dataset.add_discordant(mate1, mate2, correct1, correct2)
                         elif not al.paired:
                             # For unpaired reads
-                            correct, dist = is_correct(al, args)
-                            if not correct and dist < 20 * args['wiggle']:
-                                self.dist_hist_incor[dist] += 1
-                            elif correct:
-                                self.dist_hist_cor[dist] += 1
+                            correct, dist = None, None
+                            if args['input_reads_simulated']:
+                                correct, dist = is_correct(al, args)
+                                if not correct and dist < 20 * args['wiggle']:
+                                    self.dist_hist_incor[dist] += 1
+                                elif correct:
+                                    self.dist_hist_cor[dist] += 1
                             self.dataset.add_unpaired(al, correct)
-                        #else:
-                        #    n_mate_first += 1
 
                 # Add to our input-read summaries
                 if self.dists is not None and al.is_aligned():
@@ -413,7 +411,6 @@ class AlignmentReader(Thread):
                     last_al, last_correct = None, None
 
             logging.debug('Output monitoring thread returning successfully')
-            #assert n_mate_first == n_mate_second, (n_mate_first, n_mate_second)
             self.result_q.put(True)
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
@@ -461,6 +458,9 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             if exception.errno != errno.EEXIST:
                 raise
 
+    if not args['input_reads_simulated'] and args['write_test_distances']:
+        raise RuntimeError('if --write-test-distances is set, --input-reads-simulated must also be')
+
     # Set up logger
     logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', datefmt='%m/%d/%y-%H:%M:%S',
                         level=logging.DEBUG if args['verbose'] else logging.INFO)
@@ -481,7 +481,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         align_cmd = 'bowtie2 '
         if args['bt2_exe'] is not None:
             align_cmd = args['bt2_exe'] + " "
-        aligner_args.extend(['--reorder', '--sam-no-qname-trunc', '--mapq-extra'])
+        aligner_args.extend(['--reorder', '--mapq-extra'])  # TODO: do we really care about order?
     elif args['aligner'] == 'bwa-mem':
         align_cmd = 'bwa mem '
         if args['bwa_exe'] is not None:
@@ -641,7 +641,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         test_data.purge()
 
         # Writing correct/incorrect distances
-        if args['write_test_distances'] or args['write_all']:
+        if args['input_reads_simulated'] and (args['write_test_distances'] or args['write_all']):
             for short_name, long_name, hist in [('cor', 'Correct', cor_dist), ('incor', 'Incorrect', incor_dist)]:
                 test_dist_fn = os.path.join(args['output_directory'], 'test_%s_dists.csv' % short_name)
                 with open(test_dist_fn, 'w') as fh:
@@ -1064,6 +1064,8 @@ def add_args(parser):
                         help='Number of templates to keep when building input model.')
     parser.add_argument('--ref-soft-clipping', action='store_const', const=True, default=False,
                         help='Use bases from reference (instead of random bases) to re-align soft clipped bases.')
+    parser.add_argument('--input-reads-simulated', action='store_const', const=True, default=False,
+                        help='Input reads are simulated and should be evaluated for True/False.')
 
     parser.add_argument('--wiggle', metavar='int', type=int, default=30, required=False,
                         help='Wiggle room to allow in starting position when determining whether alignment is correct')
@@ -1098,8 +1100,6 @@ def add_args(parser):
     parser.add_argument('--write-training-sam', action='store_const', const=True, default=False,
                         help='Write SAM alignments for the training reads to "training.sam" in output directory')
     parser.add_argument('--write-test-distances', action='store_const', const=True, default=False,
-                        help='Write distances between true/actual alignments.')
-    parser.add_argument('--write-training-distances', action='store_const', const=True, default=False,
                         help='Write distances between true/actual alignments.')
     parser.add_argument('--write-timings', action='store_const', const=True, default=False,
                         help='Write timing info to "timing.tsv".')
