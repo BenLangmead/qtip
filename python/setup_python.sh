@@ -50,7 +50,7 @@ setup_python_3() {
     
     source $env_nm/bin/activate
     
-    for pk in numpy scipy scikit-learn ; do
+    for pk in numpy scipy scikit-learn pandas ; do
         if ! pip list | grep $pk ; then
             echo
             echo "=== Installing $pk with pip ==="
@@ -128,7 +128,7 @@ setup_python_2() {
     
     source $env_nm/bin/activate
     
-    for pk in numpy scipy scikit-learn ; do
+    for pk in numpy scipy scikit-learn pandas ; do
         if ! pip list | grep $pk ; then
             echo
             echo "=== Installing $pk with pip ==="
