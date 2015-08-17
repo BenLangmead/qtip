@@ -253,7 +253,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/ReadWriter.cpp snap/SNAPLib/ReadWri
                      if (0 == addFrontClipping) {
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
 --- tmp/snap/SNAPLib/SAM.cpp	2015-07-28 15:15:02.000000000 -0400
-+++ snap/SNAPLib/SAM.cpp	2015-08-05 14:09:11.000000000 -0400
++++ snap/SNAPLib/SAM.cpp	2015-08-16 20:31:16.000000000 -0400
 @@ -1123,6 +1123,7 @@ SAMFormat::writeRead(
      Read * read,
      AlignmentResult result, 
@@ -262,36 +262,30 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
      GenomeLocation genomeLocation,
      Direction direction,
      bool secondaryAlignment,
-@@ -1249,7 +1250,42 @@ SAMFormat::writeRead(
+@@ -1249,7 +1250,36 @@ SAMFormat::writeRead(
              readGroupString = read->getReadGroup();
          }
      }
 -    int charsInString = snprintf(buffer, bufferSpace, "%.*s\t%d\t%s\t%u\t%d\t%s\t%s\t%u\t%lld\t%.*s\t%.*s%s%.*s%s%s\tPG:Z:SNAP%s%.*s\n",
 +	
-+	const char* asiSeparator = "";
-+	const char* asiString = "";
-+	const char *xsiSeparator = "";
-+	const char* xsiString = "";
 +	const char* ztzSeparator = "";
 +	const char* ztzString = "";
-+	char asibuf[100], xsibuf[100], ztzbuf[1024];
++	char ztzbuf[1024];
 +	
 +	if((flags & 4) == 0) {
-+		// AS:i
-+		asiSeparator = "\tAS:i:";
-+		snprintf(asibuf, 100, "%d", -features.bestScore);
-+		asiString = asibuf;
-+		
-+		// XS:i
-+		if(features.secondBestScore != 0xffff) {
-+			snprintf(xsibuf, 100, "%d", -features.secondBestScore);
-+			xsiSeparator = "\tXS:i:";
-+			xsiString = xsibuf;
-+		}
-+		
 +		// ZT:Z
++		char diffbuf[100];
++		if(features.secondBestScore != 0xffff) {
++			snprintf(diffbuf, 40, "%d", -(features.secondBestScore - features.bestScore));
++		} else {
++			diffbuf[0] = 'N';
++			diffbuf[1] = 'A';
++			diffbuf[2] = '\0';
++		}
 +		ztzSeparator = "\tZT:Z:";
-+		snprintf(ztzbuf, 1024, "%.8e,%d,%d,%lld,%d,%d",
++		snprintf(ztzbuf, 1024, "%d,%s,%.8e,%d,%d,%lld,%d,%d",
++				 -features.bestScore,
++				 diffbuf,
 +				 features.probabilityOfBestCandidate /
 +					(features.probabilityOfAllCandidates > 0 ? features.probabilityOfAllCandidates : 1),
 +				 features.popularSeedsSkipped,
@@ -302,17 +296,15 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
 +		ztzString = ztzbuf;
 +	}
 +	
-+    int charsInString = snprintf(buffer, bufferSpace, "%.*s\t%d\t%s\t%u\t%d\t%s\t%s\t%u\t%lld\t%.*s\t%.*s%s%.*s%s%s%s%s%s%s\tPG:Z:SNAP%s%.*s%s%s\n",
++    int charsInString = snprintf(buffer, bufferSpace, "%.*s\t%d\t%s\t%u\t%d\t%s\t%s\t%u\t%lld\t%.*s\t%.*s%s%.*s%s%s\tPG:Z:SNAP%s%.*s%s%s\n",
          qnameLen, read->getId(),
          flags,
          contigName,
-@@ -1263,7 +1299,10 @@ SAMFormat::writeRead(
+@@ -1263,7 +1293,8 @@ SAMFormat::writeRead(
          fullLength, quality,
          aux != NULL ? "\t" : "", auxLen, aux != NULL ? aux : "",
          readGroupSeparator, readGroupString,
 -        nmString, rglineAuxLen, rglineAux);
-+        asiSeparator, asiString,
-+        xsiSeparator, xsiString,
 +        nmString, rglineAuxLen, rglineAux,
 +        ztzSeparator, ztzString);
  
