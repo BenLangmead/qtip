@@ -1,12 +1,20 @@
 diff -rupN -x Xcode -x .git bwa/bwamem.c bwa-mod/bwamem.c
 --- bwa/bwamem.c	2015-07-08 13:14:28.000000000 -0400
-+++ bwa-mod/bwamem.c	2015-08-06 16:19:33.000000000 -0400
-@@ -933,6 +933,24 @@ void mem_aln2sam(const mem_opt_t *opt, c
- 			ksprintf(str, "\tpa:f:%.3f", (double)p->score / p->alt_sc);
++++ bwa-mod/bwamem.c	2015-08-16 20:10:52.000000000 -0400
+@@ -942,6 +942,32 @@ void mem_aln2sam(const mem_opt_t *opt, c
+ 		for (i = tmp; i < str->l; ++i) // replace TAB in the comment to SPACE
+ 			if (str->s[i] == '\t') str->s[i] = ' ';
  	}
- 	if (p->XA) { kputsn("\tXA:Z:", 6, str); kputs(p->XA, str); }
 +	if ((p->flag & 4) == 0) {
 +		kputsn("\tZT:Z:", 6, str);
++		kputw(p->score, str); // same as AS:i
++		kputc(',', str);
++		if(p->sub >= 0) {
++			kputw(p->sub, str);
++		} else {
++			kputsn("NA", 2, str);
++		}
++		kputc(',', str);
 +		kputw(p->pair_score, str);
 +		kputc(',', str);
 +		kputw(p->pair_sub, str);
@@ -23,10 +31,10 @@ diff -rupN -x Xcode -x .git bwa/bwamem.c bwa-mod/bwamem.c
 +		kputc(',', str);
 +		kputw((int)(p->pair_seedcov * 1000.0), str);
 +	}
- 	if (s->comment) { kputc('\t', str); kputs(s->comment, str); }
- 	if ((opt->flag&MEM_F_REF_HDR) && p->rid >= 0 && bns->anns[p->rid].anno != 0 && bns->anns[p->rid].anno[0] != 0) {
- 		int tmp;
-@@ -1131,6 +1149,11 @@ mem_aln_t mem_reg2aln(const mem_opt_t *o
+ 	kputc('\n', str);
+ }
+ 
+@@ -1131,6 +1157,11 @@ mem_aln_t mem_reg2aln(const mem_opt_t *o
  	a.pos = pos - bns->anns[a.rid].offset;
  	a.score = ar->score; a.sub = ar->sub > ar->csub? ar->sub : ar->csub;
  	a.is_alt = ar->is_alt; a.alt_sc = ar->alt_sc;
