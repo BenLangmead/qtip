@@ -18,7 +18,10 @@ try:
 except ImportError:
     import pickle
 import copy
-from itertools import imap
+try:
+    import itertools.imap as map
+except ImportError:
+    pass
 from sklearn import cross_validation
 from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor
 from collections import defaultdict, Counter
@@ -83,14 +86,13 @@ class AlignmentTableReader(object):
                 self.readers[sn] = gen_new_iterator(fn, chunksize)
 
     @staticmethod
-    def _postprocess_data_frame(df, sn):
+    def _postprocess_data_frame(df):
         """ Changes 'correct' column to use 0/1 and replaces NAs in the score
             difference columns with small values. """
 
-        def _fill_nas(_df, nm, best_nm, secbest_nm):
-            _df[nm] = _df[best_nm].astype(float) - _df[secbest_nm]
+        def _fill_nas(_df, nm):
             with warnings.catch_warnings(record=True) as w:
-                _df[nm] = _df[nm].fillna(np.nanmax(_df[nm])).fillna(0)
+                _df[nm] = _df[nm].fillna(np.nanmax(_df[nm])+1).fillna(0)
                 if len(w) > 0:
                     assert len(w) == 1
                     assert issubclass(w[0].category, RuntimeWarning)
@@ -104,36 +106,14 @@ class AlignmentTableReader(object):
         if df['correct'].count() == len(df['correct']):
             df['correct'] = df['correct'].map(lambda x: 1 if x == 'T' else 0)
 
-        if sn in 'c':
-            _fill_nas(df, 'diff_1', 'best1_1', 'best2_1')
-            _fill_nas(df, 'diff_2', 'best1_2', 'best2_2')
-
-            if math.isnan(df['best1conc'].sum()) or math.isnan(df['best2conc'].sum()):
-                logging.warning('Difference of concordants not available, so using minimum of mates')
-                df['diff_conc'] = df[['diff_1', 'diff_2']].min(axis=1)
-            else:
-                _fill_nas(df, 'diff_conc', 'best1conc', 'best2conc')
-
-            for sc_lab in ['diff_1', 'best1_1', 'best2_1',
-                           'diff_2', 'best1_2', 'best2_2']:
-                assert not math.isnan(df[sc_lab].sum())
-
-        elif sn == 'd':
-            _fill_nas(df, 'diff_1', 'best1_1', 'best2_1')
-            for sc_lab in ['diff_1', 'best1_1', 'best2_1']:
-                assert not math.isnan(df[sc_lab].sum())
-
-        else:
-            assert sn in 'ub'
-            _fill_nas(df, 'diff', 'best1', 'best2')
-            for sc_lab in ['diff', 'best1', 'best2']:
-                assert not math.isnan(df[sc_lab].sum())
-
+        for col in df:
+            _fill_nas(df, col)
+            assert not math.isnan(df[col].sum())
         return df
 
     def dataset_iter(self, sn):
         assert sn in self.readers
-        return imap(lambda x: self._postprocess_data_frame(x, sn), self.readers[sn]())
+        return map(lambda x: self._postprocess_data_frame(x), self.readers[sn]())
 
     def __contains__(self, o):
         return o in self.readers
