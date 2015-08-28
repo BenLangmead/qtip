@@ -18,5 +18,5 @@ bowtie2-git: $(GIT)
 
 .PHONY: clean
 clean:
-	rm -f bowtie2 bowtie2-align
+	rm -f bowtie2 bowtie2-align bowtie2-build
 	rm -rf bowtie2-git
