@@ -73,7 +73,7 @@ class UnpairedTuple(object):
     """ Unpaired training/test tuple.  An optional "other end length" field is
         0 for unpaired alignments and >0 for bad-end alignments. """
 
-    def __init__(self, rdname, rdlen, bestsc, best2sc, mapq, ztzs, ordlen=0):
+    def __init__(self, rdname, rdlen, mapq, ztzs, ordlen=0):
         self.rdname = rdname            # read name
         self.mapq = mapq                # original mapq
         self.first = True
@@ -151,7 +151,7 @@ class DatasetOnDisk(object):
         rescaling. """
 
     def __init__(self, name, temp_man):
-        # Data for individual reads and mates.  Tuples are (rdlen, bestSc, scDiff)
+        # Data for individual reads and mates.
         self.data_unp, self.data_unp_fn = None, None
         # Data for concordant pairs.  Tuples are two tuples as described above,
         # one for each mate, plus the fragment length.  Label says whether the
