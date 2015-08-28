@@ -216,7 +216,7 @@ class AlignmentBowtie2(Alignment):
             self.mdz = se.group(1)
         # Parse ZT.Z
         ztzoff = self.extra.rfind('ZT:Z:')
-        assert ztzoff != -1
+        assert ztzoff != -1, ln
         self.ztzs = self.extra[ztzoff+5:].split(',')
         self.bestScore = int(self.ztzs[0])
 
