@@ -289,16 +289,10 @@ class AlignmentSnap(Alignment):
         assert self.paired == ((flags & 1) != 0)
         self.concordant = ((flags & 2) != 0)
         self.discordant = ((flags & 2) == 0) and ((flags & 4) == 0) and ((flags & 8) == 0)
-        # TODO: do I also want to put MD:Z into the ZT:Z string?
-        # I could also just force MD:Z to be in a predictable place, like in the 2nd-to-last pos
-        ztzpos = self.extra.rfind('ZT:Z:')
-        if ztzpos >= 0:
-            self.ztzs = self.extra[ztzpos + 5:].split(',')
-        mdzpos = self.extra.find('MD:Z:')
-        if mdzpos >= 0:
-        if 'MD:Z' in extra_parse:
-            self.mdz = extra_parse['MD:Z']
-        assert not self.sanity or self.rep_ok()
+        ztzoff = self.extra.rfind('ZT:Z:')
+        assert ztzoff != -1
+        self.ztzs = self.extra[ztzoff+5:].split(',')
+        self.bestScore = int(self.ztzs[0])
 
     def rep_ok(self):
         # Call parent's repOk
