@@ -107,8 +107,10 @@ class AlignmentTableReader(object):
             df['correct'] = df['correct'].map(lambda x: 1 if x == 'T' else 0)
 
         for col in df:
-            _fill_nas(df, col)
-            assert not math.isnan(df[col].sum())
+            if df[col].dtype != 'object':
+                _fill_nas(df, col)
+                assert not math.isnan(df[col].sum())
+
         return df
 
     def dataset_iter(self, sn):
