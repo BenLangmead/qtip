@@ -154,7 +154,6 @@ class AlignmentBwaMem(Alignment):
         important SAM extra fields output by bwa mem. """
     
     __asRe = re.compile('AS:i:([-]?[0-9]+)')  # best score
-    __xsRe = re.compile('XS:i:([-]?[0-9]+)')  # second-best score
     __mdRe = re.compile('MD:Z:([^\s]+)')  # MD:Z string
     __zupRe = re.compile('ZP:i:([-]?[0-9]+)')  # best concordant
     __zlpRe = re.compile('Zp:i:([-]?[0-9]+)')  # 2nd best concordant
@@ -179,7 +178,6 @@ class AlignmentBwaMem(Alignment):
         self.concordant = None
         self.discordant = None
         self.bestScore = None
-        self.secondBestScore = None
         self.bestConcordantScore = None
         self.secondBestConcordantScore = None
         self.ztzs = None
@@ -211,11 +209,6 @@ class AlignmentBwaMem(Alignment):
         self.bestScore = None
         if se is not None:
             self.bestScore = int(se.group(1))
-        # Parse XS:i
-        se = self.__xsRe.search(self.extra)
-        self.secondBestScore = None
-        if se is not None:
-            self.secondBestScore = int(se.group(1))
         # Parse ZP:i
         se = self.__zupRe.search(self.extra)
         self.bestConcordantScore = None

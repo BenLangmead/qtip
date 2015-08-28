@@ -77,21 +77,19 @@ class UnpairedTuple(object):
         self.rdname = rdname            # read name
         self.mapq = mapq                # original mapq
         self.first = True
+
         # features for learning
         self.rdlen = rdlen              # read len
         self.ordlen = ordlen            # read len of opposite end
-        self.bestsc = bestsc            # best
-        self.best2sc = best2sc          # 2nd-best score
         self.ztzs = ztzs or []
 
     # header names
-    csv_names = ['name', 'best1', 'best2', 'rdlen', 'mapq', 'ordlen']
+    csv_names = ['name', 'rdlen', 'mapq', 'ordlen']
     
     @classmethod
     def from_alignment(cls, al, ordlen=0):
         """ Create unpaired training/test tuple from Alignment object """
-        secbest = al.secondBestScore
-        return cls(al.name, len(al), al.bestScore, secbest, al.mapq, al.ztzs, ordlen)
+        return cls(al.name, len(al), al.mapq, al.ztzs, ordlen)
 
     @classmethod
     def append_csv_header(cls, fh, num_ztzs):
@@ -102,57 +100,31 @@ class UnpairedTuple(object):
         correct_str = 'NA'
         if correct is not None:
             correct_str = 'T' if correct else 'F'
-        ls = [self.rdname, self.bestsc, _str_or_na(self.best2sc),
-              self.rdlen, self.mapq, _str_or_na(self.ordlen)] + self.ztzs + [correct_str]
+        ls = [self.rdname, self.rdlen, self.mapq, _str_or_na(self.ordlen)] + self.ztzs + [correct_str]
         ls = map(str, ls)
         fh.write(','.join(ls) + '\n')
 
 
 class PairedTuple(object):
     """ Concordant paired-end training/test tuple.  One per mate alignment. """
-    def __init__(self, rdname1, rdlen1,
-                 bestsc1, best2sc1, mapq1,
-                 rdname2, rdlen2,
-                 bestsc2, best2sc2, mapq2,
-                 bestconcsc, best2concsc,
-                 al1ztzs, fraglen):
+    def __init__(self, rdname1, rdlen1, mapq1, rdname2, rdlen2, mapq2, al1ztzs, fraglen):
         self.rdname1 = rdname1          # read name #1
         self.rdname2 = rdname2          # read name #2
         self.rdlen1 = rdlen1            # read len #1
         self.rdlen2 = rdlen2            # read len #2
-        self.bestsc1 = bestsc1          # best #1
-        self.bestsc2 = bestsc2          # best #2
-        self.best2sc1 = best2sc1        # 2nd-best score #1
-        self.best2sc2 = best2sc2        # 2nd-best score #2
         self.mapq1 = mapq1              # original mapq #1
         self.mapq2 = mapq2              # original mapq #2
-        self.bestconcsc = bestconcsc    # best concordant
-        self.best2concsc = best2concsc  # 2nd-best concordant
         self.fraglen = fraglen          # fragment length
         self.ztzs1 = al1ztzs or []
 
-    csv_names = ['name_1', 'best1_1', 'best2_1', 'rdlen_1', 'mapq_1',
-                 'name_2', 'best1_2', 'best2_2', 'rdlen_2', 'mapq_2',
-                 'best1conc', 'best2conc', 'fraglen']
+    csv_names = ['name_1', 'rdlen_1', 'mapq_1', 'name_2', 'rdlen_2', 'mapq_2', 'fraglen']
 
     @classmethod
     def from_alignments(cls, al1, al2):
         """ Create unpaired training/test tuple from pair of Alignments """
-        secbest1, secbest2 = al1.secondBestScore, al2.secondBestScore
-        best_concordant_score, second_best_concordant_score = None, None
-        if hasattr(al1, 'bestConcordantScore'):
-            assert hasattr(al2, 'bestConcordantScore')
-            assert hasattr(al1, 'secondBestConcordantScore')
-            assert hasattr(al2, 'secondBestConcordantScore')
-            assert al1.bestConcordantScore == al2.bestConcordantScore
-            assert al1.secondBestConcordantScore == al2.secondBestConcordantScore
-            best_concordant_score, second_best_concordant_score = \
-                al1.bestConcordantScore, al1.secondBestConcordantScore
-        return cls(al1.name, len(al1), al1.bestScore, secbest1, al1.mapq,
-                   al2.name, len(al2), al2.bestScore, secbest2, al2.mapq,
-                   best_concordant_score, second_best_concordant_score,
-                   al1.ztzs,
-                   Alignment.fragment_length(al1, al2))
+        return cls(al1.name, len(al1), al1.mapq,
+                   al2.name, len(al2), al2.mapq,
+                   al1.ztzs, Alignment.fragment_length(al1, al2))
 
     @classmethod
     def append_csv_header(cls, fh, num_ztzs):
@@ -163,11 +135,9 @@ class PairedTuple(object):
         correct_str = 'NA'
         if correct is not None:
             correct_str = 'T' if correct else 'F'
-        ls = [self.rdname1, self.bestsc1, _str_or_na(self.best2sc1),
-              self.rdlen1, self.mapq1,
-              self.rdname2, self.bestsc2, _str_or_na(self.best2sc2),
-              self.rdlen2, self.mapq2,
-              _str_or_na(self.bestconcsc), _str_or_na(self.best2concsc), self.fraglen] + self.ztzs1 + [correct_str]
+        ls = [self.rdname1,
+              self.rdlen1, self.mapq1, self.rdname2,
+              self.rdlen2, self.mapq2, self.fraglen] + self.ztzs1 + [correct_str]
         ls = map(str, ls)
         fh.write(','.join(ls) + '\n')
 

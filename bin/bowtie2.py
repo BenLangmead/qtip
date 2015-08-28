@@ -163,15 +163,7 @@ class AlignmentBowtie2(Alignment):
     """ Encapsulates a Bowtie 2 SAM alignment record.  Parses certain
         important SAM extra fields output by Bowtie 2. """
     
-    __asRe = re.compile('AS:i:([-]?[0-9]+)')  # best score
-    __xsRe = re.compile('XS:i:([-]?[0-9]+)')  # second-best score
     __mdRe = re.compile('MD:Z:([^\s]+)')  # MD:Z string
-    __ytRe = re.compile('YT:Z:([A-Z]+)')  # alignment type
-    __ysRe = re.compile('YS:i:([-]?[0-9]+)')  # score of opposite
-    __xlsRe = re.compile('Xs:i:([-]?[0-9]+)')  # 3rd best
-    __zupRe = re.compile('ZP:i:([-]?[0-9]+)')  # best concordant
-    __zlpRe = re.compile('Zp:i:([-]?[0-9]+)')  # 2nd best concordant
-    __ztRe = re.compile('ZT:Z:([^\s]*)')  # extra features
 
     def __init__(self):
         super(AlignmentBowtie2, self).__init__()
@@ -193,9 +185,6 @@ class AlignmentBowtie2(Alignment):
         self.discordant = None
         self.al_type = None
         self.bestScore = None
-        self.secondBestScore = None
-        self.bestConcordantScore = None
-        self.secondBestConcordantScore = None
         self.ztzs = None
         self.mdz = None
 
@@ -220,60 +209,17 @@ class AlignmentBowtie2(Alignment):
         assert self.paired == ((flags & 1) != 0)
         self.concordant = ((flags & 2) != 0)
         self.discordant = ((flags & 2) == 0) and ((flags & 4) == 0) and ((flags & 8) == 0)
-        # Parse AS:i
-        se = self.__asRe.search(self.extra)
-        self.bestScore = None
-        if se is not None:
-            self.bestScore = int(se.group(1))
-        # Parse XS:i
-        se = self.__xsRe.search(self.extra)
-        self.secondBestScore = None
-        if se is not None:
-            self.secondBestScore = int(se.group(1))
         # Parse MD:Z
         self.mdz = None
         se = self.__mdRe.search(self.extra)
         if se is not None:
             self.mdz = se.group(1)
-        # Parse Xs:i
-        se = self.__xlsRe.search(self.extra)
-        if se is not None:
-            self.secondBestScore = max(self.secondBestScore, int(se.group(1)))
-        # Parse ZP:i
-        se = self.__zupRe.search(self.extra)
-        self.bestConcordantScore = None
-        if se is not None:
-            self.bestConcordantScore = int(se.group(1))
-        # Parse Zp:i
-        se = self.__zlpRe.search(self.extra)
-        self.secondBestConcordantScore = None
-        if se is not None:
-            self.secondBestConcordantScore = int(se.group(1))
         # Parse ZT.Z
-        self.ztzs = None
-        se = self.__ztRe.search(self.extra)
-        if se is not None:
-            self.ztzs = se.group(1).split(',')
-        if False:
-            # Sanity checks
-            self.al_type = None
-            se = self.__ytRe.search(self.extra)
-            if se is not None:
-                self.al_type = se.group(1)
-            if self.al_type == 'CP':
-                assert self.paired
-                assert self.concordant
-                assert not self.discordant
-            if self.al_type == 'DP':
-                assert self.paired
-                assert not self.concordant
-                assert self.discordant
-            if self.al_type == 'UP':
-                assert self.paired
-                assert not self.concordant
-                #assert not self.discordant
-            assert self.rep_ok()
-    
+        ztzoff = self.extra.rfind('ZT:Z:')
+        assert ztzoff != -1
+        self.ztzs = self.extra[ztzoff+5:].split(',')
+        self.bestScore = int(self.ztzs[0])
+
     def rep_ok(self):
         # Call parent's repOk
         assert super(AlignmentBowtie2, self).rep_ok()

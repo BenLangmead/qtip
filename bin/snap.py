@@ -262,7 +262,6 @@ class AlignmentSnap(Alignment):
         self.concordant = None
         self.discordant = None
         self.bestScore = None
-        self.secondBestScore = None
         self.bestConcordantScore = None
         self.secondBestConcordantScore = None
         self.ztzs = None
@@ -290,18 +289,13 @@ class AlignmentSnap(Alignment):
         assert self.paired == ((flags & 1) != 0)
         self.concordant = ((flags & 2) != 0)
         self.discordant = ((flags & 2) == 0) and ((flags & 4) == 0) and ((flags & 8) == 0)
-        extra_parse = {x[:4]: x[5:] for x in self.extra.split('\t')}
-        if 'AS:i' in extra_parse:
-            self.bestScore = int(extra_parse['AS:i'])
-        if 'XS:i' in extra_parse:
-            self.secondBestScore = int(extra_parse['XS:i'])
-        if self.concordant:
-            if 'ZP:i' in extra_parse:
-                self.bestConcordantScore = int(extra_parse['ZP:i'])
-            if 'Zp:i' in extra_parse:
-                self.secondBestConcordantScore = int(extra_parse['Zp:i'])
-        if 'ZT:Z' in extra_parse:
-            self.ztzs = extra_parse['ZT:Z'].split(',')
+        # TODO: do I also want to put MD:Z into the ZT:Z string?
+        # I could also just force MD:Z to be in a predictable place, like in the 2nd-to-last pos
+        ztzpos = self.extra.rfind('ZT:Z:')
+        if ztzpos >= 0:
+            self.ztzs = self.extra[ztzpos + 5:].split(',')
+        mdzpos = self.extra.find('MD:Z:')
+        if mdzpos >= 0:
         if 'MD:Z' in extra_parse:
             self.mdz = extra_parse['MD:Z']
         assert not self.sanity or self.rep_ok()
