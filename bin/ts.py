@@ -480,7 +480,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         align_cmd = 'bowtie2 '
         if args['bt2_exe'] is not None:
             align_cmd = args['bt2_exe'] + " "
-        aligner_args.extend(['--reorder', '--mapq-extra'])  # TODO: do we really care about order?
+        aligner_args.extend(['--mapq-extra'])  # TODO: do we want --reorder?
     elif args['aligner'] == 'bwa-mem':
         align_cmd = 'bwa mem '
         if args['bwa_exe'] is not None:
@@ -708,6 +708,22 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                         training_out_fh[t] = open(fn, 'w')
 
                 logging.info('  Simulating reads')
+
+                _finish_sim_profiling = lambda: None
+                if args['profile_simulating']:
+                    import cProfile
+                    import pstats
+                    import StringIO
+                    pr = cProfile.Profile()
+                    pr.enable()
+
+                    def _finish_sim_profiling():
+                        pr.disable()
+                        s = StringIO.StringIO()
+                        ps = pstats.Stats(pr, stream=s).sort_stats('tottime')
+                        ps.print_stats(30)
+                        print(s.getvalue())
+
                 n_simread, typ_count = 0, defaultdict(int)
                 for t, rdp1, rdp2 in simw.simulate_batch(args['sim_fraction'], args['sim_unp_min'],
                                                          args['sim_conc_min'], args['sim_disc_min'],
@@ -745,6 +761,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 for t in training_out_fh.keys():
                     training_out_fh[t].close()
                     logging.info('  Training reads written to "%s"' % training_out_fn[t])
+
+                _finish_sim_profiling()
 
                 logging.info('  Finished simulating reads (%d conc, %d disc, %d bad_end, %d unp)' %
                              (typ_count['conc'], typ_count['disc'], typ_count['bad_end'], typ_count['unp']))
@@ -1110,6 +1128,8 @@ def add_args(parser):
                         help='gzip all output files')
     parser.add_argument('--profile-parsing', action='store_const', const=True, default=False,
                         help='output profiling info related to parsing')
+    parser.add_argument('--profile-simulating', action='store_const', const=True, default=False,
+                        help='output profiling info related to simulating reads')
 
     # Resource usage
     parser.add_argument('--use-concurrency', action='store_const', const=True, default=False,
