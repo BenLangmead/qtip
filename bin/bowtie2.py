@@ -181,6 +181,7 @@ class AlignmentBowtie2(Alignment):
         self.mate1 = None
         self.mate2 = None
         self.paired = None
+        self.aligned = None
         self.concordant = None
         self.discordant = None
         self.al_type = None
@@ -189,8 +190,7 @@ class AlignmentBowtie2(Alignment):
         self.mdz = None
 
     def parse(self, ln):
-        """ Parse ln, which is a line of SAM output from Bowtie 2.  The line
-            must correspond to an aligned read. """
+        """ Parse ln, which is a line of SAM output from Bowtie 2 """
         self.name, self.flags, self.refid, self.pos, self.mapq, self.cigar, \
             _, _, self.tlen, self.seq, self.qual, self.extra = \
             string.split(ln, '\t', 11)
@@ -206,6 +206,7 @@ class AlignmentBowtie2(Alignment):
         self.mate1 = (flags & 64) != 0
         self.mate2 = (flags & 128) != 0
         self.paired = self.mate1 or self.mate2
+        self.aligned = (self.flags & 4) == 0
         assert self.paired == ((flags & 1) != 0)
         self.concordant = ((flags & 2) != 0)
         self.discordant = ((flags & 2) == 0) and ((flags & 4) == 0) and ((flags & 8) == 0)
@@ -215,10 +216,11 @@ class AlignmentBowtie2(Alignment):
         if se is not None:
             self.mdz = se.group(1)
         # Parse ZT.Z
-        ztzoff = self.extra.rfind('ZT:Z:')
-        assert ztzoff != -1, ln
-        self.ztzs = self.extra[ztzoff+5:].split(',')
-        self.bestScore = int(self.ztzs[0])
+        if self.aligned:
+            ztzoff = self.extra.rfind('ZT:Z:')
+            assert ztzoff != -1, ln
+            self.ztzs = self.extra[ztzoff+5:].split(',')
+            self.bestScore = int(self.ztzs[0])
 
     def rep_ok(self):
         # Call parent's repOk
