@@ -320,15 +320,8 @@ class MapqFit:
             alignments are correct. """
         if shortname == 'c':
             # extract relevant paired-end features from training data
-            labs = ['best1_1',  # score of best alignment for mate
-                    'best1_2',  # score of best alignment for opposite mate
-                    'diff_1',  # difference for mate
-                    'diff_2']  # difference for opposite mate
-            if 'diff_conc' in data:
-                labs.append('diff_conc')  # concordant difference
-            labs.append('fraglen')
-            data['rdlen_12'] = data['rdlen_1'] = data['rdlen_2']
-            # TODO: we want to make these decisions based on how the model was trained, not on how the test data look
+            labs = ['fraglen']
+            data['rdlen_12'] = data['rdlen_1'] + data['rdlen_2']
             if data['rdlen_1'].nunique() > 1:
                 labs.append('rdlen_1')
             if data['rdlen_12'].nunique() > 1:
@@ -336,13 +329,13 @@ class MapqFit:
             mapq_header = 'mapq_1'
         elif shortname == 'd':
             # extract relevant discordant paired-end features
-            labs = ['best1_1', 'diff_1']
+            labs = []
             if data['rdlen_1'].nunique() > 1:
                 labs.append('rdlen_1')
             mapq_header = 'mapq_1'
         else:
             # extract relevant unpaired features
-            labs = ['best1', 'diff']
+            labs = []
             if data['rdlen'].nunique() > 1:
                 labs.append('rdlen')
             mapq_header = 'mapq'
