@@ -220,6 +220,7 @@ class AlignmentBowtie2(Alignment):
             ztzoff = self.extra.rfind('ZT:Z:')
             assert ztzoff != -1, ln
             self.ztzs = self.extra[ztzoff+5:].split(',')
+            self.ztzs[-1] = self.ztzs[-1].rstrip()
             self.bestScore = int(self.ztzs[0])
 
     def rep_ok(self):

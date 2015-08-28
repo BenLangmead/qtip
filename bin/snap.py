@@ -259,11 +259,10 @@ class AlignmentSnap(Alignment):
         self.mate1 = None
         self.mate2 = None
         self.paired = None
+        self.aligned = None
         self.concordant = None
         self.discordant = None
         self.bestScore = None
-        self.bestConcordantScore = None
-        self.secondBestConcordantScore = None
         self.ztzs = None
         self.mdz = None
         self.sanity = False
@@ -289,10 +288,14 @@ class AlignmentSnap(Alignment):
         assert self.paired == ((flags & 1) != 0)
         self.concordant = ((flags & 2) != 0)
         self.discordant = ((flags & 2) == 0) and ((flags & 4) == 0) and ((flags & 8) == 0)
-        ztzoff = self.extra.rfind('ZT:Z:')
-        assert ztzoff != -1
-        self.ztzs = self.extra[ztzoff+5:].split(',')
-        self.bestScore = int(self.ztzs[0])
+        # No MD:Z
+        # Parse ZT.Z
+        if self.aligned:
+            ztzoff = self.extra.rfind('ZT:Z:')
+            assert ztzoff != -1, ln
+            self.ztzs = self.extra[ztzoff+5:].split(',')
+            self.ztzs[-1] = self.ztzs[-1].rstrip()
+            self.bestScore = int(self.ztzs[0])
 
     def rep_ok(self):
         # Call parent's repOk
