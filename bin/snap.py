@@ -286,6 +286,7 @@ class AlignmentSnap(Alignment):
         self.mate2 = (flags & 128) != 0
         self.paired = self.mate1 or self.mate2
         assert self.paired == ((flags & 1) != 0)
+        self.aligned = (self.flags & 4) == 0
         self.concordant = ((flags & 2) != 0)
         self.discordant = ((flags & 2) == 0) and ((flags & 4) == 0) and ((flags & 8) == 0)
         # No MD:Z
