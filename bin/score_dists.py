@@ -63,8 +63,8 @@ class ScoreDist(object):
     def add(self, al, correct, ordlen=0, use_ref_for_edit_distance=False):
         pos = self.sample.add_step_1()
         if pos is not None:
-            #logging.debug('SAMPLING READ; K=%d, n=%d' % (self.sample.k, self.sample.n))
             sc = al.bestScore
+            assert sc is not None
             rd_aln, rf_aln, rd_len, rf_len =\
                 al.stacked_alignment(use_ref_for_edit_distance, ref=self.reference)
             self.sample.add_step_2(pos, (sc, al.fw, al.qual, rd_aln, rf_aln, rf_len, al.mate1, ordlen))
@@ -130,6 +130,7 @@ class CollapsedScoreDist(object):
 
     def add(self, al, correct, ordlen=0, use_ref_for_edit_distance=False):
         sc = al.bestScore
+        assert sc is not None
         # TODO: don't call stacked_alignment unless we have to -- some calls
         # to sample.add will not add to any reservoirs
         rd_aln, rf_aln, rd_len, rf_len =\
@@ -197,8 +198,8 @@ class ScorePairDist(object):
         self.max_fraglen = max(self.max_fraglen, fraglen)
         pos = self.sample.add_step_1()
         if pos is not None:
-            #logging.debug('SAMPLING PAIR; K=%d, n=%d' % (self.sample.k, self.sample.n))
             sc1, sc2 = al1.bestScore, al2.bestScore
+            assert sc1 is not None and sc2 is not None
             # Make note of which end is upstream
             upstream1 = al1.pos < al2.pos
             # Get stacked alignment
@@ -283,6 +284,7 @@ class CollapsedScorePairDist(object):
         # TODO: don't call stacked_alignment unless we have to -- some calls
         # to sample.add will not add to any reservoirs
         sc1, sc2 = al1.bestScore, al2.bestScore
+        assert sc1 is not None and sc2 is not None
         # Make note of fragment length
         fraglen = Alignment.fragment_length(al1, al2)
         fraglen = min(fraglen, self.max_allowed_fraglen)
