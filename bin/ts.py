@@ -49,6 +49,7 @@ import random
 import time
 import logging
 import errno
+import csv
 from collections import defaultdict
 from traceback import print_tb
 try:
@@ -215,11 +216,13 @@ class AlignmentReader(Thread):
     def run(self):
         """ Collect SAM output """
         args = self.args
-        has_readline = hasattr(self.sam_q, 'read')
+        has_next = hasattr(self.sam_q, 'next')
 
-        def _read_with_readline():
-            _ln = self.sam_q.readline()
-            return _ln, len(_ln) == 0
+        def _read_with_next():
+            try:
+                return self.sam_q.next(), False
+            except StopIteration:
+                return None, True
 
         def _read_with_queue():
             while True:
@@ -231,7 +234,7 @@ class AlignmentReader(Thread):
                 except Empty:
                     continue  # keep trying
 
-        _read_line = _read_with_readline if has_readline else _read_with_queue
+        _read_line = _read_with_next if has_next else _read_with_queue
 
         try:
             last_al, last_correct = None, None
@@ -240,21 +243,21 @@ class AlignmentReader(Thread):
             # iterations so that we can match up the two ends of a pair
             correct = None
             while True:
-                ln, break_now = _read_line()
+                toks, break_now = _read_line()
                 if break_now:
                     break
 
                 # Send SAM to SAM output filehandle
                 if self.sam_ofh is not None:
-                    self.sam_ofh.write(ln)
+                    self.sam_ofh.write('\t'.join(toks) + '\n')
                 
                 # Skip headers
-                if ln[0] == '@':
+                if toks[0][0] == '@':
                     continue
                 
                 # Parse SAM record
                 al = self.alignment_class()
-                al.parse(ln)
+                al.parse(toks)
                 nal += 1
                 if al.flags >= 2048:
                     nignored += 1
@@ -575,9 +578,10 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
 
             tim.start_timer('Parsing input read alignments')
             with open(sam_fn, 'r') as sam_fh:
+                sam_reader = csv.reader(sam_fh, delimiter='\t', quotechar=None)
                 othread = AlignmentReader(
                     args,
-                    sam_fh,                # SAM/BAM file
+                    sam_reader,            # SAM/BAM reader, returns list of tab-sep'd strings
                     test_data,             # Dataset to gather alignments into
                     dists,                 # empirical dists
                     ref,                   # reference genome
@@ -905,9 +909,10 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 tim.start_timer('Parsing tandem alignments')
                 with open(sam_fn, 'r') as sam_fh:
                     result_training_q = Queue()
+                    sam_reader = csv.reader(sam_fh, delimiter='\t', quotechar=None)
                     reader = AlignmentReader(
                         args,
-                        sam_fh,
+                        sam_reader,
                         training_data,
                         None,
                         ref,

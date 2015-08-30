@@ -267,12 +267,18 @@ class AlignmentSnap(Alignment):
         self.mdz = None
         self.sanity = False
 
-    def parse(self, ln):
+    def parse(self, toks):
         """ Parse ln, which is a line of SAM output from SNAP.  The line
             must correspond to an aligned read. """
-        self.name, self.flags, self.refid, self.pos, self.mapq, self.cigar, \
-            _, _, self.tlen, self.seq, self.qual, self.extra = \
-            string.split(ln, '\t', 11)
+        self.name = toks[0]
+        self.flags = toks[1]
+        self.refid = toks[2]
+        self.pos = toks[3]
+        self.mapq = toks[4]
+        self.cigar = toks[5]
+        self.tlen = toks[8]
+        self.seq = toks[9]
+        self.qual = toks[10]
         assert self.flags != "*"
         assert self.pos != "*"
         assert self.mapq != "*"
@@ -292,10 +298,7 @@ class AlignmentSnap(Alignment):
         # No MD:Z
         # Parse ZT.Z
         if self.aligned:
-            ztzoff = self.extra.rfind('ZT:Z:')
-            assert ztzoff != -1, ln
-            self.ztzs = self.extra[ztzoff+5:].split(',')
-            self.ztzs[-1] = self.ztzs[-1].rstrip()
+            self.ztzs = toks[-1][5:].split(',')
             self.bestScore = int(self.ztzs[0])
 
     def rep_ok(self):
