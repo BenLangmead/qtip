@@ -11,4 +11,4 @@ qsim-debug: qsim.cpp
 
 .PHONY: clean
 clean:
-	rm -f test
+	rm -f qsim qsim-debug *.csv

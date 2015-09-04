@@ -455,7 +455,7 @@ static void print_unpaired(Alignment& al, size_t ordlen, FILE *fh_model, FILE *f
 	
 	if(fh_model != NULL) {
 		/* Output information relevant to input model */
-		fprintf(fh_model, "%d\t%c\t%s\t%u\t%c\t%u\t%s\n",
+		fprintf(fh_model, "%d,%c,%s,%u,%c,%u,%s\n",
 				al.best_score,
 				fw_flag,
 				al.qual,
@@ -467,14 +467,14 @@ static void print_unpaired(Alignment& al, size_t ordlen, FILE *fh_model, FILE *f
 	
 	if(fh_recs != NULL) {
 		/* Output information relevant to MAPQ model */
-		fprintf(fh_recs, "%u\t%d\t%d",
+		fprintf(fh_recs, "%u,%d,%d",
 				(unsigned)al.len,
 				al.mapq,
 				al.tlen);
 		
 		/* ... including all the ZT:Z fields */
 		while(ztz_tok != NULL) {
-			fprintf(fh_recs, "\t%s", ztz_tok);
+			fprintf(fh_recs, ",%s", ztz_tok);
 			ztz_tok = strtok(NULL, ",");
 		}
 	}
@@ -506,7 +506,7 @@ static void print_paired(Alignment& al1, struct Alignment& al2, FILE *fh_model, 
 		 */
 		
 		/* Output information relevant to input model */
-		fprintf(fh_recs, "%u\t%d\t%u\t%d\t%d",
+		fprintf(fh_recs, "%u,%d,%u,%d,%d",
 				(unsigned)al1.len,
 				al1.mapq,
 				(unsigned)al2.len,
@@ -520,7 +520,7 @@ static void print_paired(Alignment& al1, struct Alignment& al2, FILE *fh_model, 
 				ztz_tok1[toklen-1] = '\0';
 				toklen--;
 			}
-			fprintf(fh_recs, "\t%s", ztz_tok1);
+			fprintf(fh_recs, ",%s", ztz_tok1);
 			ztz_tok1 = strtok(NULL, ",");
 		}
 	}
@@ -536,7 +536,7 @@ static void print_paired(Alignment& al1, struct Alignment& al2, FILE *fh_model, 
 		 */
 		
 		/* Output information relevant to input model */
-		fprintf(fh_recs, "\t%u\t%d\t%u\t%d\t%d",
+		fprintf(fh_recs, ",%u,%d,%u,%d,%d",
 				(unsigned)al2.len,
 				al2.mapq,
 				(unsigned)al1.len,
@@ -544,14 +544,14 @@ static void print_paired(Alignment& al1, struct Alignment& al2, FILE *fh_model, 
 				fraglen);
 		/* ... including all the ZT:Z fields */
 		while(ztz_tok2 != NULL) {
-			fprintf(fh_recs, "\t%s", ztz_tok2);
+			fprintf(fh_recs, ",%s", ztz_tok2);
 			ztz_tok2 = strtok(NULL, ",");
 		}
 	}
 	
 	if(fh_model != NULL) {
 		/* Output information relevant to input model */
-		fprintf(fh_model, "%d\t%c\t%s\t%d\t%u\t%s\t%c\t%s\t%d\t%u\t%s\t%d\t%d\n",
+		fprintf(fh_model, "%d,%c,%s,%d,%u,%s,%c,%s,%d,%u,%s,%d,%d\n",
 				al1.best_score + al2.best_score,
 				fw_flag1,
 				al1.qual,
