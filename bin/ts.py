@@ -65,7 +65,6 @@ from simplesim import FragmentSimSerial2
 from read import Read
 from bowtie2 import AlignmentBowtie2, Bowtie2
 from bwamem import AlignmentBwaMem, BwaMem
-from mosaik import AlignmentMosaik, Mosaik
 from snap import AlignmentSnap, SnapAligner
 from reference import ReferenceIndexed, ReferenceOOB
 from tempman import TemporaryFileManager
@@ -489,14 +488,6 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         if args['bwa_exe'] is not None:
             align_cmd = args['bwa_exe'] + ' mem '
         aligner_class, alignment_class = BwaMem, AlignmentBwaMem
-    elif args['aligner'] == 'mosaik':
-        if args['use_concurrency']:
-            raise RuntimeError('--use-concurrency cannott be combined with --aligner mosaik; '
-                               'MOSAIK writes BAM directly to a file')
-        align_cmd = 'MosaikAlign '
-        if args['mosaik_align_exe'] is not None:
-            align_cmd = args['mosaik_align_exe'] + ' '
-        aligner_class, alignment_class = Mosaik, AlignmentMosaik
     elif args['aligner'] == 'snap':
         align_cmd = 'snap-aligner '
         if args['snap_exe'] is not None:
@@ -519,21 +510,14 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
 
         unpaired_arg = args['U']
         paired_arg = None if args['m1'] is None else zip(args['m1'], args['m2'])
-
         input_sam_fh = None
-        sam_arg = None
 
         # we're going to write alignment SAM somewhere, either to the output
         # directory (if requested) or to a temporary file
         sam_fn = os.path.join(args['output_directory'], 'input.sam')
 
-        if not args['use_concurrency']:
-            sam_arg = sam_fn
-        else:
-            input_sam_fh = open(sam_fn, 'w')
-
-        if not args['use_concurrency']:
-            tim.start_timer('Aligning input reads')
+        sam_arg = sam_fn
+        tim.start_timer('Aligning input reads')
 
         logging.info('Command for aligning input data: "%s"' % align_cmd)
         aligner = aligner_class(align_cmd,
@@ -542,12 +526,11 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                                 unpaired=unpaired_arg, paired=paired_arg,
                                 sam=sam_arg)
 
-        if not args['use_concurrency']:
-            logging.debug('Waiting for aligner to finish')
-            while aligner.pipe.poll() is None:
-                time.sleep(0.5)
-            logging.debug('Aligner finished')
-            tim.end_timer('Aligning input reads')
+        logging.debug('Waiting for aligner to finish')
+        while aligner.pipe.poll() is None:
+            time.sleep(0.5)
+        logging.debug('Aligner finished')
+        tim.end_timer('Aligning input reads')
 
         test_data = DatasetOnDisk('test_data', temp_man)
         dists = Dists(args['max_allowed_fraglen'],
@@ -559,50 +542,28 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         cor_dist, incor_dist = defaultdict(int), defaultdict(int)
         
         result_test_q = Queue()
-        if not args['use_concurrency']:
 
-            _finish_profiling = None
-            if args['profile_parsing']:
-                import cProfile
-                import pstats
-                import StringIO
-                pr = cProfile.Profile()
-                pr.enable()
+        _finish_profiling = None
+        if args['profile_parsing']:
+            import cProfile
+            import pstats
+            import StringIO
+            pr = cProfile.Profile()
+            pr.enable()
 
-                def _finish_profiling():
-                    pr.disable()
-                    s = StringIO.StringIO()
-                    ps = pstats.Stats(pr, stream=s).sort_stats('tottime')
-                    ps.print_stats(30)
-                    print(s.getvalue())
+            def _finish_profiling():
+                pr.disable()
+                s = StringIO.StringIO()
+                ps = pstats.Stats(pr, stream=s).sort_stats('tottime')
+                ps.print_stats(30)
+                print(s.getvalue())
 
-            tim.start_timer('Parsing input read alignments')
-            with open(sam_fn, 'r') as sam_fh:
-                sam_reader = csv.reader(sam_fh, delimiter='\t', quotechar=None)
-                othread = AlignmentReader(
-                    args,
-                    sam_reader,            # SAM/BAM reader, returns list of tab-sep'd strings
-                    test_data,             # Dataset to gather alignments into
-                    dists,                 # empirical dists
-                    ref,                   # reference genome
-                    alignment_class,       # class to instantiate for alignment
-                    cor_dist,              # dist. of correct alignment deviations
-                    incor_dist,            # dist. of incorrect alignment deviations
-                    result_test_q,         # result queue
-                    sam_ofh=input_sam_fh)  # SAM output file handle
-                othread.run()
-            tim.end_timer('Parsing input read alignments')
-
-            if args['profile_parsing']:
-                _finish_profiling()
-
-            temp_man.update_peak()
-            temp_man.remove_group('input sam')
-        else:
-            # Create the thread that eavesdrops on output from aligner
+        tim.start_timer('Parsing input read alignments')
+        with open(sam_fn, 'r') as sam_fh:
+            sam_reader = csv.reader(sam_fh, delimiter='\t', quotechar=None)
             othread = AlignmentReader(
                 args,
-                aligner.outQ,          # SAM queue
+                sam_reader,            # SAM/BAM reader, returns list of tab-sep'd strings
                 test_data,             # Dataset to gather alignments into
                 dists,                 # empirical dists
                 ref,                   # reference genome
@@ -610,17 +571,15 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 cor_dist,              # dist. of correct alignment deviations
                 incor_dist,            # dist. of incorrect alignment deviations
                 result_test_q,         # result queue
-                sam_ofh=input_sam_fh)  # SAM output filehandle
-            othread.daemon = True
-            othread.start()
-            logging.info('Initializing threads, queues and FIFOs')
+                sam_ofh=input_sam_fh)  # SAM output file handle
+            othread.run()
+        tim.end_timer('Parsing input read alignments')
 
-            logging.debug('Waiting for wrapped aligner to finish')
-            while aligner.pipe.poll() is None:
-                time.sleep(0.5)
-            while othread.is_alive():
-                othread.join(0.5)
-            logging.debug('Aligner process and output thread finished')
+        if args['profile_parsing']:
+            _finish_profiling()
+
+        temp_man.update_peak()
+        temp_man.remove_group('input sam')
 
         othread_result = result_test_q.get()
         if not othread_result:
@@ -688,28 +647,24 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 both, lab = True, 'both paired-end and unpaired'
 
             def simulate(simw, unpaired_format, paired_format, aligner=None):
-                """ Simulates reads.  Either pipes them directly to the aligner
-                    (when not write_training_reads and args['use_concurrency']
-                    or writes them to various files and returns those. """
                 type_to_format = {'conc': paired_format,
                                   'disc': paired_format,
                                   'bad_end': paired_format,
                                   'unp': unpaired_format}
                 write_training_reads = args['write_training_reads'] or args['write_all']
                 training_out_fn, training_out_fh = {}, {}
-                if write_training_reads or not args['use_concurrency']:
-                    types = []
-                    if paired or both:
-                        types.extend(zip(['conc', 'disc', 'bad_end'], [paired_format] * 3))
-                    if not paired or both:
-                        types.extend(zip(['unp'], [unpaired_format]))
-                    for t, frmt in types:
-                        fn_base = 'training_%s.%s' % (t, frmt)
-                        fn = os.path.join(args['output_directory'], fn_base)
-                        if not write_training_reads:
-                            fn = temp_man.get_filename(fn_base, 'tandem reads')
-                        training_out_fn[t] = fn
-                        training_out_fh[t] = open(fn, 'w')
+                types = []
+                if paired or both:
+                    types.extend(zip(['conc', 'disc', 'bad_end'], [paired_format] * 3))
+                if not paired or both:
+                    types.extend(zip(['unp'], [unpaired_format]))
+                for t, frmt in types:
+                    fn_base = 'training_%s.%s' % (t, frmt)
+                    fn = os.path.join(args['output_directory'], fn_base)
+                    if not write_training_reads:
+                        fn = temp_man.get_filename(fn_base, 'tandem reads')
+                    training_out_fn[t] = fn
+                    training_out_fh[t] = open(fn, 'w')
 
                 logging.info('  Simulating reads')
 
@@ -776,208 +731,160 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             # TODO: optional random-access simulator
             simw = FragmentSimSerial2(args['ref'], dists)
 
-            if not args['use_concurrency']:
+            #
+            # Simulate
+            #
 
-                #
-                # Simulate
-                #
+            tim.start_timer('Simulating tandem reads')
+            logging.info('Simulating tandem reads (%s)' % lab)
+            typ_sim_count, training_out_fn = simulate(simw,
+                                                      aligner.preferred_unpaired_format(),
+                                                      aligner.preferred_paired_format())
 
-                tim.start_timer('Simulating tandem reads')
-                logging.info('Simulating tandem reads (%s)' % lab)
-                typ_sim_count, training_out_fn = simulate(simw,
-                                                          aligner.preferred_unpaired_format(),
-                                                          aligner.preferred_paired_format())
-
-                # TODO: why is this correct?  the simulated bad_end reads seem
-                # to be paired-end, and should be aligned in paired-end mode
-                unpaired_arg = None
-                if False:
-                    if 'unp' in training_out_fn or 'bad_end' in training_out_fn:
-                        unpaired_arg = []
-                        for t in ['unp', 'bad_end']:
-                            if t in training_out_fn:
-                                unpaired_arg.append(training_out_fn[t])
-                    paired_combined_arg = None
-                    if 'conc' in training_out_fn or 'disc' in training_out_fn:
-                        paired_combined_arg = []
-                        for t in ['conc', 'disc']:
-                            if t in training_out_fn:
-                                paired_combined_arg.append(training_out_fn[t])
-                        if len(paired_combined_arg) > 1:
-                            # new file
-                            fn_base = 'training_paired.%s' % aligner.preferred_paired_format()
-                            fn = temp_man.get_filename(fn_base, 'tandem reads')
-                            with open(fn, 'w') as fh:
-                                for ifn in paired_combined_arg:
-                                    with open(ifn) as ifh:
-                                        for ln in ifh:
-                                            fh.write(ln)
-                            paired_combined_arg = [fn]
-                else:
-                    if 'unp' in training_out_fn:
-                        unpaired_arg = []
-                        for t in ['unp']:
-                            if t in training_out_fn:
-                                unpaired_arg.append(training_out_fn[t])
-                    paired_combined_arg = None
-                    if 'conc' in training_out_fn or 'disc' in training_out_fn or 'bad_end' in training_out_fn:
-                        paired_combined_arg = []
-                        for t in ['conc', 'disc', 'bad_end']:
-                            if t in training_out_fn:
-                                paired_combined_arg.append(training_out_fn[t])
-                        if len(paired_combined_arg) > 1:
-                            # new file
-                            fn_base = 'training_paired.%s' % aligner.preferred_paired_format()
-                            fn = temp_man.get_filename(fn_base, 'tandem reads')
-                            with open(fn, 'w') as fh:
-                                for ifn in paired_combined_arg:
-                                    with open(ifn) as ifh:
-                                        for ln in ifh:
-                                            fh.write(ln)
-                            paired_combined_arg = [fn]
-
-                assert unpaired_arg is not None or paired_combined_arg is not None
-
-                logging.info('Finished simulating tandem reads')
-                tim.end_timer('Simulating tandem reads')
-
-                #
-                # Align
-                #
-
-                tim.start_timer('Aligning tandem reads')
-
-                def _wait_for_aligner(_al):
-                    while _al.pipe.poll() is None:
-                        time.sleep(0.5)
-
-                if args['write_training_sam'] or args['write_all']:
-                    sam_fn = os.path.join(args['output_directory'], 'training.sam')
-                else:
-                    sam_fn = temp_man.get_filename('training.sam', 'tandem sam')
-
-                if aligner.supports_mix():
-                    logging.info('Aligning tandem reads (%s, mix)' % lab)
-                    aligner = aligner_class(align_cmd,
-                                            aligner_args, aligner_unpaired_args, aligner_paired_args,
-                                            args['index'],  # no concurrency
-                                            unpaired=unpaired_arg, paired_combined=paired_combined_arg,
-                                            sam=sam_fn, input_format=aligner.preferred_paired_format())
-                    # the aligner_class gets to decide what order to do unpaired/paired
-                    _wait_for_aligner(aligner)
-                    logging.debug('Finished aligning unpaired and paired-end tandem reads')
-                else:
-                    paired_sam, unpaired_sam = None, None
-                    if unpaired_arg is not None:
-                        logging.info('Aligning tandem reads (%s, unpaired)' % lab)
-                        unpaired_sam = temp_man.get_filename('training_unpaired.sam', 'tandem sam')
-                        aligner = aligner_class(align_cmd,
-                                                aligner_args, aligner_unpaired_args, aligner_paired_args,
-                                                args['index'],  # no concurrency
-                                                unpaired=unpaired_arg, paired_combined=None,
-                                                sam=unpaired_sam, input_format=aligner.preferred_unpaired_format())
-                        _wait_for_aligner(aligner)
-                        logging.debug('Finished aligning unpaired tandem reads')
-
-                    if paired_combined_arg is not None:
-                        logging.info('Aligning tandem reads (%s, paired)' % lab)
-                        paired_sam = temp_man.get_filename('training_paired.sam', 'tandem sam')
-                        aligner = aligner_class(align_cmd,
-                                                aligner_args, aligner_unpaired_args, aligner_paired_args,
-                                                args['index'],  # no concurrency
-                                                unpaired=None, paired_combined=paired_combined_arg,
-                                                sam=paired_sam, input_format=aligner.preferred_paired_format())
-                        _wait_for_aligner(aligner)
-                        logging.debug('Finished aligning paired-end tandem reads')
-
-                    logging.debug('Concatenating unpaired and paired-end files')
-                    with open(sam_fn, 'w') as ofh:
-                        for fn in [paired_sam, unpaired_sam]:
-                            if fn is not None:
-                                with open(fn) as fh:
-                                    for ln in fh:
-                                        ofh.write(ln)
-
-                # remove temporary reads
-                temp_man.update_peak()
-                temp_man.remove_group('tandem reads')
-
-                cor_dist, incor_dist = defaultdict(int), defaultdict(int)
-
-                logging.info('Parsing tandem alignments (%s)' % lab)
-                tim.end_timer('Aligning tandem reads')
-                tim.start_timer('Parsing tandem alignments')
-                with open(sam_fn, 'r') as sam_fh:
-                    result_training_q = Queue()
-                    sam_reader = csv.reader(sam_fh, delimiter='\t', quotechar=None)
-                    reader = AlignmentReader(
-                        args,
-                        sam_reader,
-                        training_data,
-                        None,
-                        ref,
-                        alignment_class,
-                        cor_dist,
-                        incor_dist,
-                        result_training_q)
-                    reader.run()
-                    typ_align_count, sc_diffs = reader.typ_hist, reader.sc_diffs
-
-                # remove temporary alignments
-                temp_man.update_peak()
-                temp_man.remove_group('tandem sam')
-
-                othread_result = result_training_q.get()
-                if not othread_result:
-                    raise RuntimeError('Tandem alignment parser encountered error')
-                logging.info('Finished parsing tandem alignments')
-                tim.end_timer('Parsing tandem alignments')
+            # TODO: why is this correct?  the simulated bad_end reads seem
+            # to be paired-end, and should be aligned in paired-end mode
+            unpaired_arg = None
+            if False:
+                if 'unp' in training_out_fn or 'bad_end' in training_out_fn:
+                    unpaired_arg = []
+                    for t in ['unp', 'bad_end']:
+                        if t in training_out_fn:
+                            unpaired_arg.append(training_out_fn[t])
+                paired_combined_arg = None
+                if 'conc' in training_out_fn or 'disc' in training_out_fn:
+                    paired_combined_arg = []
+                    for t in ['conc', 'disc']:
+                        if t in training_out_fn:
+                            paired_combined_arg.append(training_out_fn[t])
+                    if len(paired_combined_arg) > 1:
+                        # new file
+                        fn_base = 'training_paired.%s' % aligner.preferred_paired_format()
+                        fn = temp_man.get_filename(fn_base, 'tandem reads')
+                        with open(fn, 'w') as fh:
+                            for ifn in paired_combined_arg:
+                                with open(ifn) as ifh:
+                                    for ln in ifh:
+                                        fh.write(ln)
+                        paired_combined_arg = [fn]
             else:
+                if 'unp' in training_out_fn:
+                    unpaired_arg = []
+                    for t in ['unp']:
+                        if t in training_out_fn:
+                            unpaired_arg.append(training_out_fn[t])
+                paired_combined_arg = None
+                if 'conc' in training_out_fn or 'disc' in training_out_fn or 'bad_end' in training_out_fn:
+                    paired_combined_arg = []
+                    for t in ['conc', 'disc', 'bad_end']:
+                        if t in training_out_fn:
+                            paired_combined_arg.append(training_out_fn[t])
+                    if len(paired_combined_arg) > 1:
+                        # new file
+                        fn_base = 'training_paired.%s' % aligner.preferred_paired_format()
+                        fn = temp_man.get_filename(fn_base, 'tandem reads')
+                        with open(fn, 'w') as fh:
+                            for ifn in paired_combined_arg:
+                                with open(ifn) as ifh:
+                                    for ln in ifh:
+                                        fh.write(ln)
+                        paired_combined_arg = [fn]
 
-                logging.info('Opening aligner process using concurrency')
-                # Does the aligner always get unpaireds before paireds or vice versa?
+            assert unpaired_arg is not None or paired_combined_arg is not None
+
+            logging.info('Finished simulating tandem reads')
+            tim.end_timer('Simulating tandem reads')
+
+            #
+            # Align
+            #
+
+            tim.start_timer('Aligning tandem reads')
+
+            def _wait_for_aligner(_al):
+                while _al.pipe.poll() is None:
+                    time.sleep(0.5)
+
+            if args['write_training_sam'] or args['write_all']:
+                sam_fn = os.path.join(args['output_directory'], 'training.sam')
+            else:
+                sam_fn = temp_man.get_filename('training.sam', 'tandem sam')
+
+            if aligner.supports_mix():
+                logging.info('Aligning tandem reads (%s, mix)' % lab)
                 aligner = aligner_class(align_cmd,
                                         aligner_args, aligner_unpaired_args, aligner_paired_args,
-                                        args['index'], pairs_only=paired)
-                sam_fn = os.path.join(args['output_directory'], 'training.sam')
-                training_sam_fh = open(sam_fn, 'w') if (args['write_training_sam'] or args['write_all']) else None
-                cor_dist, incor_dist = defaultdict(int), defaultdict(int)
+                                        args['index'],
+                                        unpaired=unpaired_arg, paired_combined=paired_combined_arg,
+                                        sam=sam_fn, input_format=aligner.preferred_paired_format())
+                # the aligner_class gets to decide what order to do unpaired/paired
+                _wait_for_aligner(aligner)
+                logging.debug('Finished aligning unpaired and paired-end tandem reads')
+            else:
+                paired_sam, unpaired_sam = None, None
+                if unpaired_arg is not None:
+                    logging.info('Aligning tandem reads (%s, unpaired)' % lab)
+                    unpaired_sam = temp_man.get_filename('training_unpaired.sam', 'tandem sam')
+                    aligner = aligner_class(align_cmd,
+                                            aligner_args, aligner_unpaired_args, aligner_paired_args,
+                                            args['index'],
+                                            unpaired=unpaired_arg, paired_combined=None,
+                                            sam=unpaired_sam, input_format=aligner.preferred_unpaired_format())
+                    _wait_for_aligner(aligner)
+                    logging.debug('Finished aligning unpaired tandem reads')
 
-                # Create thread that eavesdrops on output from aligner with simulated input
-                logging.info('  Opening output-parsing thread (%s)' % lab)
+                if paired_combined_arg is not None:
+                    logging.info('Aligning tandem reads (%s, paired)' % lab)
+                    paired_sam = temp_man.get_filename('training_paired.sam', 'tandem sam')
+                    aligner = aligner_class(align_cmd,
+                                            aligner_args, aligner_unpaired_args, aligner_paired_args,
+                                            args['index'],
+                                            unpaired=None, paired_combined=paired_combined_arg,
+                                            sam=paired_sam, input_format=aligner.preferred_paired_format())
+                    _wait_for_aligner(aligner)
+                    logging.debug('Finished aligning paired-end tandem reads')
+
+                logging.debug('Concatenating unpaired and paired-end files')
+                with open(sam_fn, 'w') as ofh:
+                    for fn in [paired_sam, unpaired_sam]:
+                        if fn is not None:
+                            with open(fn) as fh:
+                                for ln in fh:
+                                    ofh.write(ln)
+
+            # remove temporary reads
+            temp_man.update_peak()
+            temp_man.remove_group('tandem reads')
+
+            cor_dist, incor_dist = defaultdict(int), defaultdict(int)
+
+            logging.info('Parsing tandem alignments (%s)' % lab)
+            tim.end_timer('Aligning tandem reads')
+            tim.start_timer('Parsing tandem alignments')
+            with open(sam_fn, 'r') as sam_fh:
                 result_training_q = Queue()
-                othread = AlignmentReader(
+                sam_reader = csv.reader(sam_fh, delimiter='\t', quotechar=None)
+                reader = AlignmentReader(
                     args,
-                    aligner.outQ,
+                    sam_reader,
                     training_data,
                     None,
                     ref,
                     alignment_class,
                     cor_dist,
                     incor_dist,
-                    result_training_q,
-                    sam_ofh=training_sam_fh)
-                othread.daemon = True
-                othread.start()
-                assert othread.is_alive()
+                    result_training_q)
+                reader.run()
+                typ_align_count, sc_diffs = reader.typ_hist, reader.sc_diffs
 
-                # uses aligner.put to pump simulated reads directly into aligner
-                # always simulates
-                typ_sim_count, training_out_fn = simulate(simw, 'tab6', 'tab6', aligner)
-                aligner.done()
+            # remove temporary alignments
+            temp_man.update_peak()
+            temp_man.remove_group('tandem sam')
 
-                logging.debug('Waiting for aligner (%s) to finish' % lab)
-                while aligner.pipe.poll() is None:
-                    time.sleep(0.5)
-                while othread.is_alive():
-                    othread.join(0.5)
-                logging.debug('aligner process finished')
-                othread_result = result_training_q.get()
-                if not othread_result:
-                    raise RuntimeError('Aligner output monitoring thread encountered error')
-                logging.info('Finished simulating and aligning training reads')
-
-                typ_align_count, sc_diffs = othread.typ_hist, othread.sc_diffs
+            othread_result = result_training_q.get()
+            if not othread_result:
+                raise RuntimeError('Tandem alignment parser encountered error')
+            logging.info('Finished parsing tandem alignments')
+            tim.end_timer('Parsing tandem alignments')
 
             if not dists.sc_dist_unp.empty() and dists.sc_dist_unp.has_correctness_info:
                 logging.info('    %d unpaired draws, %0.3f%% correct' % (dists.sc_dist_unp.num_drawn,
@@ -1096,11 +1003,9 @@ def add_args(parser):
                         help='Input SAM file to apply training data to.  Use with --training-input.')
     parser.add_argument('--bt2-exe', metavar='path', type=str, help='Path to Bowtie 2 exe')
     parser.add_argument('--bwa-exe', metavar='path', type=str, help='Path to BWA exe')
-    parser.add_argument('--mosaik-align-exe', metavar='path', type=str, help='Path to MosaikAlign exe')
-    parser.add_argument('--mosaik-build-exe', metavar='path', type=str, help='Path to MosaikBuild exe')
     parser.add_argument('--snap-exe', metavar='path', type=str, help='Path to snap-aligner exe')
     parser.add_argument('--aligner', metavar='name', default='bowtie2', type=str,
-                        help='bowtie2 | bwa-mem | mosaik | snap')
+                        help='bowtie2 | bwa-mem | snap')
 
     # For when input is itself simulated, so we can output a Dataset with the
     # 'correct' column filled in properly
@@ -1135,11 +1040,6 @@ def add_args(parser):
                         help='output profiling info related to parsing')
     parser.add_argument('--profile-simulating', action='store_const', const=True, default=False,
                         help='output profiling info related to simulating reads')
-
-    # Resource usage
-    parser.add_argument('--use-concurrency', action='store_const', const=True, default=False,
-                        help='Use pipes instead of temporary files.  Reduces disk usage '
-                             'but requires more memory.  Doesn\'t work with all aligners.')
 
 
 def go_profile(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
