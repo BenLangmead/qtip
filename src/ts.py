@@ -55,10 +55,8 @@ try:
     from Queue import Queue, Empty, Full
 except ImportError:
     from queue import Queue, Empty, Full  # python 3.x
-from threading import Thread
 
 # Modules that are part of the tandem simulator
-import simulators
 from simplesim import FragmentSimSerial2
 from read import Read
 from bowtie2 import AlignmentBowtie2, Bowtie2
@@ -174,18 +172,6 @@ class Dists(object):
 
     def from_tables(self):
         pass
-
-
-def is_correct(al, args):
-    """ Return true if the given alignment is both simulated and "correct" --
-        i.e. in or very near it's true point of origin """
-    if args['correct_chromosomes'] is not None:
-        al_refid_trimmed = al.refid.split()[0]
-        return (al_refid_trimmed in args['correct_chromosomes']), 0
-    elif simulators.isExtendedWgsim(al.name):
-        return simulators.correctExtendedWgsim(al, args['wiggle'])
-    else:
-        return None, 0
 
 
 """
@@ -308,6 +294,18 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     # for storing temp files and keep track of how big they get
     temp_man = TemporaryFileManager(args['temp_directory'])
 
+    def _get_pass1_file_prefix():
+        if args['write_all'] or args['write_input_intermediates']:
+            def _purge():
+                pass
+            return os.path.join(args['output_directory'], 'input_intermediates'), _purge
+        else:
+            dr = temp_man.get_dir('input_intermediates', 'input_intermediates')
+
+            def _purge():
+                dr.remove_group('input_intermediates')
+            return os.path.join(dr, 'tmp'), _purge
+
     # Note: this is only needed when either MD:Z information is missing from
     # alignments or when --ref-soft-clipping is specified
     logging.info('Loading reference data')
@@ -338,9 +336,14 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
 
         tim.start_timer('Parsing and generating models/records from alignments')
 
-        parse_input_exe = "%s/qsim_parse_input" % bin_dir
+        tim.start_timer('Parsing input reads')
+        parse_input_exe = "%s/qsim-parse-input" % bin_dir
         sanity_check_binary(parse_input_exe)
-        os.system("%s %s" % (parse_input_exe, sam_fn))
+        pass1_prefix, pass1_cleanup = _get_pass1_file_prefix()
+        os.system("%s %s %s" % (parse_input_exe, sam_fn, pass1_prefix))
+
+        logging.debug('  parsing finished; results in "%s.*"' % pass1_prefix)
+
         # TODO: Set up table files
         dists = Dists(
             args['max_allowed_fraglen'],
@@ -402,7 +405,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                     fn_base = 'training_%s.%s' % (t, frmt)
                     fn = os.path.join(args['output_directory'], fn_base)
                     if not write_training_reads:
-                        fn = temp_man.get_filename(fn_base, 'tandem reads')
+                        fn = temp_man.get_file(fn_base, 'tandem reads')
                     training_out_fn[t] = fn
                     training_out_fh[t] = open(fn, 'w')
 
@@ -499,7 +502,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                     if len(paired_combined_arg) > 1:
                         # new file
                         fn_base = 'training_paired.%s' % aligner.preferred_paired_format()
-                        fn = temp_man.get_filename(fn_base, 'tandem reads')
+                        fn = temp_man.get_file(fn_base, 'tandem reads')
                         with open(fn, 'w') as fh:
                             for ifn in paired_combined_arg:
                                 with open(ifn) as ifh:
@@ -521,7 +524,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                     if len(paired_combined_arg) > 1:
                         # new file
                         fn_base = 'training_paired.%s' % aligner.preferred_paired_format()
-                        fn = temp_man.get_filename(fn_base, 'tandem reads')
+                        fn = temp_man.get_file(fn_base, 'tandem reads')
                         with open(fn, 'w') as fh:
                             for ifn in paired_combined_arg:
                                 with open(ifn) as ifh:
@@ -547,7 +550,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             if args['write_training_sam'] or args['write_all']:
                 sam_fn = os.path.join(args['output_directory'], 'training.sam')
             else:
-                sam_fn = temp_man.get_filename('training.sam', 'tandem sam')
+                sam_fn = temp_man.get_file('training.sam', 'tandem sam')
 
             if aligner.supports_mix():
                 logging.info('Aligning tandem reads (%s, mix)' % lab)
@@ -563,7 +566,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 paired_sam, unpaired_sam = None, None
                 if unpaired_arg is not None:
                     logging.info('Aligning tandem reads (%s, unpaired)' % lab)
-                    unpaired_sam = temp_man.get_filename('training_unpaired.sam', 'tandem sam')
+                    unpaired_sam = temp_man.get_file('training_unpaired.sam', 'tandem sam')
                     aligner = aligner_class(align_cmd,
                                             aligner_args, aligner_unpaired_args, aligner_paired_args,
                                             args['index'],
@@ -574,7 +577,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
 
                 if paired_combined_arg is not None:
                     logging.info('Aligning tandem reads (%s, paired)' % lab)
-                    paired_sam = temp_man.get_filename('training_paired.sam', 'tandem sam')
+                    paired_sam = temp_man.get_file('training_paired.sam', 'tandem sam')
                     aligner = aligner_class(align_cmd,
                                             aligner_args, aligner_unpaired_args, aligner_paired_args,
                                             args['index'],

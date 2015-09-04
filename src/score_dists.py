@@ -1,8 +1,6 @@
 __author__ = 'langmead'
 
-import logging
 import random
-from read import Alignment
 from collections import defaultdict
 from randutil import ReservoirSampler
 
@@ -60,21 +58,6 @@ class ScoreDist(object):
         score, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen = self.sample.draw()
         return ReadTemplate(score, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen)
 
-    def add(self, al, correct, ordlen=0, use_ref_for_edit_distance=False):
-        pos = self.sample.add_step_1()
-        if pos is not None:
-            sc = al.bestScore
-            assert sc is not None
-            rd_aln, rf_aln, rd_len, rf_len =\
-                al.stacked_alignment(use_ref_for_edit_distance, ref=self.reference)
-            self.sample.add_step_2(pos, (sc, al.fw, al.qual, rd_aln, rf_aln, rf_len, al.mate1, ordlen))
-            self.max_fraglen = max(self.max_fraglen, rf_len)
-            self.tot_len += rf_len
-        else:
-            self.max_fraglen = max(self.max_fraglen, len(al.seq))
-            self.tot_len += len(al.seq)
-        self.num_added += 1
-
     def empty(self):
         """ Return true iff no tuples have been added """
         return self.num_added == 0
@@ -128,25 +111,6 @@ class CollapsedScoreDist(object):
             self.correct_mass += p_correct
         return ReadTemplate(score, fw, qual, rd_aln, rf_aln, rf_len, mate1, olen)
 
-    def add(self, al, correct, ordlen=0, use_ref_for_edit_distance=False):
-        sc = al.bestScore
-        assert sc is not None
-        # TODO: don't call stacked_alignment unless we have to -- some calls
-        # to sample.add will not add to any reservoirs
-        rd_aln, rf_aln, rd_len, rf_len =\
-            al.stacked_alignment(use_ref_for_edit_distance, ref=self.reference)
-        self.max_fraglen = max(self.max_fraglen, rf_len)
-        self.tot_len += rf_len
-        if sc not in self.score_to_sample:
-            self.score_to_sample[sc] = ReservoirSampler(self.k)
-        self.score_to_sample[sc].add((al.fw, al.qual, rd_aln, rf_aln, rf_len, al.mate1, ordlen))
-        self.sample.add((sc, al.fw, al.qual, rd_aln, rf_aln, rf_len, al.mate1, ordlen))
-        if correct is not None:
-            self.score_to_fraction_correct[sc][0] += 1 if correct else 0
-            self.score_to_fraction_correct[sc][1] += 1
-            self.has_correctness_info = True
-        self.num_added += 1
-
     def frac_correct(self):
         return float(self.correct_mass) / self.num_drawn
 
@@ -189,31 +153,6 @@ class ScorePairDist(object):
         return PairTemplate(ReadTemplate(sc_1, fw_1, qual_1, rd_aln_1, rf_aln_1, rf_len_1, mate1_1, rf_len_2),
                             ReadTemplate(sc_2, fw_2, qual_2, rd_aln_2, rf_aln_2, rf_len_2, mate1_2, rf_len_1),
                             fraglen, upstream1)
-
-    def add(self, al1, al2, correct1, correct2, use_ref_for_edit_distance=False):
-        """ Convert given alignment pair to a tuple and add it to the
-            reservoir sampler. """
-        fraglen = Alignment.fragment_length(al1, al2)
-        fraglen = min(fraglen, self.max_allowed_fraglen)
-        self.max_fraglen = max(self.max_fraglen, fraglen)
-        pos = self.sample.add_step_1()
-        if pos is not None:
-            sc1, sc2 = al1.bestScore, al2.bestScore
-            assert sc1 is not None and sc2 is not None
-            # Make note of which end is upstream
-            upstream1 = al1.pos < al2.pos
-            # Get stacked alignment
-            rd_aln_1, rf_aln_1, rd_len_1, rf_len_1 =\
-                al1.stacked_alignment(use_ref_for_edit_distance, ref=self.reference)
-            rd_aln_2, rf_aln_2, rd_len_2, rf_len_2 =\
-                al2.stacked_alignment(use_ref_for_edit_distance, ref=self.reference)
-            assert fraglen == 0 or max(rf_len_1, rf_len_2) <= fraglen
-            self.sample.add_step_2(pos, (sc1 + sc2,
-                                         (al1.fw, al1.qual, rd_aln_1, rf_aln_1, sc1, rf_len_1, True, rf_len_2),
-                                         (al2.fw, al2.qual, rd_aln_2, rf_aln_2, sc2, rf_len_2, False, rf_len_1),
-                                         fraglen, upstream1))
-        self.num_added += 1
-        self.tot_len += fraglen
 
     def empty(self):
         """ Return true iff no tuples have been added """
@@ -277,44 +216,6 @@ class CollapsedScorePairDist(object):
         return PairTemplate(ReadTemplate(sc_1, fw_1, qual_1, rd_aln_1, rf_aln_1, rf_len_1, mate1_1, rf_len_2),
                             ReadTemplate(sc_2, fw_2, qual_2, rd_aln_2, rf_aln_2, rf_len_2, mate1_2, rf_len_1),
                             fraglen, upstream1)
-
-    def add(self, al1, al2, correct1, correct2, use_ref_for_edit_distance=False):
-        """ Convert given alignment pair to a tuple and add it to the
-            reservoir sampler. """
-        # TODO: don't call stacked_alignment unless we have to -- some calls
-        # to sample.add will not add to any reservoirs
-        sc1, sc2 = al1.bestScore, al2.bestScore
-        assert sc1 is not None and sc2 is not None
-        # Make note of fragment length
-        fraglen = Alignment.fragment_length(al1, al2)
-        fraglen = min(fraglen, self.max_allowed_fraglen)
-        self.max_fraglen = max(self.max_fraglen, fraglen)
-        # Make note of which end is upstream
-        upstream1 = al1.pos < al2.pos
-        # Get stacked alignment
-        rd_aln_1, rf_aln_1, rd_len_1, rf_len_1 =\
-            al1.stacked_alignment(use_ref_for_edit_distance, ref=self.reference)
-        rd_aln_2, rf_aln_2, rd_len_2, rf_len_2 =\
-            al2.stacked_alignment(use_ref_for_edit_distance, ref=self.reference)
-        assert fraglen == 0 or max(rf_len_1, rf_len_2) <= fraglen
-        score = sc1 + sc2
-        if score not in self.score_to_sample:
-            self.score_to_sample[score] = ReservoirSampler(self.k)
-        if correct1 is not None:
-            self.score_to_fraction_correct1[score][0] += 1 if correct1 else 0
-            self.score_to_fraction_correct1[score][1] += 1
-            self.score_to_fraction_correct2[score][0] += 1 if correct2 else 0
-            self.score_to_fraction_correct2[score][1] += 1
-            self.has_correctness_info = True
-        self.score_to_sample[score].add(((al1.fw, al1.qual, rd_aln_1, rf_aln_1, sc1, rf_len_1, True, rf_len_2),
-                                         (al2.fw, al2.qual, rd_aln_2, rf_aln_2, sc2, rf_len_2, False, rf_len_1),
-                                         fraglen, upstream1))
-        self.sample.add((score,
-                         (al1.fw, al1.qual, rd_aln_1, rf_aln_1, sc1, rf_len_1, True, rf_len_2),
-                         (al2.fw, al2.qual, rd_aln_2, rf_aln_2, sc2, rf_len_2, False, rf_len_1),
-                         fraglen, upstream1))
-        self.num_added += 1
-        self.tot_len += fraglen
 
     def frac_correct1(self):
         return float(self.correct_mass1) / self.num_drawn

@@ -3,3 +3,4 @@
 qsim-*
 *.dSYM
 Xcode
+*.pyc

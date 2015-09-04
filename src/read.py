@@ -1,10 +1,6 @@
 import re
-import random
-import logging
-from sam import Cigar, Mdz, cigar_mdz_to_stacked, cigar_ref_to_stacked
+from sam import Cigar
 from abc import ABCMeta, abstractmethod
-from align import editDistance
-from reference import ReferenceOOB
 
 
 class Read(object):
@@ -197,71 +193,6 @@ class Alignment(object):
         self.right_clip = self.cigar_obj.cigar_list[-1][1] if (self.cigar_obj.cigar_list[-1][0] == 4) else 0
         return self.right_clip
 
-    def stacked_alignment(self, use_ref_for_edit_distance, ref=None):
-        """ Return a stacked alignment corresponding to this
-            alignment.  Optionally re-align the soft-clipped portions
-            of the read so that the stacked alignment includes all
-            characters from read. """
-        self.parse_cigar()
-        cigar = self.cigar_obj
-        assert cigar is not None
-        if self.mdz is not None:
-            rd_aln, rf_aln = cigar_mdz_to_stacked(self.seq, cigar, Mdz(self.mdz))
-        else:
-            if ref is None:
-                raise RuntimeError('Reference must be specified when MD:Z is absent')
-            rd_aln, rf_aln = cigar_ref_to_stacked(self.seq, cigar, ref, self.refid, self.pos)
-        rd_aln, rf_aln = [rd_aln], [rf_aln]
-        cl = cigar.cigar_list
-        if cl[0][0] == 4 or cl[-1][0] == 4:  # soft clipping?
-            nrf = sum(map(lambda x: x == '-', rf_aln))
-            for i in [0, -1]:
-                if cl[i][0] == 4:  # soft clipping?
-                    # Check for best alignment of soft-clipped portion
-                    fudge = 10
-                    unal_ln = cigar.cigar_list[i][1]
-                    read_ln = len(self)
-                    # 0-based offsets of leftmost and rightmost
-                    # reference characters involved in alignment
-                    posl_rf, posr_rf = self.pos, self.pos + nrf - 1
-                    if i == 0:
-                        readl, readr = 0, unal_ln
-                        refl, refr = posl_rf - unal_ln, posl_rf
-                    else:
-                        readl, readr = read_ln - unal_ln, read_ln
-                        refl, refr = posr_rf, posr_rf + unal_ln
-                    if use_ref_for_edit_distance:
-                        assert ref is not None
-                        if refl < 0 or refr > ref.length(self.refid):
-                            raise ReferenceOOB('[%d, %d) fell outside bounds for "%s": [0, %d)' %
-                                               (refl, refr, self.refid, ref.length(self.refid)))
-                    # Align read to ref using edit distance
-                    rdstr = self.seq[readl:readr].upper()
-                    rdstr = re.sub(self.__nonAcgt, 'N', rdstr)
-                    assert refr - refl <= unal_ln + fudge
-                    if use_ref_for_edit_distance:
-                        refstr = ref.get(self.refid, refl, refr - refl).upper()
-                        refstr = re.sub(self.__nonAcgt, 'N', refstr)
-                    else:
-                        refstr = ''.join([random.choice('ACGT') for _ in range(refr - refl)])
-                    assert len(rdstr) == len(refstr)
-
-                    eddist, stack = editDistance(rdstr, refstr, stacked=True)
-                    rd_aln_new, rf_aln_new = stack
-                    rd_aln_new, rf_aln_new = rd_aln_new.lower(), rf_aln_new.lower()
-                    # Add traceback to stacked alignment
-                    if i == 0:
-                        rd_aln.insert(0, rd_aln_new)
-                        rf_aln.insert(0, rf_aln_new)
-                    else:
-                        rd_aln.append(rd_aln_new)
-                        rf_aln.append(rf_aln_new)
-
-        rd_aln, rf_aln = ''.join(rd_aln), ''.join(rf_aln)
-        rd_len = len(rd_aln) - rd_aln.count('-')
-        rf_len = len(rf_aln) - rf_aln.count('-')
-        return rd_aln, rf_aln, rd_len, rf_len
-    
     def rep_ok(self):
         """ Check alignment for internal consistency """
         #assert self.paired or self.fragment_length() == 0

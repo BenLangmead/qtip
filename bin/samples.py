@@ -176,7 +176,7 @@ class DatasetOnDisk(object):
         rec2 = PairedTuple.from_alignments(al2, al1)
         self._len += 2
         if self.data_conc is None:
-            self.data_conc_fn = self.temp_man.get_filename('%s_conc.csv' % self.name, 'dataset %s' % self.name)
+            self.data_conc_fn = self.temp_man.get_file('%s_conc.csv' % self.name, 'dataset %s' % self.name)
             self.data_conc = open(self.data_conc_fn, 'w')
             assert len(al1.ztzs or []) == len(al2.ztzs or [])
             PairedTuple.append_csv_header(self.data_conc, len(al1.ztzs or []))
@@ -190,7 +190,7 @@ class DatasetOnDisk(object):
         rec2 = PairedTuple.from_alignments(al2, al1)
         self._len += 2
         if self.data_disc is None:
-            self.data_disc_fn = self.temp_man.get_filename('%s_disc.csv' % self.name, 'dataset %s' % self.name)
+            self.data_disc_fn = self.temp_man.get_file('%s_disc.csv' % self.name, 'dataset %s' % self.name)
             self.data_disc = open(self.data_disc_fn, 'w')
             assert len(al1.ztzs or []) == len(al2.ztzs or [])
             PairedTuple.append_csv_header(self.data_disc, len(al1.ztzs or []))
@@ -202,7 +202,7 @@ class DatasetOnDisk(object):
         assert al.paired
         self._len += 1
         if self.data_bad_end is None:
-            self.data_bad_end_fn = self.temp_man.get_filename('%s_bad_end.csv' % self.name, 'dataset %s' % self.name)
+            self.data_bad_end_fn = self.temp_man.get_file('%s_bad_end.csv' % self.name, 'dataset %s' % self.name)
             self.data_bad_end = open(self.data_bad_end_fn, 'w')
             UnpairedTuple.append_csv_header(self.data_bad_end, len(al.ztzs or []))
         UnpairedTuple.from_alignment(al, len(unaligned.seq)).append_csv(self.data_bad_end, correct)
@@ -212,7 +212,7 @@ class DatasetOnDisk(object):
         assert not al.paired
         self._len += 1
         if self.data_unp is None:
-            self.data_unp_fn = self.temp_man.get_filename('%s_unp.csv' % self.name, 'dataset %s' % self.name)
+            self.data_unp_fn = self.temp_man.get_file('%s_unp.csv' % self.name, 'dataset %s' % self.name)
             self.data_unp = open(self.data_unp_fn, 'w')
             UnpairedTuple.append_csv_header(self.data_unp, len(al.ztzs or []))
         UnpairedTuple.from_alignment(al).append_csv(self.data_unp, correct)
