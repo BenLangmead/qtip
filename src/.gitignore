@@ -1,3 +1,5 @@
 *.sam
 *.tsv
 qsim
+qsim-debug
+*.dSYM
