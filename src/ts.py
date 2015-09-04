@@ -51,7 +51,6 @@ import logging
 import errno
 import csv
 from collections import defaultdict
-from traceback import print_tb
 try:
     from Queue import Queue, Empty, Full
 except ImportError:
@@ -60,7 +59,6 @@ from threading import Thread
 
 # Modules that are part of the tandem simulator
 import simulators
-from samples import DatasetOnDisk
 from simplesim import FragmentSimSerial2
 from read import Read
 from bowtie2 import AlignmentBowtie2, Bowtie2
@@ -70,7 +68,9 @@ from reference import ReferenceIndexed, ReferenceOOB
 from tempman import TemporaryFileManager
 from score_dists import CollapsedScoreDist, ScoreDist, CollapsedScorePairDist, ScorePairDist
 
-VERSION = '0.1.0'
+bin_dir = os.path.dirname(os.path.realpath(__file__))
+
+VERSION = '0.2.0'
 
 
 class Dists(object):
@@ -172,6 +172,9 @@ class Dists(object):
             this distribution. """
         return self.sc_dist_unp.max_fraglen
 
+    def from_tables(self):
+        pass
+
 
 def is_correct(al, args):
     """ Return true if the given alignment is both simulated and "correct" --
@@ -185,240 +188,38 @@ def is_correct(al, args):
         return None, 0
 
 
-class AlignmentReader(Thread):
-    
-    """ Aligner output reader.  Reads SAM output from aligner, updates
-        empirical distributions (our "model" for what the input reads look
-        like), and looks for records that correspond to simulated reads.  If a
-        record corresponds to a simulated read, its correctness is checked and
-        an output tuple written """
-    
-    def __init__(self, args, sam_q, dataset, dists, ref,
-                 alignment_class, dist_hist_cor, dist_hist_incor,
-                 result_q, sam_ofh=None, ival=20000):
-        Thread.__init__(self)
-        self.args = args
-        self.sam_q = sam_q
-        self.sam_ofh = sam_ofh
-        self.dataset = dataset
-        self.dists = dists
-        self.ref = ref  # TODO: what kind of reference object?  Needs to be random access?  Needs to be fast?
-        self.alignment_class = alignment_class
-        self.sc_diffs = defaultdict(int)
-        self.ival = ival
-        self.dist_hist_cor = dist_hist_cor
-        self.dist_hist_incor = dist_hist_incor
-        self.result_q = result_q
-        self.deamon = True
-        self.typ_hist = defaultdict(int)
-    
-    def run(self):
-        """ Collect SAM output """
-        args = self.args
-        has_next = hasattr(self.sam_q, 'next')
+"""
+Pass 1: parsing SAM resulting from alignment of input reads.
+======
 
-        def _read_with_next():
-            try:
-                return self.sam_q.next(), False
-            except StopIteration:
-                return None, True
+The fast C++ code does the parsing and emits tables.
 
-        def _read_with_queue():
-            while True:
-                try:
-                    _ln = self.sam_q.get(block=True, timeout=0.5)
-                    if _ln is None:
-                        return None, True
-                    return _ln, False
-                except Empty:
-                    continue  # keep trying
+One question is: can the output of the C++ code allow us to completely bypass
+the process of writing via the DatasetOnDisk object?  I believe so.  I think
+we can completely get rid of samples.py and just modify the code in predict.py
+accordingly.  Note that predict.py does not use DatasetOnDisk; it uses pandas
+read_csv instead.
 
-        _read_line = _read_with_next if has_next else _read_with_queue
+Can we get rid of the AlignmentReader object?  Yes.  There's no longer any
+reason for the Python code to go through the SAM line by line.  Instead, the
+fast C++ code emits two tables which we parse separately from Python.  One
+is the input model, which ts.py parses (maybe using pandas).  And the other
+is the record table, which predict.py parses (maybe using pandas).
 
-        try:
-            last_al, last_correct = None, None
-            nal, nunp, nignored, npair = 0, 0, 0, 0
-            # Following loop involves maintaining 'last_al' across
-            # iterations so that we can match up the two ends of a pair
-            correct = None
-            while True:
-                toks, break_now = _read_line()
-                if break_now:
-                    break
+Another question is: can we add parsing so that, in the event that the read
+is simulated, we can assess whether the alignment is correct.  We can do this,
+it just involves porting some Python code over to C++.
 
-                # Send SAM to SAM output filehandle
-                if self.sam_ofh is not None:
-                    self.sam_ofh.write('\t'.join(toks) + '\n')
-                
-                # Skip headers
-                if toks[0][0] == '@':
-                    continue
-                
-                # Parse SAM record
-                al = self.alignment_class()
-                al.parse(toks)
-                nal += 1
-                if al.flags >= 2048:
-                    nignored += 1
-                    continue
-                elif al.paired:
-                    npair += 1
-                else:
-                    nunp += 1
+Pass 2: parsing SAM resulting from alignment of tandem reads.
+======
 
-                if (nal % self.ival) == 0:
-                    logging.info('      # alignments parsed: %d (%d paired, %d unpaired, %d ignored)' %
-                                 (nal, npair, nunp, nignored))
+The fast C++ code does the parsing and emits tables.  One additional
+complication is that we want it to also assess correctness of the alignments,
+which involves parsing some crud that we put in the read names.
 
-                if al.paired and last_al is not None:
-                    assert al.concordant == last_al.concordant
-                    assert al.discordant == last_al.discordant
-                    mate1, mate2 = al, last_al
-                    assert mate1.mate1 != mate2.mate1
-                    if mate2.mate1:
-                        mate1, mate2 = mate2, mate1
-                    # if only one end aligned, possibly swap so that 'al' is
-                    # the one that aligned
-                    if not al.is_aligned() and last_al.is_aligned():
-                        al, last_al = last_al, al
-                        correct, last_correct = last_correct, correct
-                else:
-                    mate1, mate2 = None, None
+Again, seems like we can avoid DatasetOnDisk entirely.
 
-                # Add the alignment to Dataset
-                if self.dataset is not None:
-                    is_training = (al.name[0] == '!' and al.name.startswith('!!ts!!'))
-                    if al.is_aligned() and is_training:
-                        name = al.name
-                        if name.endswith('/1') or name.endswith('/2'):
-                            name = name[:-2]
-                        name_split = name.split('!!ts-sep!!')
-                        if len(name_split) == 6:
-                            # unpaired
-                            _, refid, fw, refoff, sc, training_nm = name_split
-                            assert training_nm in ['unp', 'conc', 'disc'] or training_nm.startswith('bad_end')
-                        else:
-                            # Paired.  Both mates must have same name.
-                            assert len(name_split) == 10
-                            assert al.paired
-                            _, refid1, fw1, refoff1, sc1, refid2, fw2, refoff2, sc2, training_nm = name_split
-                            assert training_nm in ['unp', 'conc', 'disc'] or training_nm.startswith('bad_end')
-                            if al.mate1:
-                                refid, fw, refoff, sc = refid1, fw1, refoff1, sc1
-                            else:
-                                refid, fw, refoff, sc = refid2, fw2, refoff2, sc2
-                        if training_nm.startswith('bad_end_mate'):
-                            # the mate that's bad is specified in the read name
-                            # for both mates, so names can match and we avoid
-                            # complaints of some aligners
-                            if al.mate1 == (training_nm[-1] == '1'):
-                                training_nm = 'bad_end'  # use this as training record
-                            else:
-                                training_nm = 'bad_end2'  # ignore this
-                        sc, refoff = int(sc), int(refoff)
-                        correct = False
-                        # Check reference id, orientation
-                        if refid == al.refid and fw == al.orientation():
-                            # Check offset
-                            correct = abs(refoff - al.pos) < args['wiggle']
-                        assert training_nm in ['unp', 'conc', 'disc', 'bad_end', 'bad_end2'], training_nm
-                        # Add to training dataset
-                        if training_nm == 'unp':
-                            self.typ_hist['unp'] += 1
-                            self.dataset.add_unpaired(al, correct)
-                        elif mate1 is not None:
-                            correct1, correct2 = correct, last_correct
-                            if last_al.mate1:
-                                correct1, correct2 = correct2, correct1
-                            if training_nm == 'conc':
-                                self.typ_hist['conc'] += 1
-                                if mate1.concordant:
-                                    assert mate2.concordant
-                                    self.dataset.add_concordant(mate1, mate2, correct1, correct2)
-                            elif training_nm == 'disc':
-                                self.typ_hist['disc'] += 1
-                                if mate1.discordant:
-                                    assert mate2.discordant
-                                    self.dataset.add_discordant(mate1, mate2, correct1, correct2)
-                            elif training_nm == 'bad_end':
-                                self.typ_hist['bad_end'] += 1
-                                self.dataset.add_bad_end(al, last_al, correct)
-                            elif training_nm != 'bad_end2':
-                                raise RuntimeError('Bad training data type: "%s"' % training_nm)
-
-                    elif is_training:
-                        pass
-
-                    elif al.is_aligned():
-                        # Test data
-                        if mate1 is not None:
-                            if not al.concordant and not al.discordant:
-                                # bad-end
-                                correct, dist = None, None
-                                if args['input_reads_simulated']:
-                                    correct, dist = is_correct(al, args)
-                                    if not correct and dist < 20 * args['wiggle']:
-                                        self.dist_hist_incor[dist] += 1
-                                    elif correct:
-                                        self.dist_hist_cor[dist] += 1
-                                self.dataset.add_bad_end(al, last_al, correct)
-                            else:
-                                correct1, dist1 = None, None
-                                correct2, dist2 = None, None
-                                if args['input_reads_simulated']:
-                                    correct1, dist1 = is_correct(mate1, args)
-                                    correct2, dist2 = is_correct(mate2, args)
-                                    if not correct1 and dist1 < 20 * args['wiggle']:
-                                        self.dist_hist_incor[dist1] += 1
-                                    elif correct1:
-                                        self.dist_hist_cor[dist1] += 1
-                                    if not correct2 and dist2 < 20 * args['wiggle']:
-                                        self.dist_hist_incor[dist2] += 1
-                                    elif correct2:
-                                        self.dist_hist_cor[dist2] += 1
-                                if al.concordant:
-                                    self.dataset.add_concordant(mate1, mate2, correct1, correct2)
-                                elif al.discordant:
-                                    self.dataset.add_discordant(mate1, mate2, correct1, correct2)
-                        elif not al.paired:
-                            # For unpaired reads
-                            correct, dist = None, None
-                            if args['input_reads_simulated']:
-                                correct, dist = is_correct(al, args)
-                                if not correct and dist < 20 * args['wiggle']:
-                                    self.dist_hist_incor[dist] += 1
-                                elif correct:
-                                    self.dist_hist_cor[dist] += 1
-                            self.dataset.add_unpaired(al, correct)
-
-                # Add to our input-read summaries
-                if self.dists is not None and al.is_aligned():
-                    try:
-                        if mate1 is not None:
-                            if al.concordant:
-                                self.dists.add_concordant_pair(mate1, mate2, correct1, correct2)
-                            elif al.discordant:
-                                self.dists.add_discordant_pair(mate1, mate2, correct1, correct2)
-                            else:
-                                self.dists.add_bad_end_read(al, correct, len(last_al.seq))
-                        elif not al.paired:
-                            self.dists.add_unpaired_read(al, correct)
-                    except ReferenceOOB:
-                        pass
-                
-                if mate1 is None and al.paired:
-                    last_al, last_correct = al, correct
-                else:
-                    last_al, last_correct = None, None
-
-            logging.debug('Output monitoring thread returning successfully')
-            self.result_q.put(True)
-        except Exception as e:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            print_tb(exc_traceback)
-            logging.error(str(e))
-            logging.debug('Output monitoring thread returning error')
-            self.result_q.put(False)
+"""
 
 
 class Timing(object):
@@ -439,6 +240,14 @@ class Timing(object):
         for lab in self.labs:
             ret.append('\t'.join([lab, str(self.timers[lab])]))
         return '\n'.join(ret) + '\n'
+
+
+def sanity_check_binary(exe):
+    if not os.path.exists(exe):
+        raise RuntimeError('Binary "%s" does not exist' % exe)
+    else:
+        if not os.access(exe, os.X_OK):
+            raise RuntimeError('Binary "%s" exists but is not executable' % exe)
 
 
 def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
@@ -508,111 +317,43 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         # ALIGN REAL DATA (or read in alignments from SAM)
         # ##################################################
 
-        unpaired_arg = args['U']
-        paired_arg = None if args['m1'] is None else zip(args['m1'], args['m2'])
-        input_sam_fh = None
-
-        # we're going to write alignment SAM somewhere, either to the output
-        # directory (if requested) or to a temporary file
-        sam_fn = os.path.join(args['output_directory'], 'input.sam')
-
-        sam_arg = sam_fn
         tim.start_timer('Aligning input reads')
-
+        sam_fn = os.path.join(args['output_directory'], 'input.sam')
         logging.info('Command for aligning input data: "%s"' % align_cmd)
-        aligner = aligner_class(align_cmd,
-                                aligner_args, aligner_unpaired_args, aligner_paired_args,
-                                args['index'],
-                                unpaired=unpaired_arg, paired=paired_arg,
-                                sam=sam_arg)
+        aligner = aligner_class(
+            align_cmd,
+            aligner_args,
+            aligner_unpaired_args,
+            aligner_paired_args,
+            args['index'],
+            unpaired=args['U'],
+            paired=None if args['m1'] is None else zip(args['m1'], args['m2']),
+            sam=sam_fn)
 
-        logging.debug('Waiting for aligner to finish')
+        logging.debug('  waiting for aligner to finish...')
         while aligner.pipe.poll() is None:
             time.sleep(0.5)
-        logging.debug('Aligner finished')
+        logging.debug('  aligner finished; results in "%s"' % sam_fn)
         tim.end_timer('Aligning input reads')
 
-        test_data = DatasetOnDisk('test_data', temp_man)
-        dists = Dists(args['max_allowed_fraglen'],
-                      fraction_even=args['fraction_even'],
-                      bias=args['low_score_bias'],
-                      use_ref_for_edit_distance=args['ref_soft_clipping'],
-                      reference=ref,
-                      reservoir_size=args['input_model_size'])
-        cor_dist, incor_dist = defaultdict(int), defaultdict(int)
-        
-        result_test_q = Queue()
+        tim.start_timer('Parsing and generating models/records from alignments')
 
-        _finish_profiling = None
-        if args['profile_parsing']:
-            import cProfile
-            import pstats
-            import StringIO
-            pr = cProfile.Profile()
-            pr.enable()
+        parse_input_exe = "%s/qsim_parse_input" % bin_dir
+        sanity_check_binary(parse_input_exe)
+        os.system("%s %s" % (parse_input_exe, sam_fn))
+        # TODO: Set up table files
+        dists = Dists(
+            args['max_allowed_fraglen'],
+            fraction_even=args['fraction_even'],
+            bias=args['low_score_bias'],
+            use_ref_for_edit_distance=args['ref_soft_clipping'],
+            reservoir_size=args['input_model_size'])
+        dists.parse_from_tables('some way of referring to all the tables')
 
-            def _finish_profiling():
-                pr.disable()
-                s = StringIO.StringIO()
-                ps = pstats.Stats(pr, stream=s).sort_stats('tottime')
-                ps.print_stats(30)
-                print(s.getvalue())
-
-        tim.start_timer('Parsing input read alignments')
-        with open(sam_fn, 'r') as sam_fh:
-            sam_reader = csv.reader(sam_fh, delimiter='\t', quotechar=None)
-            othread = AlignmentReader(
-                args,
-                sam_reader,            # SAM/BAM reader, returns list of tab-sep'd strings
-                test_data,             # Dataset to gather alignments into
-                dists,                 # empirical dists
-                ref,                   # reference genome
-                alignment_class,       # class to instantiate for alignment
-                cor_dist,              # dist. of correct alignment deviations
-                incor_dist,            # dist. of incorrect alignment deviations
-                result_test_q,         # result queue
-                sam_ofh=input_sam_fh)  # SAM output file handle
-            othread.run()
-        tim.end_timer('Parsing input read alignments')
-
-        if args['profile_parsing']:
-            _finish_profiling()
-
-        temp_man.update_peak()
-        temp_man.remove_group('input sam')
-
-        othread_result = result_test_q.get()
-        if not othread_result:
-            raise RuntimeError('Aligner output monitoring thread encountered error')
-
-        if input_sam_fh is not None:
-            logging.info('  Input alignments written to "%s"' % sam_fn)
-
-        test_data.finalize()
-        if len(test_data) == 0:
-            raise RuntimeError('Error: No alignments produced from input reads')
-
-        logging.info('Parsed %d test records from input alignment output' % len(test_data))
-
-        # Writing test dataset
-        if args['write_test_data'] or args['write_all']:
-            test_csv_fn_prefix = os.path.join(args['output_directory'], 'test')
-            test_data.save(test_csv_fn_prefix)
-            logging.info('  Test records written to "%s*"' % test_csv_fn_prefix)
-
-        test_data.purge()
-
-        # Writing correct/incorrect distances
-        if args['input_reads_simulated'] and (args['write_test_distances'] or args['write_all']):
-            for short_name, long_name, hist in [('cor', 'Correct', cor_dist), ('incor', 'Incorrect', incor_dist)]:
-                test_dist_fn = os.path.join(args['output_directory'], 'test_%s_dists.csv' % short_name)
-                with open(test_dist_fn, 'w') as fh:
-                    for k, v in sorted(hist.iteritems()):
-                        fh.write('%d,%d\n' % (k, v))
-                logging.info('%s-alignment distances written to "%s"' % (long_name, test_dist_fn))
+        tim.start_timer('Parsing and generating models/records from alignments')
 
         # ##################################################
-        # ALIGN SIMULATED DATA
+        # SIMULATE TANDEM READS
         # ##################################################
 
         # Construct sequence and quality simulators
@@ -633,7 +374,6 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         if iters == 2:
             logging.info('Aligner does not accept unpaired/paired mix; training will have 2 rounds')
 
-        training_data = DatasetOnDisk('training_data', temp_man)
         for paired, lab in [(True, 'paired-end'), (False, 'unpaired')]:
             both = False
             if paired and not dists.has_pairs():

@@ -1,5 +1,5 @@
 *.sam
-*.tsv
-qsim
-qsim-debug
+*.csv
+qsim-*
 *.dSYM
+Xcode

@@ -1,14 +1,23 @@
 #!gmake
 
 .PHONY: all
-all: qsim qsim-debug
+all: qsim-parse-input qsim-parse-tandem
 
-qsim: qsim.cpp
-	g++ -o $@ $^
+.PHONY: allall
+all: qsim-parse-input qsim-parse-tandem qsim-parse-input-debug qsim-parse-tandem-debug
 
-qsim-debug: qsim.cpp
+qsim-parse-input: qsim_parse_input.cpp
+	g++ -O3 -o $@ $^
+
+qsim-parse-input-debug: qsim_parse_input.cpp
+	g++ -g -O0 -o $@ $^
+
+qsim-parse-tandem: qsim_parse_tandem.cpp
+	g++ -O3 -o $@ $^
+
+qsim-parse-tandem-debug: qsim_parse_tandem.cpp
 	g++ -g -O0 -o $@ $^
 
 .PHONY: clean
 clean:
-	rm -f qsim qsim-debug *.csv
+	rm -f qsim-parse-input* qsim-parse-tandem* *.csv
