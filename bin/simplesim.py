@@ -317,6 +317,12 @@ class SequenceSimulator(object):
         return ref_id, ref_offset, fw, seq
 
 
+"""
+TODO: could we supply something much simpler than rd_aln and rf_aln to
+mutate(...) with the same effect.  Like an edit transcript.
+"""
+
+
 def mutate(rd, qual, rd_aln, rf_aln):
     """ Given a read that already has the appropriate length (i.e. equal to #
         characters on the reference side of the alignment), take the alignment
@@ -329,25 +335,25 @@ def mutate(rd, qual, rd_aln, rf_aln):
     i, rdi, rfi = 0, 0, 0
     while i < len(rd_aln):
         if rd_aln[i] == rf_aln[i] and rf_aln[i] != 'N':
-            seq.append(rd.seq[rfi])
+            seq.append(rd.seq[rfi])  # match
             rfi += 1
             rdi += 1
         elif rd_aln[i] == '-':
-            rfi += 1
+            rfi += 1  # reference char not present in read
         elif rf_aln[i] == '-':
-            seq.append(rd_aln[i])
+            seq.append(rd_aln[i])  # take read character; but could be random
             rdi += 1
         elif rd_aln[i] != rf_aln[i] and (rd_aln[i] == 'N'):
-            seq.append('N')
+            seq.append('N')  # read has N, ref doesn't
             rfi += 1
             rdi += 1
         elif rf_aln[i] == 'N':
-            seq.append(random.choice('ACGT'))
+            seq.append(random.choice('ACGT'))  # ref has N
             rfi += 1
             rdi += 1
         elif rd_aln[i] != rf_aln[i]:
             assert rfi < len(rd.seq)
-            oldc = rd.seq[rfi].upper()
+            oldc = rd.seq[rfi].upper()  # mismatchs
             cs = ['A', 'C', 'G', 'T']
             assert oldc in cs, "oldc was %s" % oldc
             cs.remove(oldc)
