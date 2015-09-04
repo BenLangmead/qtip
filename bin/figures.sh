@@ -96,9 +96,13 @@ python paper_plot.py various_aligners_r0_bt2sl_mason_ill_100_100k.pred_ \
                      various_aligners_r0_bt2sl_mason_ill_250_100k.pred_ \
                      various_aligners_r0_bwamem_mason_ill_100_100k.pred_ \
                      various_aligners_r0_bwamem_mason_ill_250_100k.pred_ \
+                     various_aligners_r0_snap_ill_100_100k.pred_ \
+                     various_aligners_r0_snap_mason_ill_250_100k.pred_ \
                      various_aligners_r12_bt2sl100_mason_ill_100_100k.pred_ \
                      various_aligners_r12_bt2sl250_mason_ill_250_100k.pred_ \
                      various_aligners_r12_bwamem100_mason_ill_100_100k.pred_ \
-                     various_aligners_r12_bwamem250_mason_ill_250_100k.pred_
+                     various_aligners_r12_bwamem250_mason_ill_250_100k.pred_ \
+                     various_aligners_r12_snap100_mason_ill_100_100k.pred_ \
+                     various_aligners_r12_snap250_mason_ill_250_100k.pred_
 
 cp tmp.eps $OUTPUT_DIR/various_aligners.eps
