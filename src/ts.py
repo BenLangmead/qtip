@@ -64,7 +64,7 @@ from bwamem import AlignmentBwaMem, BwaMem
 from snap import AlignmentSnap, SnapAligner
 from reference import ReferenceIndexed, ReferenceOOB
 from tempman import TemporaryFileManager
-from score_dists import CollapsedScoreDist, ScoreDist, CollapsedScorePairDist, ScorePairDist
+from operator import itemgetter
 
 bin_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -80,98 +80,81 @@ class Dists(object):
         their fragment length and strands. """
 
     def __init__(self,
+                 prefix,
                  max_allowed_fraglen=100000,
                  fraction_even=0.5,
                  bias=1.0,
-                 use_ref_for_edit_distance=False,
-                 reference=None,
                  reservoir_size=10000):
-        self.use_ref_for_edit_distance = use_ref_for_edit_distance
-        self.reference = reference
-        if fraction_even >= 1.0:
-            self.sc_dist_unp = ScoreDist(reference=self.reference, big_k=reservoir_size)
-            self.sc_dist_bad_end = ScoreDist(reference=self.reference, big_k=reservoir_size)
-            self.sc_dist_conc = ScorePairDist(reference=self.reference, big_k=reservoir_size,
-                                              max_allowed_fraglen=max_allowed_fraglen)
-            self.sc_dist_disc = ScorePairDist(reference=self.reference, big_k=reservoir_size,
-                                              max_allowed_fraglen=max_allowed_fraglen)
-        else:
-            self.sc_dist_unp = CollapsedScoreDist(reference=self.reference, big_k=reservoir_size,
-                                                  fraction_even=fraction_even, bias=bias)
-            self.sc_dist_bad_end = CollapsedScoreDist(reference=self.reference, big_k=reservoir_size,
-                                                      fraction_even=fraction_even, bias=bias)
-            self.sc_dist_conc = CollapsedScorePairDist(reference=self.reference,
-                                                       big_k=reservoir_size, max_allowed_fraglen=max_allowed_fraglen,
-                                                       fraction_even=fraction_even, bias=bias)
-            self.sc_dist_disc = CollapsedScorePairDist(reference=self.reference,
-                                                       big_k=reservoir_size, max_allowed_fraglen=max_allowed_fraglen,
-                                                       fraction_even=fraction_even, bias=bias)
+        self.tabs = {}
+        self.avglen = {}
+        self.bias = bias
+        self.fraction_even = fraction_even
+        for ext in 'ubcd':
+            fullext = '_mod_%s.csv' % ext
+            with open(prefix + fullext, 'rb') as fh:
+                self.tabs[ext] = [el.split(',') for el in fh.read().split('\n')]
+            if len(self.tabs[ext]) == 0:
+                del self.tabs[ext]
+            else:
+                if len(self.tabs[ext]) > reservoir_size:
+                    self.tabs[ext] = random.sample(self.tabs[ext], reservoir_size)
+                if ext in 'cd':
+                    # standardize fragment length and sum total fragment length
+                    def _adj_and_sum(x):
+                        x[-1] = min(x[-1], max_allowed_fraglen)
+                        return x[-1]
+                    tot_len = sum(map(_adj_and_sum, self.tabs[ext]))
+                else:
+                    # just sum total fragment length
+                    tot_len = sum(map(itemgetter(-1), self.tabs[ext]))
+                self.maxlen[ext] = max(map(itemgetter(-1), self.tabs[ext]))
+                self.avglen[ext] = tot_len / float(len(self.tabs[ext]))
 
-    def finalize(self):
-        self.sc_dist_unp.finalize()
-        self.sc_dist_bad_end.finalize()
-        self.sc_dist_conc.finalize()
-        self.sc_dist_disc.finalize()
-
-    def add_concordant_pair(self, al1, al2, correct1, correct2):
-        """ Add concordant paired-end read alignment to the model """
-        self.sc_dist_conc.add(al1, al2, correct1, correct2, use_ref_for_edit_distance=self.use_ref_for_edit_distance)
-
-    def add_discordant_pair(self, al1, al2, correct1, correct2):
-        """ Add discordant paired-end read alignment to the model """
-        self.sc_dist_disc.add(al1, al2, correct1, correct2, use_ref_for_edit_distance=self.use_ref_for_edit_distance)
-
-    def add_unpaired_read(self, al, correct):
-        """ Add unpaired read alignment to the model """
-        self.sc_dist_unp.add(al, correct, use_ref_for_edit_distance=self.use_ref_for_edit_distance)
-
-    def add_bad_end_read(self, al, correct, ordlen):
-        """ Add bad-end read alignment to the model """
-        self.sc_dist_bad_end.add(al, correct, ordlen=ordlen, use_ref_for_edit_distance=self.use_ref_for_edit_distance)
+    def __len__(self):
+        """ Return the total number of templates stored. """
+        return sum(map(len, self.tabs.values()))
 
     def has_pairs(self):
-        return not self.sc_dist_conc.empty() or not self.sc_dist_disc.empty() or not self.sc_dist_bad_end.empty()
+        """ Return true iff at least one pair was added """
+        return 'c' in self.tabs or 'd' in self.tabs
 
     def has_concordant_pairs(self):
         """ Return true iff at least one concordant paired-end read was
             added. """
-        return not self.sc_dist_conc.empty()
+        return 'c' in self.tabs
 
     def has_discordant_pairs(self):
         """ Return true iff at least one concordant paired-end read was
             added. """
-        return not self.sc_dist_disc.empty()
+        return 'd' in self.tabs
 
     def has_bad_end_reads(self):
         """ Return true iff at least one bad-end was added. """
-        return not self.sc_dist_bad_end.empty()
+        return 'b' in self.tabs
 
     def has_unpaired_reads(self):
         """ Return true iff at least one unpaired read was added. """
-        return not self.sc_dist_unp.empty()
+        return 'u' in self.tabs
 
     def avg_concordant_fraglen(self):
-        return self.sc_dist_conc.avg_fraglen
+        return self.avglen['c']
 
     def avg_discordant_fraglen(self):
-        return self.sc_dist_disc.avg_fraglen
+        return self.avglen['d']
 
     def avg_unpaired_readlen(self):
-        return self.sc_dist_unp.avg_fraglen
+        return self.avglen['u']
 
     def longest_fragment(self):
         """ Return length of longest fragment we'll have to sample
             from genome. """
-        return max(self.sc_dist_conc.max_fraglen, self.sc_dist_disc.max_fraglen)
+        return max(self.maxlen['c'], self.maxlen['d'])
 
     def longest_unpaired(self):
         """ Return length of longest substring we'll have to sample
             from genome in order to simulate an unpaired read using
             this distribution. """
-        return self.sc_dist_unp.max_fraglen
-
-    def from_tables(self):
-        pass
+        return self.maxlen['u']
 
 
 """
@@ -334,26 +317,25 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         logging.debug('  aligner finished; results in "%s"' % sam_fn)
         tim.end_timer('Aligning input reads')
 
-        tim.start_timer('Parsing and generating models/records from alignments')
-
         tim.start_timer('Parsing input reads')
         parse_input_exe = "%s/qsim-parse-input" % bin_dir
         sanity_check_binary(parse_input_exe)
         pass1_prefix, pass1_cleanup = _get_pass1_file_prefix()
-        os.system("%s %s %s" % (parse_input_exe, sam_fn, pass1_prefix))
-
+        ret = os.system("%s %s %s" % (parse_input_exe, sam_fn, pass1_prefix))
+        if ret != 0:
+            raise RuntimeError("qsim-parse-input returned %d" % ret)
         logging.debug('  parsing finished; results in "%s.*"' % pass1_prefix)
+        tim.end_timer('Parsing input reads')
 
-        # TODO: Set up table files
+        tim.start_timer('Parsing input model')
         dists = Dists(
+            pass1_prefix,
             args['max_allowed_fraglen'],
             fraction_even=args['fraction_even'],
             bias=args['low_score_bias'],
-            use_ref_for_edit_distance=args['ref_soft_clipping'],
             reservoir_size=args['input_model_size'])
-        dists.parse_from_tables('some way of referring to all the tables')
-
-        tim.start_timer('Parsing and generating models/records from alignments')
+        logging.debug('  parsing finished; resulted in model with %d total templates' % len(dists))
+        tim.end_timer('Parsing input model')
 
         # ##################################################
         # SIMULATE TANDEM READS

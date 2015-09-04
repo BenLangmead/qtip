@@ -499,8 +499,12 @@ static void print_paired(Alignment& al1, struct Alignment& al2, FILE *fh_model, 
 	al1.best_score = atoi(ztz_tok1);
 	char fw_flag1 = al1.is_fw() ? 'T' : 'F';
 	
-	int fraglen = 0;
-	int upstream1 = 0;
+	int fraglen = abs(al1.tlen);
+	bool upstream1 = al1.pos < al2.pos;
+	assert(al1.cigar != NULL);
+	assert(al2.cigar != NULL);
+	fraglen += (upstream1 ? al1.left_clip : al2.left_clip);
+	fraglen += (upstream1 ? al2.right_clip : al1.right_clip);
 	
 	/* TODO: add correct/incorrect info */
 	
@@ -549,14 +553,21 @@ static void print_paired(Alignment& al1, struct Alignment& al2, FILE *fh_model, 
 				fraglen);
 		/* ... including all the ZT:Z fields */
 		while(ztz_tok2 != NULL) {
+			size_t toklen = strlen(ztz_tok2);
+			/* remove trailing whitespace */
+			while(ztz_tok2[toklen-1] == '\n' || ztz_tok2[toklen-1] == '\r') {
+				ztz_tok2[toklen-1] = '\0';
+				toklen--;
+			}
 			fprintf(fh_recs, ",%s", ztz_tok2);
 			ztz_tok2 = strtok(NULL, ",");
 		}
+		fprintf(fh_recs, "\n");
 	}
 	
 	if(fh_model != NULL) {
 		/* Output information relevant to input model */
-		fprintf(fh_model, "%d,%c,%s,%d,%u,%s,%c,%s,%d,%u,%s,%d,%d\n",
+		fprintf(fh_model, "%d,%c,%s,%d,%u,%s,%c,%s,%d,%u,%s,%d,%c\n",
 				al1.best_score + al2.best_score,
 				fw_flag1,
 				al1.qual,
@@ -568,8 +579,8 @@ static void print_paired(Alignment& al1, struct Alignment& al2, FILE *fh_model, 
 				al2.best_score,
 				(unsigned)al2.len,
 				al2.edit_xscript.ptr(),
-				fraglen,
-				upstream1);
+				upstream1 ? 'T' : 'F',
+				fraglen);
 	}
 }
 
