@@ -729,8 +729,6 @@ static int sam_pass1(FILE *fh,
 		fprintf(stderr, "    %d unaligned\n", npair_unal);
 	}
 	
-	fclose(fh);
-	
 	return 0;
 }
 
