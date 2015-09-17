@@ -8,8 +8,60 @@
 #include <string>
 #include <vector>
 #include "ds.h"
+#include "template.h"
+#include "input_model.h"
+#include "rnglib.hpp"
 
 using namespace std;
+
+/**
+ * Two kinds of output records.
+ *
+ * Input model templates:
+ * ======================
+ * 
+ * Unpaired columns:
+ * 1. Best score
+ * 2. FW flag (T or F)
+ * 3. Quality string
+ * 4. Read length
+ * 5. Mate flag (0, 1 or 2)
+ * 6. Opposite mate read length
+ * 7. Edit transcript
+ *
+ * Paired-end columns:
+ * 1. Sum of best scores of both mates
+ * 2. Mate 1 FW flag (T or F)
+ * 3. Mate 1 quality string
+ * 4. Mate 1 best score
+ * 5. Mate 1 read length
+ * 6. Mate 1 edit transcript
+ * 7 .Mate 2 FW flag (T or F)
+ * 8. Mate 2 quality string
+ * 9. Mate 2 best score
+ * 10. Mate 2 read length
+ * 11. Mate 2 edit transcript
+ * 12. Mate-1-upstream flag (T or F)
+ * 13. Fragment length
+ *
+ * Feature records:
+ * ===============
+ *
+ * Unpaired columns:
+ * 1. Read length
+ * 2. Reported MAPQ
+ * 3. Template length
+ * 4+. All the ZT:Z fields
+ *
+ * Paired-end columns:
+ * 1. Mate 1 read length
+ * 2. Mate 1 reported MAPQ
+ * 3. Mate 2 read length
+ * 4. Mate 2 reported MAPQ
+ * 5. Fragment length
+ * 6+. All the ZT:Z fields for mate 1
+ * X+. All the ZT:Z fields for mate 2
+ */
 
 /**
  * Implementations of the various passes that Qsim makes over SAM files.
@@ -449,7 +501,13 @@ static char * parse_from_rname_on(Alignment& al) {
 /**
  * No guarantee about state of strtok upon return.
  */
-static void print_unpaired(Alignment& al, size_t ordlen, FILE *fh_model, FILE *fh_recs) {
+static void print_unpaired(
+	Alignment& al,
+	size_t ordlen,
+	FILE *fh_model,
+	FILE *fh_recs,
+	EList<TemplateUnpaired> *unp_model)
+{
 	assert(al.is_aligned());
 	char *extra = parse_from_rname_on(al);
 	char *ztz_tok = al.parse_extra(extra);
@@ -459,7 +517,7 @@ static void print_unpaired(Alignment& al, size_t ordlen, FILE *fh_model, FILE *f
 	/* TODO: add correct/incorrect info */
 	
 	if(fh_model != NULL) {
-		/* Output information relevant to input model */
+		// Output information relevant to input model
 		fprintf(fh_model, "%d,%c,%s,%u,%c,%u,%s\n",
 				al.best_score,
 				fw_flag,
@@ -469,15 +527,26 @@ static void print_unpaired(Alignment& al, size_t ordlen, FILE *fh_model, FILE *f
 				(unsigned)ordlen,
 				al.edit_xscript.ptr());
 	}
+	if(unp_model != NULL) {
+		unp_model->expand();
+		unp_model->back().init(
+			al.best_score,
+			(int)al.len,
+			fw_flag,
+			al.mate_flag(),
+			(int)ordlen,
+			al.qual,
+			al.edit_xscript.ptr());
+	}
 	
 	if(fh_recs != NULL) {
-		/* Output information relevant to MAPQ model */
+		// Output information relevant to MAPQ model
 		fprintf(fh_recs, "%u,%d,%d",
 				(unsigned)al.len,
 				al.mapq,
 				al.tlen);
 		
-		/* ... including all the ZT:Z fields */
+		// ... including all the ZT:Z fields
 		while(ztz_tok != NULL) {
 			fprintf(fh_recs, ",%s", ztz_tok);
 			ztz_tok = strtok(NULL, ",");
@@ -488,7 +557,13 @@ static void print_unpaired(Alignment& al, size_t ordlen, FILE *fh_model, FILE *f
 /**
  * No guarantee about state of strtok upon return.
  */
-static void print_paired(Alignment& al1, struct Alignment& al2, FILE *fh_model, FILE *fh_recs) {
+static void print_paired(
+	Alignment& al1,
+	Alignment& al2,
+	FILE *fh_model,
+	FILE *fh_recs,
+	EList<TemplatePaired> *paired_model)
+{
 	assert(al1.is_aligned());
 	assert(al2.is_aligned());
 	
@@ -510,18 +585,18 @@ static void print_paired(Alignment& al1, struct Alignment& al2, FILE *fh_model, 
 	
 	if(fh_recs != NULL) {
 		
-		/*
-		 * Mate 1
-		 */
+		//
+		// Mate 1
+		//
 		
-		/* Output information relevant to input model */
+		// Output information relevant to input model
 		fprintf(fh_recs, "%u,%d,%u,%d,%d",
 				(unsigned)al1.len,
 				al1.mapq,
 				(unsigned)al2.len,
 				al2.mapq,
 				fraglen);
-		/* ... including all the ZT:Z fields */
+		// ... including all the ZT:Z fields
 		while(ztz_tok1 != NULL) {
 			size_t toklen = strlen(ztz_tok1);
 			/* remove trailing whitespace */
@@ -540,21 +615,21 @@ static void print_paired(Alignment& al1, struct Alignment& al2, FILE *fh_model, 
 	
 	if(fh_recs != NULL) {
 		
-		/*
-		 * Mate 2
-		 */
+		//
+		// Mate 2
+		//
 		
-		/* Output information relevant to input model */
+		// Output information relevant to input model
 		fprintf(fh_recs, ",%u,%d,%u,%d,%d",
 				(unsigned)al2.len,
 				al2.mapq,
 				(unsigned)al1.len,
 				al1.mapq,
 				fraglen);
-		/* ... including all the ZT:Z fields */
+		// ... including all the ZT:Z fields
 		while(ztz_tok2 != NULL) {
 			size_t toklen = strlen(ztz_tok2);
-			/* remove trailing whitespace */
+			// remove trailing whitespace
 			while(ztz_tok2[toklen-1] == '\n' || ztz_tok2[toklen-1] == '\r') {
 				ztz_tok2[toklen-1] = '\0';
 				toklen--;
@@ -566,7 +641,7 @@ static void print_paired(Alignment& al1, struct Alignment& al2, FILE *fh_model, 
 	}
 	
 	if(fh_model != NULL) {
-		/* Output information relevant to input model */
+		// Output information relevant to input model
 		fprintf(fh_model, "%d,%c,%s,%d,%u,%s,%c,%s,%d,%u,%s,%d,%c\n",
 				al1.best_score + al2.best_score,
 				fw_flag1,
@@ -582,6 +657,24 @@ static void print_paired(Alignment& al1, struct Alignment& al2, FILE *fh_model, 
 				upstream1 ? 'T' : 'F',
 				fraglen);
 	}
+
+	if(paired_model != NULL) {
+		paired_model->expand();
+		paired_model->back().init(
+			al1.best_score + al2.best_score,
+			al1.best_score,
+			(int)al1.len,
+			fw_flag1,
+			al1.qual,
+			al1.edit_xscript.ptr(),
+			al2.best_score,
+			(int)al2.len,
+			fw_flag2,
+			al2.qual,
+			al2.edit_xscript.ptr(),
+			upstream1,
+			fraglen);
+	}
 }
 
 /**
@@ -593,6 +686,10 @@ static int sam_pass1(FILE *fh,
 					 FILE *orec_b_fh, FILE *omod_b_fh,
 					 FILE *orec_c_fh, FILE *omod_c_fh,
 					 FILE *orec_d_fh, FILE *omod_d_fh,
+					 EList<TemplateUnpaired> *u_templates,
+					 EList<TemplateUnpaired> *b_templates,
+					 EList<TemplatePaired> *c_templates,
+					 EList<TemplatePaired> *d_templates,
 					 bool quiet)
 {
 	/* Advise the kernel of our access pattern.  */
@@ -660,57 +757,58 @@ static int sam_pass1(FILE *fh,
 		if(al_cur.mate_flag() == '0') {
 			nunp++;
 			
-			/* Case 1: Current read is unpaired and unlineigned, we can safely skip */
+			// Case 1: Current read is unpaired and unlineigned, we can safely skip
 			if(!al_cur.is_aligned()) {
 				nunp_unal++;
 				continue;
 			}
 			
-			/* Case 2: Current read is unpaired and aligned */
+			// Case 2: Current read is unpaired and aligned
 			else {
 				nunp_al++;
-				print_unpaired(al_cur, 0, omod_u_fh, orec_u_fh);
+				print_unpaired(al_cur, 0, omod_u_fh, orec_u_fh, u_templates);
 			}
 		}
 		
 		else if(mate1 != NULL) {
-			/* Case 3: Current read is paired and unlineigned, opposite mate is also unlineigned; nothing more to do! */
+			// Case 3: Current read is paired and unlineigned, opposite mate is
+			// also unaligned; nothing more to do!
 			assert(mate2 != NULL);
 			if(!mate1->is_aligned() && !mate2->is_aligned()) {
 				npair_unal++;
 				continue;
 			}
 			
-			/* Case 4: Current read is paired and aligned, opposite mate is unlineigned */
-			/* Case 5: Current read is paired and unlineigned, opposite mate is aligned */
-			/* we handle both here */
+			// Case 4: Current read is paired and aligned, opposite mate is unlineigned
+			// Case 5: Current read is paired and unlineigned, opposite mate is aligned
+			//         we handle both here
 			else if(mate1->is_aligned() != mate2->is_aligned()) {
 				npair_badend++;
 				print_unpaired(
-							   mate1->is_aligned() ? *mate1 : *mate2,
-							   mate1->is_aligned() ? mate2->len : mate1->len,
-							   omod_b_fh, orec_b_fh);
+					mate1->is_aligned() ? *mate1 : *mate2,
+					mate1->is_aligned() ? mate2->len : mate1->len,
+					omod_b_fh, orec_b_fh, b_templates);
 			}
 			
 			else {
 				assert(mate1->is_concordant() == mate2->is_concordant());
 				
 				if(mate1->is_concordant()) {
-					/* Case 6: Current read is paired and both mates aligned, concordantly */
+					// Case 6: Current read is paired and both mates aligned, concordantly
 					npair_conc++;
-					print_paired(*mate1, *mate2, omod_c_fh, orec_c_fh);
+					print_paired(*mate1, *mate2, omod_c_fh, orec_c_fh, c_templates);
 				}
 				
 				else {
-					/* Case 7: Current read is paired and both mates aligned, not condordantly */
+					// Case 7: Current read is paired and both mates aligned, not condordantly
 					npair_disc++;
-					print_paired(*mate1, *mate2, omod_d_fh, orec_d_fh);
+					print_paired(*mate1, *mate2, omod_d_fh, orec_d_fh, d_templates);
 				}
 			}
 		}
 		
 		else {
-			/* This read is paired but we haven't seen the mate yet */
+			// This read is paired but we haven't seen the mate yet
 			assert(al_cur.mate_flag() != '0');
 			al_cur.valid = true;
 		}
@@ -741,6 +839,8 @@ int main(int argc, char **argv) {
 	string orec_b_fn, omod_b_fn;
 	string orec_c_fn, omod_c_fn;
 	string orec_d_fn, omod_d_fn;
+	
+	set_seed(77, 777);
 	
 	vector<string> sams;
 
@@ -848,6 +948,16 @@ int main(int argc, char **argv) {
 	setvbuf(omod_d_fh, omod_d_buf, _IOFBF, BUFSZ);
 
 	char buf_input_sam[BUFSZ];
+	bool do_simulation = true;
+	bool keep_templates = true;
+	
+	assert(keep_templates || !do_simulation);
+	
+	EList<TemplateUnpaired> u_templates;
+	EList<TemplateUnpaired> b_templates;
+	EList<TemplatePaired> c_templates;
+	EList<TemplatePaired> d_templates;
+
 	for(size_t i = 0; i < sams.size(); i++) {
 		FILE *fh = fopen(sams[i].c_str(), "rb");
 		if(fh == NULL) {
@@ -860,8 +970,19 @@ int main(int argc, char **argv) {
 				  orec_b_fh, omod_b_fh,
 				  orec_c_fh, omod_c_fh,
 				  orec_d_fh, omod_d_fh,
+				  keep_templates ? &u_templates : NULL,
+				  keep_templates ? &b_templates : NULL,
+				  keep_templates ? &c_templates : NULL,
+				  keep_templates ? &d_templates : NULL,
 				  false); // not quiet
 		fclose(fh);
+	}
+	
+	if(do_simulation) {
+		InputModelUnpaired u_model(u_templates);
+		InputModelUnpaired b_model(b_templates);
+		InputModelPaired c_model(c_templates);
+		InputModelPaired d_model(d_templates);
 	}
 	
 	fclose(omod_u_fh);

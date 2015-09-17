@@ -1,3 +1,9 @@
+#ifndef __qsim__ds__
+#define __qsim__ds__
+
+#include <cassert>
+#include <string.h>
+
 template <typename T, int S = 128>
 class EList {
 
@@ -356,6 +362,7 @@ private:
 				// Note: operator= is used
 				tmp[i] = list_[i];
 			}
+			memset(list_, 0, sizeof(T) * cur_); // make all ptrs NULL
 			free();
 		}
 		list_ = tmp;
@@ -395,3 +402,6 @@ private:
 	size_t sz_;    // capacity
 	size_t cur_;   // occupancy (AKA size)
 };
+
+#endif
+
