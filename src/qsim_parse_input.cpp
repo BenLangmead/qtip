@@ -11,6 +11,7 @@
 #include "template.h"
 #include "input_model.h"
 #include "rnglib.hpp"
+#include "simplesim.h"
 
 using namespace std;
 
@@ -830,18 +831,27 @@ static int sam_pass1(FILE *fh,
 	return 0;
 }
 
+#define FILEDEC(fn, fh, buf, typ) char buf[BUFSZ]; \
+	FILE *(fh) = fopen((fn).c_str(), "wb"); \
+	if((fh) == NULL) { \
+		cerr << "Could not open output " << (typ) << " file \"" << (fn) << "\"" << endl; \
+		return -1; \
+	} \
+	setvbuf((fh), (buf), _IOFBF, BUFSZ);
+
 /**
- * Caller gives path to one or more SAM files, then the final argument is a prefix where all the 
+ * Caller gives path to one or more SAM files, then the final argument is a prefix where all the
  */
 int main(int argc, char **argv) {
 	
-	string orec_u_fn, omod_u_fn;
-	string orec_b_fn, omod_b_fn;
-	string orec_c_fn, omod_c_fn;
-	string orec_d_fn, omod_d_fn;
+	string orec_u_fn, omod_u_fn, oread_u_fn;
+	string orec_b_fn, omod_b_fn, oread_b_fn;
+	string orec_c_fn, omod_c_fn, oread1_c_fn, oread2_c_fn;
+	string orec_d_fn, omod_d_fn, oread1_d_fn, oread2_d_fn;
 	
 	set_seed(77, 777);
 	
+	vector<string> fastas; // TODO: populate somehow
 	vector<string> sams;
 
 	for(int i = 1; i < argc; i++) {
@@ -857,6 +867,13 @@ int main(int argc, char **argv) {
 			omod_b_fn = prefix + string("_mod_b.csv");
 			omod_c_fn = prefix + string("_mod_c.csv");
 			omod_d_fn = prefix + string("_mod_d.csv");
+
+			oread_u_fn = prefix + string("_reads_u.fastq");
+			oread_b_fn = prefix + string("_reads_b.fastq");
+			oread1_c_fn = prefix + string("_reads_c_1.fastq");
+			oread1_d_fn = prefix + string("_reads_d_1.fastq");
+			oread2_c_fn = prefix + string("_reads_c_2.fastq");
+			oread2_d_fn = prefix + string("_reads_d_2.fastq");
 		} else {
 			sams.push_back(string(argv[i]));
 		}
@@ -867,85 +884,21 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 	
-	//
 	// Unpaired
-	//
+	FILEDEC(orec_u_fn, orec_u_fh, orec_u_buf, "feature");
+	FILEDEC(omod_u_fn, omod_u_fh, omod_u_buf, "template record");
 	
-	char orec_u_buf[BUFSZ];
-	FILE *orec_u_fh = fopen(orec_u_fn.c_str(), "wb");
-	if(orec_u_fh == NULL) {
-		cerr << "Could not open output record file \"" << orec_u_fn << "\"" << endl;
-		return -1;
-	}
-	setvbuf(orec_u_fh, orec_u_buf, _IOFBF, BUFSZ);
-	
-	char omod_u_buf[BUFSZ];
-	FILE *omod_u_fh = fopen(omod_u_fn.c_str(), "wb");
-	if(omod_u_fh == NULL) {
-		cerr << "Could not open output model file \"" << omod_u_fn << "\"" << endl;
-		return -1;
-	}
-	setvbuf(omod_u_fh, omod_u_buf, _IOFBF, BUFSZ);
-	
-	//
 	// Bad-end
-	//
+	FILEDEC(orec_b_fn, orec_b_fh, orec_b_buf, "feature");
+	FILEDEC(omod_b_fn, omod_b_fh, omod_b_buf, "template record");
 	
-	char orec_b_buf[BUFSZ];
-	FILE *orec_b_fh = fopen(orec_b_fn.c_str(), "wb");
-	if(orec_b_fh == NULL) {
-		cerr << "Could not open output record file \"" << orec_b_fn << "\"" << endl;
-		return -1;
-	}
-	setvbuf(orec_b_fh, orec_b_buf, _IOFBF, BUFSZ);
-	
-	char omod_b_buf[BUFSZ];
-	FILE *omod_b_fh = fopen(omod_b_fn.c_str(), "wb");
-	if(omod_b_fh == NULL) {
-		cerr << "Could not open output model file \"" << omod_b_fn << "\"" << endl;
-		return -1;
-	}
-	setvbuf(omod_b_fh, omod_b_buf, _IOFBF, BUFSZ);
-	
-	//
 	// Concordant
-	//
+	FILEDEC(orec_c_fn, orec_c_fh, orec_c_buf, "feature");
+	FILEDEC(omod_c_fn, omod_c_fh, omod_c_buf, "template record");
 	
-	char orec_c_buf[BUFSZ];
-	FILE *orec_c_fh = fopen(orec_c_fn.c_str(), "wb");
-	if(orec_c_fh == NULL) {
-		cerr << "Could not open output record file \"" << orec_c_fn << "\"" << endl;
-		return -1;
-	}
-	setvbuf(orec_c_fh, orec_c_buf, _IOFBF, BUFSZ);
-	
-	char omod_c_buf[BUFSZ];
-	FILE *omod_c_fh = fopen(omod_c_fn.c_str(), "wb");
-	if(omod_c_fh == NULL) {
-		cerr << "Could not open output model file \"" << omod_c_fn << "\"" << endl;
-		return -1;
-	}
-	setvbuf(omod_c_fh, omod_c_buf, _IOFBF, BUFSZ);
-	
-	//
 	// Discordant
-	//
-	
-	char orec_d_buf[BUFSZ];
-	FILE *orec_d_fh = fopen(orec_d_fn.c_str(), "wb");
-	if(orec_d_fh == NULL) {
-		cerr << "Could not open output record file \"" << orec_d_fn << "\"" << endl;
-		return -1;
-	}
-	setvbuf(orec_d_fh, orec_d_buf, _IOFBF, BUFSZ);
-	
-	char omod_d_buf[BUFSZ];
-	FILE *omod_d_fh = fopen(omod_d_fn.c_str(), "wb");
-	if(omod_d_fh == NULL) {
-		cerr << "Could not open output model file \"" << omod_d_fn << "\"" << endl;
-		return -1;
-	}
-	setvbuf(omod_d_fh, omod_d_buf, _IOFBF, BUFSZ);
+	FILEDEC(orec_d_fn, orec_d_fh, orec_d_buf, "feature");
+	FILEDEC(omod_d_fn, omod_d_fh, omod_d_buf, "template record");
 
 	char buf_input_sam[BUFSZ];
 	bool do_simulation = true;
@@ -977,14 +930,7 @@ int main(int argc, char **argv) {
 				  false); // not quiet
 		fclose(fh);
 	}
-	
-	if(do_simulation) {
-		InputModelUnpaired u_model(u_templates);
-		InputModelUnpaired b_model(b_templates);
-		InputModelPaired c_model(c_templates);
-		InputModelPaired d_model(d_templates);
-	}
-	
+
 	fclose(omod_u_fh);
 	fclose(orec_u_fh);
 	fclose(omod_b_fh);
@@ -993,4 +939,31 @@ int main(int argc, char **argv) {
 	fclose(orec_c_fh);
 	fclose(omod_d_fh);
 	fclose(orec_d_fh);
+
+	if(do_simulation) {
+		InputModelUnpaired u_model(u_templates);
+		InputModelUnpaired b_model(b_templates);
+		InputModelPaired c_model(c_templates);
+		InputModelPaired d_model(d_templates);
+		
+		FILEDEC(oread_u_fn, oread_u_fh, oread_u_buf, "FASTQ");
+		FILEDEC(oread_b_fn, oread_b_fh, oread_b_buf, "FASTQ");
+		FILEDEC(oread1_c_fn, oread1_c_fh, oread1_c_buf, "FASTQ");
+		FILEDEC(oread2_c_fn, oread2_c_fh, oread2_c_buf, "FASTQ");
+		FILEDEC(oread1_d_fn, oread1_d_fh, oread1_d_buf, "FASTQ");
+		FILEDEC(oread2_d_fn, oread2_d_fh, oread2_d_buf, "FASTQ");
+
+		StreamingSimulator ss(fastas, 64 * 1024,
+							  u_model, b_model, c_model, d_model,
+							  oread_u_fh, oread_b_fh,
+							  oread1_c_fh, oread2_c_fh,
+							  oread1_d_fh, oread2_d_fh);
+
+		fclose(oread_u_fh);
+		fclose(oread_b_fh);
+		fclose(oread1_c_fh);
+		fclose(oread2_c_fh);
+		fclose(oread1_d_fh);
+		fclose(oread2_d_fh);
+	}
 }
