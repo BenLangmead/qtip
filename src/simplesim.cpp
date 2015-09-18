@@ -228,9 +228,92 @@ static void test2() {
 	assert(strcmp(rd.edit_xscript(), "====") == 0);
 }
 
+static void test3() {
+	SimulatedRead rd;
+	const char *ref = "ACGT";
+	const char *qual = "ABCD";
+	const char *edit_xscript = "=X==";
+	rd.init(ref, qual, edit_xscript,true, 0, "r1", 0);
+	assert(strcmp(rd.mutated_seq(), "ACGT") != 0);
+	assert(rd.mutated_seq()[0] == 'A');
+	assert(rd.mutated_seq()[1] != 'C');
+	assert(rd.mutated_seq()[2] == 'G');
+	assert(rd.mutated_seq()[3] == 'T');
+	assert(strcmp(rd.qual(), "ABCD") == 0);
+	assert(strcmp(rd.edit_xscript(), "=X==") == 0);
+}
+
+static void test4() {
+	SimulatedRead rd;
+	const char *ref = "ACGT";
+	const char *qual = "ABC";
+	const char *edit_xscript = "=D==";
+	rd.init(ref, qual, edit_xscript,true, 0, "r1", 0);
+	assert(strcmp(rd.mutated_seq(), "AGT") == 0);
+	assert(strcmp(rd.qual(), "ABC") == 0);
+	assert(strcmp(rd.edit_xscript(), "=D==") == 0);
+}
+
+static void test5() {
+	SimulatedRead rd;
+	const char *ref = "AGT";
+	const char *qual = "ABCD";
+	const char *edit_xscript = "=I==";
+	rd.init(ref, qual, edit_xscript,true, 0, "r1", 0);
+	assert(rd.mutated_seq()[0] == 'A');
+	assert(rd.mutated_seq()[2] == 'G');
+	assert(rd.mutated_seq()[3] == 'T');
+	assert(strcmp(rd.qual(), "ABCD") == 0);
+	assert(strcmp(rd.edit_xscript(), "=I==") == 0);
+}
+
+/**
+ * A test where we read the FASTQ output and confirm it makes sense.
+ */
+static void test6() {
+	SimulatedRead rd;
+	const char *ref = "ACGT";
+	const char *qual = "ABCD";
+	const char *edit_xscript = "====";
+	const char *fn = ".test6.tmp";
+	{
+		FILE *fh = fopen(fn, "wb");
+		rd.init(ref, qual, edit_xscript, true, 0, "r1", 0);
+		rd.write_unpaired(fh, "hello");
+		fclose(fh);
+	}
+	ifstream t(fn);
+	string str((istreambuf_iterator<char>(t)), istreambuf_iterator<char>());
+	assert(str.rfind("\nACGT\n+\nABCD\n") != string::npos);
+	remove(fn);
+}
+
+static void test7() {
+	SimulatedRead rd;
+	const char *ref = "AAACC";
+	const char *qual = "EDCBA";
+	const char *edit_xscript = "=====";
+	const char *fn = ".test7.tmp";
+	{
+		FILE *fh = fopen(fn, "wb");
+		rd.init(ref, qual, edit_xscript, false, 0, "r1", 0);
+		rd.write_unpaired(fh, "hello");
+		fclose(fh);
+	}
+	ifstream t(fn);
+	string str((istreambuf_iterator<char>(t)), istreambuf_iterator<char>());
+	assert(str.rfind("\nGGTTT\n+\nABCDE\n") != string::npos);
+	remove(fn);
+}
+
 int main(void) {
 	test1();
 	test2();
+	test3();
+	test4();
+	test5();
+	test6();
+	test7();
 	cerr << "ALL TESTS PASSED" << endl;
 }
 #endif
