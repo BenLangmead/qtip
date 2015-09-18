@@ -66,7 +66,7 @@ public:
 		mutate(seq);
 	}
 	
-	void write_unpaired(FILE *fh, const char *typ);
+	void write(FILE *fh, const char *typ);
 	
 	/**
 	 * Return read sequence, as mutated from reference.

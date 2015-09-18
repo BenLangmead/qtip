@@ -86,7 +86,7 @@ char asc2dnacomp[] = {
 /**
  * Write a simulated read to an output file.
  */
-void SimulatedRead::write_unpaired(FILE *fh, const char *typ) {
+void SimulatedRead::write(FILE *fh, const char *typ) {
 	size_t len = strlen(qual_);
 	fprintf(fh, "@%s%s%s%s%c%s%" PRIuPTR "%s%d%s%s\n",
 			startswith, sep,
@@ -141,62 +141,134 @@ void StreamingSimulator::simulate_batch(
 	std::string refid, refid_full;
 	size_t refoff = 0, retsz = 0;
 	SimulatedRead rd1, rd2;
+	int hist[256];
+	const int max_attempts = 10;
 	while(true) {
 		const char * buf = fa_.next(refid, refid_full, refoff, retsz);
 		if(buf == NULL && fa_.done()) {
 			break;
 		}
+		memset(hist, 0, sizeof(int) * 256);
+		for(size_t i = 0; i < retsz; i++) {
+			hist[(int)buf[i]]++;
+		}
+		if(hist['N'] > (int)(0.9 * retsz)) {
+			continue; // mostly Ns
+		}
+		
+		// Maybe N content should affect choice for n*_chances
+		
+		//
+		// Unpaired & bad-end
+		//
+		
 		size_t nu_chances = retsz - model_u_.avg_len() + 1;
 		size_t nb_chances = retsz - model_b_.avg_len() + 1;
-		size_t nc_chances = retsz - model_c_.avg_len() + 1;
-		size_t nd_chances = retsz - model_d_.avg_len() + 1;
 		size_t nu_samp = draw_binomial(nu, float(nu_chances) / tot_fasta_len_);
 		size_t nb_samp = draw_binomial(nb, float(nb_chances) / tot_fasta_len_);
+		for(size_t i = 0; i < nu_samp + nb_samp; i++) {
+			bool unp = i < nu_samp;
+			int attempts = 0;
+			do {
+				if(attempts > max_attempts) {
+					break;
+				}
+				attempts++;
+				const TemplateUnpaired &t = (unp ? model_u_.draw() : model_b_.draw());
+				size_t nslots = retsz - olap_;
+				size_t off = (size_t)(r4_uni_01() * nslots);
+				assert(off < nslots);
+				for(size_t j = off; j < off+t.len_; j++) {
+					if(buf[j] != 'A' && buf[j] != 'C' &&
+					   buf[j] != 'G' && buf[j] != 'T')
+					{
+						// have to worry about the case where the distribution
+						// of Ns in the chunk is such that this loop iterates
+						// many times or forever
+						continue;
+					}
+				}
+				rd1.init(
+					buf + off,
+					t.qual_,
+					t.edit_xscript_,
+					t.fw_flag_ == 'T',
+					t.best_score_,
+					refid.c_str(),
+					refoff + off);
+				const char *lab = unp ? "unp" : (t.mate_flag_ == '1' ?
+												 "bad_end_mate1" :
+												 "bad_end_mate2");
+				rd1.write(unp ? fh_u_ : fh_b_, lab);
+			} while(false);
+		}
+		
+		//
+		// Concordant & discordant
+		//
+		
+		size_t nc_chances = retsz - model_c_.avg_len() + 1;
+		size_t nd_chances = retsz - model_d_.avg_len() + 1;
 		size_t nc_samp = draw_binomial(nc, float(nc_chances) / tot_fasta_len_);
 		size_t nd_samp = draw_binomial(nd, float(nd_chances) / tot_fasta_len_);
-		for(size_t i = 0; i < nu_samp; i++) {
-			const TemplateUnpaired &t = model_u_.draw();
-			size_t nslots = retsz - olap_; // is this right?
-			size_t off = (size_t)(r4_uni_01() * nslots);
-			assert(off < nslots);
-			rd1.init(
-				buf + off,
-				t.qual_,
-				t.edit_xscript_,
-				t.fw_flag_ == 'T',
-				t.best_score_,
-				refid.c_str(),
-				refoff);
-			rd1.write_unpaired(fh_u_, "unp");
-		}
-		for(size_t i = 0; i < nb_samp; i++) {
-			const TemplateUnpaired &t = model_b_.draw();
-			size_t nslots = retsz - olap_; // is this right?
-			size_t off = (size_t)(r4_uni_01() * nslots);
-			assert(off < nslots);
-			rd1.init(
-				buf + off,
-				t.qual_,
-				t.edit_xscript_,
-				t.fw_flag_ == 'T',
-				t.best_score_,
-				refid.c_str(),
-				refoff);
-			rd1.write_unpaired(fh_u_, t.mate_flag_ == '1' ? "bad_end_mate1" : "bad_end_mate2");
-		}
-		for(size_t i = 0; i < nc_samp; i++) {
-			const TemplatePaired &t = model_c_.draw();
-			size_t nslots = retsz - olap_; // is this right?
-			size_t off = (size_t)(r4_uni_01() * nslots);
-			assert(off < nslots);
-			const char *upstream_l = buf + off;
-			const char *downstream_l = buf + t.fraglen_ - t.len_2_;
-		}
-		for(size_t i = 0; i < nd_samp; i++) {
-			const TemplatePaired &t = model_d_.draw();
-			size_t nslots = retsz - olap_; // is this right?
-			size_t off = (size_t)(r4_uni_01() * nslots);
-			assert(off < nslots);
+		for(size_t i = 0; i < nc_samp + nd_samp; i++) {
+			bool conc = i < nc_samp;
+			int attempts = 0;
+			do {
+				if(attempts > max_attempts) {
+					break;
+				}
+				attempts++;
+				const TemplatePaired &t = conc ? model_c_.draw() : model_d_.draw();
+				size_t nslots = retsz - olap_;
+				size_t off = (size_t)(r4_uni_01() * nslots);
+				assert(off < nslots);
+				size_t off_1, off_2;
+				if(t.upstream1_) {
+					off_1 = off;
+					off_2 = off + t.fraglen_ - t.len_2_;
+				} else {
+					off_2 = off;
+					off_1 = off + t.fraglen_ - t.len_1_;
+				}
+				for(size_t j = off_1; j < off_1+t.len_1_; j++) {
+					if(buf[j] != 'A' && buf[j] != 'C' &&
+					   buf[j] != 'G' && buf[j] != 'T')
+					{
+						// have to worry about the case where the distribution
+						// of Ns in the chunk is such that this loop iterates
+						// many times or forever
+						continue;
+					}
+				}
+				for(size_t j = off_2; j < off_2+t.len_2_; j++) {
+					if(buf[j] != 'A' && buf[j] != 'C' &&
+					   buf[j] != 'G' && buf[j] != 'T')
+					{
+						// have to worry about the case where the distribution
+						// of Ns in the chunk is such that this loop iterates
+						// many times or forever
+						continue;
+					}
+				}
+				rd1.init(buf + off_1,
+						 t.qual_1_,
+						 t.edit_xscript_1_,
+						 t.fw_flag_1_ == 'T',
+						 t.score_1_,
+						 refid.c_str(),
+						 refoff + off_1);
+				rd2.init(buf + off_2,
+						 t.qual_2_,
+						 t.edit_xscript_2_,
+						 t.fw_flag_2_ == 'T',
+						 t.score_2_,
+						 refid.c_str(),
+						 refoff + off_2);
+				const char *lab = conc ? "conc" : "disc";
+				rd1.write(conc ? fh_c_1_ : fh_d_1_, lab);
+				rd2.write(conc ? fh_c_2_ : fh_d_2_, lab);
+			} while(false);
 		}
 	}
 }
@@ -279,7 +351,7 @@ static void test6() {
 	{
 		FILE *fh = fopen(fn, "wb");
 		rd.init(ref, qual, edit_xscript, true, 0, "r1", 0);
-		rd.write_unpaired(fh, "hello");
+		rd.write(fh, "hello");
 		fclose(fh);
 	}
 	ifstream t(fn);
@@ -297,7 +369,7 @@ static void test7() {
 	{
 		FILE *fh = fopen(fn, "wb");
 		rd.init(ref, qual, edit_xscript, false, 0, "r1", 0);
-		rd.write_unpaired(fh, "hello");
+		rd.write(fh, "hello");
 		fclose(fh);
 	}
 	ifstream t(fn);

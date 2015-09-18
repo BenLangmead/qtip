@@ -90,7 +90,7 @@ const char *FastaChunkwiseParser::next(
 			}
 		} else if(!isspace(c)) {
 			first = false;
-			*buf++ = c;
+			*buf++ = toupper(c);
 			refoff_++;
 			foff_++;
 			if(buf - buf_ == chunksz_) {
@@ -245,6 +245,7 @@ static void test1() {
 
 int main(void) {
 	test1();
+	cout << "ALL TESTS PASSED" << endl;
 }
 #endif
 

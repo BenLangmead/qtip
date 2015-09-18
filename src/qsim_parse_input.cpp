@@ -831,13 +831,16 @@ static int sam_pass1(FILE *fh,
 	return 0;
 }
 
-#define FILEDEC(fn, fh, buf, typ) char buf[BUFSZ]; \
-	FILE *(fh) = fopen((fn).c_str(), "wb"); \
-	if((fh) == NULL) { \
-		cerr << "Could not open output " << (typ) << " file \"" << (fn) << "\"" << endl; \
-		return -1; \
-	} \
-	setvbuf((fh), (buf), _IOFBF, BUFSZ);
+#define FILEDEC(fn, fh, buf, typ, do_open) \
+	char (buf)[BUFSZ]; \
+	if(do_open) { \
+		FILE *(fh) = fopen((fn).c_str(), "wb"); \
+		if((fh) == NULL) { \
+			cerr << "Could not open output " << (typ) << " file \"" << (fn) << "\"" << endl; \
+			return -1; \
+		} \
+		setvbuf((fh), (buf), _IOFBF, BUFSZ); \
+	}
 
 /**
  * Caller gives path to one or more SAM files, then the final argument is a prefix where all the
@@ -848,68 +851,77 @@ int main(int argc, char **argv) {
 	string orec_b_fn, omod_b_fn, oread_b_fn;
 	string orec_c_fn, omod_c_fn, oread1_c_fn, oread2_c_fn;
 	string orec_d_fn, omod_d_fn, oread1_d_fn, oread2_d_fn;
+	vector<string> fastas, sams;
+	EList<TemplateUnpaired> u_templates, b_templates;
+	EList<TemplatePaired> c_templates, d_templates;
+	char buf_input_sam[BUFSZ];
 	
 	set_seed(77, 777);
 	
-	vector<string> fastas; // TODO: populate somehow
-	vector<string> sams;
+	bool do_input_model = true; // output records related to input model
+	bool do_simulation = true;  // do simulation
+	bool keep_templates = true; // keep templates in memory for simulation
+	assert(keep_templates || !do_simulation);
 
-	for(int i = 1; i < argc; i++) {
-		if(i == argc-1) {
-			string prefix = argv[i];
-			
-			orec_u_fn = prefix + string("_rec_u.csv");
-			orec_b_fn = prefix + string("_rec_b.csv");
-			orec_c_fn = prefix + string("_rec_c.csv");
-			orec_d_fn = prefix + string("_rec_d.csv");
+	// All arguments except last are SAM files to parse.  Final argument is
+	// prefix for output files.
+	{
+		int section = 0;
+		int prefix_set = 0;
+		for(int i = 1; i < argc; i++) {
+			if(strcmp(argv[i], "--") == 0) {
+				section++;
+				continue;
+			}
+			if(section == 0) {
+				sams.push_back(string(argv[i]));
+			} else if(section == 1) {
+				fastas.push_back(string(argv[i]));
+			} else {
+				string prefix = argv[i];
+				prefix_set++;
+				
+				orec_u_fn = prefix + string("_rec_u.csv");
+				orec_b_fn = prefix + string("_rec_b.csv");
+				orec_c_fn = prefix + string("_rec_c.csv");
+				orec_d_fn = prefix + string("_rec_d.csv");
 
-			omod_u_fn = prefix + string("_mod_u.csv");
-			omod_b_fn = prefix + string("_mod_b.csv");
-			omod_c_fn = prefix + string("_mod_c.csv");
-			omod_d_fn = prefix + string("_mod_d.csv");
+				omod_u_fn = prefix + string("_mod_u.csv");
+				omod_b_fn = prefix + string("_mod_b.csv");
+				omod_c_fn = prefix + string("_mod_c.csv");
+				omod_d_fn = prefix + string("_mod_d.csv");
 
-			oread_u_fn = prefix + string("_reads_u.fastq");
-			oread_b_fn = prefix + string("_reads_b.fastq");
-			oread1_c_fn = prefix + string("_reads_c_1.fastq");
-			oread1_d_fn = prefix + string("_reads_d_1.fastq");
-			oread2_c_fn = prefix + string("_reads_c_2.fastq");
-			oread2_d_fn = prefix + string("_reads_d_2.fastq");
-		} else {
-			sams.push_back(string(argv[i]));
+				oread_u_fn = prefix + string("_reads_u.fastq");
+				oread_b_fn = prefix + string("_reads_b.fastq");
+				oread1_c_fn = prefix + string("_reads_c_1.fastq");
+				oread1_d_fn = prefix + string("_reads_d_1.fastq");
+				oread2_c_fn = prefix + string("_reads_c_2.fastq");
+				oread2_d_fn = prefix + string("_reads_d_2.fastq");
+			}
+			if(prefix_set > 1) {
+				cerr << "Warning: More than output prefix specified; using last one: \"" << prefix << "\"" << endl;
+			}
+		}
+		if(sams.empty() || !prefix_set) {
+			cerr << "Usage: qsim_parse_input [sam]* -- [fasta]* -- [output prefix]" << endl;
 		}
 	}
 	
-	if(sams.empty()) {
-		cerr << "Usage: qsim_parse_input [sam]* [output prefix]" << endl;
-		return 1;
-	}
-	
 	// Unpaired
-	FILEDEC(orec_u_fn, orec_u_fh, orec_u_buf, "feature");
-	FILEDEC(omod_u_fn, omod_u_fh, omod_u_buf, "template record");
+	FILEDEC(orec_u_fn, orec_u_fh, orec_u_buf, "feature", true);
+	FILEDEC(omod_u_fn, omod_u_fh, omod_u_buf, "template record", do_input_model);
 	
 	// Bad-end
-	FILEDEC(orec_b_fn, orec_b_fh, orec_b_buf, "feature");
-	FILEDEC(omod_b_fn, omod_b_fh, omod_b_buf, "template record");
+	FILEDEC(orec_b_fn, orec_b_fh, orec_b_buf, "feature", true);
+	FILEDEC(omod_b_fn, omod_b_fh, omod_b_buf, "template record", do_input_model);
 	
 	// Concordant
-	FILEDEC(orec_c_fn, orec_c_fh, orec_c_buf, "feature");
-	FILEDEC(omod_c_fn, omod_c_fh, omod_c_buf, "template record");
+	FILEDEC(orec_c_fn, orec_c_fh, orec_c_buf, "feature", true);
+	FILEDEC(omod_c_fn, omod_c_fh, omod_c_buf, "template record", do_input_model);
 	
 	// Discordant
-	FILEDEC(orec_d_fn, orec_d_fh, orec_d_buf, "feature");
-	FILEDEC(omod_d_fn, omod_d_fh, omod_d_buf, "template record");
-
-	char buf_input_sam[BUFSZ];
-	bool do_simulation = true;
-	bool keep_templates = true;
-	
-	assert(keep_templates || !do_simulation);
-	
-	EList<TemplateUnpaired> u_templates;
-	EList<TemplateUnpaired> b_templates;
-	EList<TemplatePaired> c_templates;
-	EList<TemplatePaired> d_templates;
+	FILEDEC(orec_d_fn, orec_d_fh, orec_d_buf, "feature", true);
+	FILEDEC(omod_d_fn, omod_d_fh, omod_d_buf, "template record", do_input_model);
 
 	for(size_t i = 0; i < sams.size(); i++) {
 		FILE *fh = fopen(sams[i].c_str(), "rb");
@@ -946,14 +958,14 @@ int main(int argc, char **argv) {
 		InputModelPaired c_model(c_templates);
 		InputModelPaired d_model(d_templates);
 		
-		FILEDEC(oread_u_fn, oread_u_fh, oread_u_buf, "FASTQ");
-		FILEDEC(oread_b_fn, oread_b_fh, oread_b_buf, "FASTQ");
-		FILEDEC(oread1_c_fn, oread1_c_fh, oread1_c_buf, "FASTQ");
-		FILEDEC(oread2_c_fn, oread2_c_fh, oread2_c_buf, "FASTQ");
-		FILEDEC(oread1_d_fn, oread1_d_fh, oread1_d_buf, "FASTQ");
-		FILEDEC(oread2_d_fn, oread2_d_fh, oread2_d_buf, "FASTQ");
+		FILEDEC(oread_u_fn, oread_u_fh, oread_u_buf, "FASTQ", true);
+		FILEDEC(oread_b_fn, oread_b_fh, oread_b_buf, "FASTQ", true);
+		FILEDEC(oread1_c_fn, oread1_c_fh, oread1_c_buf, "FASTQ", true);
+		FILEDEC(oread2_c_fn, oread2_c_fh, oread2_c_buf, "FASTQ", true);
+		FILEDEC(oread1_d_fn, oread1_d_fh, oread1_d_buf, "FASTQ", true);
+		FILEDEC(oread2_d_fn, oread2_d_fh, oread2_d_buf, "FASTQ", true);
 
-		StreamingSimulator ss(fastas, 64 * 1024,
+		StreamingSimulator ss(fastas, 128 * 1024,
 							  u_model, b_model, c_model, d_model,
 							  oread_u_fh, oread_b_fh,
 							  oread1_c_fh, oread2_c_fh,
