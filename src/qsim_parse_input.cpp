@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+#include <inttypes.h>
 #include "ds.h"
 #include "template.h"
 #include "input_model.h"
@@ -14,6 +15,11 @@
 #include "simplesim.h"
 
 using namespace std;
+
+// TODO:
+// 1. Make soft clipping work
+// 2. Make simulator's interface, and overall interface, more full featured
+// 3. Check that correctness checking works for both kinds of simulated reads
 
 /**
  * Two kinds of output records.
@@ -102,7 +108,6 @@ struct Alignment {
 		cigar = NULL;
 		rnext = NULL;
 		pnext = 0;
-		tlen = 0;
 		seq = NULL;
 		len = 0;
 		qual = NULL;
@@ -139,6 +144,44 @@ struct Alignment {
 	
 	inline char mate_flag() const {
 		return ((flag & 64) != 0) ? '1' : (((flag & 128) != 0) ? '2' : '0');
+	}
+	
+	/**
+	 * Return fragment length, as inferred from pos & CIGAR.  Don't rely on
+	 * tlen, where there's ambiguity about how to treat soft clipping.
+	 */
+	static size_t fragment_length(const Alignment& al1, const Alignment& al2) {
+		const Alignment& up = (al1.pos < al2.pos) ? al1 : al2;
+		const Alignment& dn = (al1.pos < al2.pos) ? al2 : al1;
+		return dn.rpos() - up.lpos() + 1;
+	}
+	
+	/**
+	 * Return leftmost reference pos involved in the alignment, considering
+	 * soft clipped bases as being included in the alignment.
+	 */
+	size_t lpos() const {
+		assert(!cigar_ops.empty());
+		return pos - left_clip;
+	}
+	
+	/**
+	 * Return rightmost reference pos involved in the alignment, considering
+	 * soft clipped bases as being included in the alignment.
+	 */
+	size_t rpos() const {
+		assert(!edit_xscript.empty());
+		size_t mv = 0;
+		const char *xs = edit_xscript.ptr();
+		while(*xs++ == 'S');
+		assert(*xs != '\0');
+		while(*xs != '\0') {
+			if(*xs == 'S' || *xs == 'D' || *xs == 'X' || *xs == '=') {
+				mv++;
+			}
+			xs++;
+		}
+		return pos + mv - 1;
 	}
 	
 	/**
@@ -263,10 +306,7 @@ struct Alignment {
 		for(size_t i = 0; i < cigar_run.size(); i++) {
 			char cop = cigar_ops[i];
 			int crun = cigar_run[i];
-			assert(cop != 'M');
-			if(cop == 'S') {
-				// TODO: insert something else here
-			}
+			assert(cop != 'M' && cop != 'P');
 			for(int j = 0; j < crun; j++) {
 				edit_xscript.push_back(cop);
 			}
@@ -336,7 +376,9 @@ struct Alignment {
 					edit_xscript.push_back('N');
 				}
 			} else if(cop == 'S') {
-				// TODO: insert something else hwere
+				for(size_t j = 0; j < crun; j++) {
+					edit_xscript.push_back('S');
+				}
 				rdoff += crun;
 			} else if(cop == 'H') {
 				// pass
@@ -385,7 +427,6 @@ struct Alignment {
 						for(size_t j = st_m; j < st_m + run_m; j++) {
 							rf_aln_buf.push_back(mdz_char[j]);
 						}
-						// TODO: assert that all added characters mismatch
 					}
 					mdrun += run_comb;
 					rdoff += run_comb;
@@ -591,12 +632,11 @@ struct Alignment {
 	char *qname;
 	int flag;
 	char *rname;
-	int pos;
+	size_t pos;
 	int mapq;
 	char *cigar;
 	char *rnext;
 	int pnext;
-	int tlen;
 	char *seq;
 	size_t len;
 	char *qual;
@@ -636,7 +676,7 @@ static char * parse_from_rname_on(Alignment& al) {
 	assert(al.rest_of_line != NULL);
 	al.rname = strtok(al.rest_of_line, "\t"); assert(al.rname != NULL);
 	char *pos_str = strtok(NULL, "\t"); assert(pos_str != NULL);
-	al.pos = atoi(pos_str);
+	al.pos = (size_t)atoll(pos_str);
 	char *mapq_str = strtok(NULL, "\t"); assert(mapq_str != NULL);
 	al.mapq = atoi(mapq_str);
 	assert(al.mapq < 256);
@@ -645,8 +685,7 @@ static char * parse_from_rname_on(Alignment& al) {
 	al.rnext = strtok(NULL, "\t"); assert(al.rnext != NULL);
 	char *pnext_str = strtok(NULL, "\t"); assert(pnext_str != NULL);
 	al.pnext = atoi(pnext_str);
-	char *tlen_str = strtok(NULL, "\t"); assert(tlen_str != NULL);
-	al.tlen = atoi(tlen_str);
+	strtok(NULL, "\t"); // ignore tlen
 	al.seq = strtok(NULL, "\t"); assert(al.seq != NULL);
 	al.len = strlen(al.seq);
 	al.qual = strtok(NULL, "\t"); assert(al.qual != NULL);
@@ -673,8 +712,6 @@ static void print_unpaired(
 	al.best_score = atoi(ztz_tok);
 	char fw_flag = al.is_fw() ? 'T' : 'F';
 	
-	/* TODO: add correct/incorrect info */
-	
 	if(fh_model != NULL) {
 		// Output information relevant to input model
 		fprintf(fh_model, "%d,%c,%s,%u,%c,%u,%s\n",
@@ -700,10 +737,10 @@ static void print_unpaired(
 	
 	if(fh_recs != NULL) {
 		// Output information relevant to MAPQ model
-		fprintf(fh_recs, "%u,%d,%d",
+		fprintf(fh_recs, "%u,%d,%" PRIuPTR,
 				(unsigned)al.len,
 				al.mapq,
-				al.tlen);
+				(uintptr_t)ordlen);
 		
 		// ... including all the ZT:Z fields
 		while(ztz_tok != NULL) {
@@ -735,14 +772,10 @@ static void print_paired(
 	al1.best_score = atoi(ztz_tok1);
 	char fw_flag1 = al1.is_fw() ? 'T' : 'F';
 	
-	int fraglen = abs(al1.tlen);
+	size_t fraglen = Alignment::fragment_length(al1, al2);
 	bool upstream1 = al1.pos < al2.pos;
 	assert(al1.cigar != NULL);
 	assert(al2.cigar != NULL);
-	fraglen += (upstream1 ? al1.left_clip : al2.left_clip);
-	fraglen += (upstream1 ? al2.right_clip : al1.right_clip);
-	
-	/* TODO: add correct/incorrect info */
 	
 	if(fh_recs != NULL) {
 		
@@ -751,7 +784,7 @@ static void print_paired(
 		//
 		
 		// Output information relevant to input model
-		fprintf(fh_recs, "%u,%d,%u,%d,%d",
+		fprintf(fh_recs, "%u,%d,%u,%d,%" PRIuPTR,
 				(unsigned)al1.len,
 				al1.mapq,
 				(unsigned)al2.len,
@@ -781,12 +814,12 @@ static void print_paired(
 		//
 		
 		// Output information relevant to input model
-		fprintf(fh_recs, ",%u,%d,%u,%d,%d",
+		fprintf(fh_recs, ",%u,%d,%u,%d,%" PRIuPTR,
 				(unsigned)al2.len,
 				al2.mapq,
 				(unsigned)al1.len,
 				al1.mapq,
-				fraglen);
+				(uintptr_t)fraglen);
 		// ... including all the ZT:Z fields
 		while(ztz_tok2 != NULL) {
 			size_t toklen = strlen(ztz_tok2);
@@ -803,7 +836,7 @@ static void print_paired(
 	
 	if(fh_model != NULL) {
 		// Output information relevant to input model
-		fprintf(fh_model, "%d,%c,%s,%d,%u,%s,%c,%s,%d,%u,%s,%d,%c\n",
+		fprintf(fh_model, "%d,%c,%s,%d,%u,%s,%c,%s,%d,%u,%s,%c,%" PRIuPTR "\n",
 				al1.best_score + al2.best_score,
 				fw_flag1,
 				al1.qual,
@@ -816,7 +849,7 @@ static void print_paired(
 				(unsigned)al2.len,
 				al2.edit_xscript.ptr(),
 				upstream1 ? 'T' : 'F',
-				fraglen);
+				(uintptr_t)fraglen);
 	}
 
 	if(paired_model != NULL) {
@@ -842,20 +875,21 @@ static void print_paired(
  * Read the input SAM file while simultaneously writing out records used to
  * train a MAPQ model as well as records used to build an input model.
  */
-static int sam_pass1(FILE *fh,
-					 const string& orec_u_fn, FILE *orec_u_fh,
-					 const string& omod_u_fn, FILE *omod_u_fh,
-					 const string& orec_b_fn, FILE *orec_b_fh,
-					 const string& omod_b_fn, FILE *omod_b_fh,
-					 const string& orec_c_fn, FILE *orec_c_fh,
-					 const string& omod_c_fn, FILE *omod_c_fh,
-					 const string& orec_d_fn, FILE *orec_d_fh,
-					 const string& omod_d_fn, FILE *omod_d_fh,
-					 EList<TemplateUnpaired> *u_templates,
-					 EList<TemplateUnpaired> *b_templates,
-					 EList<TemplatePaired> *c_templates,
-					 EList<TemplatePaired> *d_templates,
-					 bool quiet)
+static int sam_pass1(
+	FILE *fh,
+	const string& orec_u_fn, FILE *orec_u_fh,
+	const string& omod_u_fn, FILE *omod_u_fh,
+	const string& orec_b_fn, FILE *orec_b_fh,
+	const string& omod_b_fn, FILE *omod_b_fh,
+	const string& orec_c_fn, FILE *orec_c_fh,
+	const string& omod_c_fn, FILE *omod_c_fh,
+	const string& orec_d_fn, FILE *orec_d_fh,
+	const string& omod_d_fn, FILE *omod_d_fh,
+	EList<TemplateUnpaired> *u_templates,
+	EList<TemplateUnpaired> *b_templates,
+	EList<TemplatePaired> *c_templates,
+	EList<TemplatePaired> *d_templates,
+	bool quiet)
 {
 	/* Advise the kernel of our access pattern.  */
 	/* posix_fadvise(fd, 0, 0, 1); */ /* FDADVICE_SEQUENTIAL */

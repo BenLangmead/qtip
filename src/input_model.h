@@ -27,8 +27,8 @@ public:
 		fraglen_avg_ = 0.0f;
 		fraglen_max_ = 0;
 		for(size_t i = 0; i < ts.size(); i++) {
-			fraglen_avg_ += ((float)ts[i].len_ / ts.size());
-			fraglen_max_ = std::max(fraglen_max_, (size_t)ts[i].len_);
+			fraglen_avg_ += ((float)ts[i].reflen() / ts.size());
+			fraglen_max_ = std::max(fraglen_max_, (size_t)ts[i].reflen());
 		}
 	}
 	

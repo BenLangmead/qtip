@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "edit_xscript.h"
 
 /*
  * Encapsulates:
@@ -71,6 +72,14 @@ struct TemplateUnpaired {
 			free(edit_xscript_);
 			edit_xscript_ = NULL;
 		}
+	}
+	
+	/**
+	 * Return number of reference characters involved in alignment, as
+	 * indicated by edit transcript.
+	 */
+	size_t reflen() const {
+		return edit_xscript_to_rflen(edit_xscript_);
 	}
 	
 	int best_score_;

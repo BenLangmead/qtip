@@ -13,6 +13,7 @@
 #include "simplesim.h"
 #include "fasta.h"
 #include "rnglib.hpp"
+#include "edit_xscript.h"
 
 using namespace std;
 
@@ -45,6 +46,9 @@ void SimulatedRead::mutate(const char *seq) {
 		} else if(edit_xscript_[i] == 'I') {
 			seq_buf_[rdoff++] = "ACGT"[(int)(r4_uni_01() * 4)];
 		} else if(edit_xscript_[i] == 'D') {
+			rfoff++;
+		} else if(edit_xscript_[i] == 'S') {
+			seq_buf_[rdoff++] = "ACGT"[(int)(r4_uni_01() * 4)];
 			rfoff++;
 		} else {
 			throw 1;
@@ -155,12 +159,6 @@ void SimulatedRead::write_pair(
 	}
 }
 
-/*
-rdname = "!!ts-sep!!".join(["!!ts!!",
-							refid1, "+" if fw1 else "-", str(refoff1), str(sc1),
-							refid2, "+" if fw2 else "-", str(refoff2), str(sc2), training_nm])
-*/
-
 /**
  * Simulate a batch of reads
  */
@@ -227,14 +225,11 @@ void StreamingSimulator::simulate_batch(
 				size_t nslots = retsz - olap_;
 				size_t off = (size_t)(r4_uni_01() * nslots);
 				assert(off < nslots);
-				for(size_t j = off; j < off+t.len_; j++) {
-					if(buf[j] != 'A' && buf[j] != 'C' &&
-					   buf[j] != 'G' && buf[j] != 'T')
-					{
-						// have to worry about the case where the distribution
-						// of Ns in the chunk is such that this loop iterates
-						// many times or forever
-						continue;
+				const size_t rflen = t.reflen();
+				for(size_t j = off; j < off + rflen; j++) {
+					const int b = buf[j];
+					if(b != 'A' && b != 'C' && b != 'G' && b != 'T') {
+						continue; // uses 1 attempt
 					}
 				}
 				rd1.init(
@@ -274,31 +269,25 @@ void StreamingSimulator::simulate_batch(
 				size_t off = (size_t)(r4_uni_01() * nslots);
 				assert(off < nslots);
 				size_t off_1, off_2;
+				const size_t rflen_1 = edit_xscript_to_rflen(t.edit_xscript_1_);
+				const size_t rflen_2 = edit_xscript_to_rflen(t.edit_xscript_2_);
 				if(t.upstream1_) {
 					off_1 = off;
-					off_2 = off + t.fraglen_ - t.len_2_;
+					off_2 = off + t.fraglen_ - rflen_2;
 				} else {
 					off_2 = off;
-					off_1 = off + t.fraglen_ - t.len_1_;
+					off_1 = off + t.fraglen_ - rflen_1;
 				}
-				for(size_t j = off_1; j < off_1+t.len_1_; j++) {
-					if(buf[j] != 'A' && buf[j] != 'C' &&
-					   buf[j] != 'G' && buf[j] != 'T')
-					{
-						// have to worry about the case where the distribution
-						// of Ns in the chunk is such that this loop iterates
-						// many times or forever
-						continue;
+				for(size_t j = off_1; j < off_1 + rflen_1; j++) {
+					const int b = buf[j];
+					if(b != 'A' && b != 'C' && b != 'G' && b != 'T') {
+						continue; // uses 1 attempt
 					}
 				}
-				for(size_t j = off_2; j < off_2+t.len_2_; j++) {
-					if(buf[j] != 'A' && buf[j] != 'C' &&
-					   buf[j] != 'G' && buf[j] != 'T')
-					{
-						// have to worry about the case where the distribution
-						// of Ns in the chunk is such that this loop iterates
-						// many times or forever
-						continue;
+				for(size_t j = off_2; j < off_2 + rflen_2; j++) {
+					const int b = buf[j];
+					if(b != 'A' && b != 'C' && b != 'G' && b != 'T') {
+						continue; // uses 1 attempt
 					}
 				}
 				rd1.init(buf + off_1,
