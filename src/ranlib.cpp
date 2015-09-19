@@ -1538,15 +1538,14 @@ int ignpoi ( float mu )
   float c3;
   float d;
   float del;
-  float difmuk;
+  float difmuk = 0.0f;
   float e;
   const float fact[10] = { 1.0, 1.0, 2.0, 6.0, 24.0, 
     120.0, 720.0, 5040.0, 40320.0, 362880.0 };
-  float fk;
+  float fk = 0.0f;
   float fx;
   float fy;
   float g;
-  int j;
   int k;
   int kflag;
   int l;
@@ -1559,9 +1558,9 @@ int ignpoi ( float mu )
   float q;
   float s;
   float t;
-  float u;
+  float u = 0.0f;
   float v;
-  int value;
+  int value = 0;
   float x;
   float xx;
 //
@@ -1905,7 +1904,7 @@ int lennob ( char *s )
   int n;
   char *t;
 
-  n = strlen ( s );
+  n = (int)strlen ( s );
   t = s + strlen ( s ) - 1;
 
   while ( 0 < n )
@@ -1998,7 +1997,7 @@ void phrtsd ( char *phrase, int &seed1, int &seed2 )
 //
     else
     {
-      ichr = cstar - table + 1;
+      ichr = (int)(cstar - table + 1);
       ichr = ichr % 64;
       if ( ichr == 0 )
       {
@@ -2566,8 +2565,8 @@ int s_eqi ( char *s1, char *s2 )
   int nchar1;
   int nchar2;
 
-  nchar1 = strlen ( s1 );
-  nchar2 = strlen ( s2 );
+  nchar1 = (int)strlen ( s1 );
+  nchar2 = (int)strlen ( s2 );
   if ( nchar1 < nchar2 )
   {
     nchar = nchar1;

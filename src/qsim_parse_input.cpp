@@ -118,6 +118,7 @@ struct Alignment {
 		cigar_run.clear();
 		mdz_char.clear();
 		mdz_oro.clear();
+		correct = -1;
 	}
 	
 	inline bool is_aligned() const {
@@ -163,7 +164,12 @@ struct Alignment {
 		if(cigar != NULL && mdz != NULL && !cigar_equal_x) {
 			cigar_and_mdz_to_edit_xscript();
 		}
-		assert(ztz != NULL);
+		if(ztz == NULL) {
+			cerr << "Input SAM file did not have ZT:Z field.  Be sure to run"
+			     << " a version of the aligner that produces the output needed"
+			     << " for qsim." << endl;
+			throw 1;
+		}
 		char *ztz_tok = strtok(ztz, ",");
 		assert(ztz_tok != NULL);
 		return ztz_tok;
@@ -432,6 +438,154 @@ struct Alignment {
 		rf_aln_buf.push_back(0);
 	}
 	
+	/**
+	 * If the read has a recognizable simulated read name, set the 'correct'
+	 * field to 0/1 according to whether the alignment is correct.  Otherwise
+	 * leave it as -1.
+	 */
+	void set_correctness(int wiggle) {
+		assert(correct == -1);
+		assert(is_aligned());
+		const size_t rname_len = strlen(rname);
+		if(strncmp(qname, sim_startswith, strlen(sim_startswith)) == 0) {
+			correct = 0;
+			// This is read simulated by qsim
+			char *qname_cur = qname +strlen(sim_startswith);
+			const size_t sep_len = strlen(sim_sep);
+			assert(strncmp(qname_cur, sim_sep, sep_len) == 0);
+			qname_cur += sep_len;
+			if(strncmp(qname_cur, rname, rname_len) != 0) {
+				return;
+			}
+			qname_cur += rname_len;
+			if(strncmp(qname_cur, sim_sep, sep_len) != 0) {
+				return;
+			}
+			qname_cur += sep_len;
+			// now pointing to fw +/- flag
+			char fw_flag = is_fw() ? '+' : '-';
+			if(qname_cur[0] != fw_flag) {
+				return;
+			}
+			qname_cur++;
+			if(strncmp(qname_cur, sim_sep, sep_len) != 0) {
+				return;
+			}
+			qname_cur += sep_len;
+			// now pointing to refoff
+			size_t refoff = 0;
+			while(isdigit(*qname_cur)) {
+				refoff *= 10;
+				refoff += (int)(*qname_cur++ - '0');
+			}
+			if(abs((int)(refoff - pos)) >= wiggle) {
+				return;
+			}
+			if(strncmp(qname_cur, sim_sep, sep_len) != 0) {
+				return;
+			}
+			qname_cur += sep_len;
+			// now pointing to score
+			int score = 0;
+			while(isdigit(*qname_cur)) {
+				score *= 10;
+				score += (int)(*qname_cur++ - '0');
+			}
+			if(strncmp(qname_cur, sim_sep, sep_len) != 0) {
+				return;
+			}
+			qname_cur += sep_len;
+			correct = 1;
+		} else {
+			// This may still be a simulated read; depends on whether input
+			// data was simulated.  Here we only check if it has a very special
+			// read name format that's based on wgsim's.  That's the format
+			// used by the qsim script for simulating input reads.
+			
+			// Example: 11_25006153_25006410_0:0:0_0:0:0_100_100_1_1/1
+			//           ^ refid
+			//             ^ frag start (1-based)
+			//                      ^ frag end (1-based)
+			//                                           ^ len1
+			//                                               ^ len2
+			//                                                   ^ flip
+			const size_t qname_len = strlen(qname);
+			int nund = 0, ncolon = 0;
+			for(size_t i = 0; i < qname_len; i++) {
+				if(qname[i] == '_') {
+					nund++;
+				} else if(qname[i] == ':') {
+					ncolon++;
+				}
+			}
+			if(nund == 8 && ncolon == 4) {
+				char *qname_cur = qname;
+				correct = 0;
+				if(strncmp(qname_cur, rname, rname_len) != 0) {
+					return;
+				}
+				qname_cur += rname_len;
+				if(*qname_cur++ != '_') {
+					return;
+				}
+				size_t frag_start = 0;
+				while(isdigit(*qname_cur)) {
+					frag_start *= 10;
+					frag_start += (int)(*qname_cur++ - '0');
+				}
+				if(*qname_cur++ != '_') {
+					return;
+				}
+				size_t frag_end = 0;
+				while(isdigit(*qname_cur)) {
+					frag_end *= 10;
+					frag_end += (int)(*qname_cur++ - '0');
+				}
+				if(*qname_cur++ != '_') {
+					return;
+				}
+				// skip over all the colons
+				while(ncolon > 0) {
+					if(*qname_cur++ == ':') {
+						ncolon--;
+					}
+				}
+				while(isdigit(*qname_cur++));
+				if(*qname_cur++ != '_') {
+					return;
+				}
+				qname_cur++;
+				int len1 = 0;
+				while(isdigit(*qname_cur)) {
+					len1 *= 10;
+					len1 += (int)(*qname_cur++ - '0');
+				}
+				if(*qname_cur++ != '_') {
+					return;
+				}
+				int len2 = 0;
+				while(isdigit(*qname_cur)) {
+					len2 *= 10;
+					len2 += (int)(*qname_cur++ - '0');
+				}
+				if(*qname_cur++ != '_') {
+					return;
+				}
+				assert(*qname_cur == '0' || *qname_cur == '1');
+				bool flip = (*qname_cur == '1');
+				bool mate1 = mate_flag() != '2';
+				int len = (mate1 ? len1 : len2);
+				if(!flip == mate1) {
+					// left end of fragment
+					correct = abs((int)(pos - (frag_start - 1))) < wiggle;
+				} else {
+					// right end of fragment
+					correct = abs((int)(pos - (frag_end - len))) < wiggle;
+				}
+			}
+		}
+	}
+	
 	char *rest_of_line;
 	bool valid;
 	char *qname;
@@ -451,6 +605,7 @@ struct Alignment {
 	int best_score;
 	int left_clip;
 	int right_clip;
+	int correct;
 	
 	// For holding stacked alignment result
 	EList<char> rf_aln_buf;
@@ -499,6 +654,8 @@ static char * parse_from_rname_on(Alignment& al) {
 	return al.rest_of_line;
 }
 
+int wiggle = 30;
+
 /**
  * No guarantee about state of strtok upon return.
  */
@@ -511,6 +668,7 @@ static void print_unpaired(
 {
 	assert(al.is_aligned());
 	char *extra = parse_from_rname_on(al);
+	al.set_correctness(wiggle);
 	char *ztz_tok = al.parse_extra(extra);
 	al.best_score = atoi(ztz_tok);
 	char fw_flag = al.is_fw() ? 'T' : 'F';
@@ -570,6 +728,8 @@ static void print_paired(
 	
 	char *extra1 = parse_from_rname_on(al1);
 	char *extra2 = parse_from_rname_on(al2);
+	al1.set_correctness(wiggle);
+	al2.set_correctness(wiggle);
 	
 	char *ztz_tok1 = al1.parse_extra(extra1);
 	al1.best_score = atoi(ztz_tok1);
@@ -683,10 +843,14 @@ static void print_paired(
  * train a MAPQ model as well as records used to build an input model.
  */
 static int sam_pass1(FILE *fh,
-					 FILE *orec_u_fh, FILE *omod_u_fh,
-					 FILE *orec_b_fh, FILE *omod_b_fh,
-					 FILE *orec_c_fh, FILE *omod_c_fh,
-					 FILE *orec_d_fh, FILE *omod_d_fh,
+					 const string& orec_u_fn, FILE *orec_u_fh,
+					 const string& omod_u_fn, FILE *omod_u_fh,
+					 const string& orec_b_fn, FILE *orec_b_fh,
+					 const string& omod_b_fn, FILE *omod_b_fh,
+					 const string& orec_c_fn, FILE *orec_c_fh,
+					 const string& omod_c_fn, FILE *omod_c_fh,
+					 const string& orec_d_fn, FILE *orec_d_fh,
+					 const string& omod_d_fn, FILE *omod_d_fh,
 					 EList<TemplateUnpaired> *u_templates,
 					 EList<TemplateUnpaired> *b_templates,
 					 EList<TemplatePaired> *c_templates,
@@ -816,30 +980,35 @@ static int sam_pass1(FILE *fh,
 	}
 	
 	if(!quiet) {
-		fprintf(stderr, "%d lines\n", nline);
-		fprintf(stderr, "%d ignored b/c secondary\n", nignored);
-		fprintf(stderr, "%d unpaired\n", nunp);
-		fprintf(stderr, "    %d aligned\n", nunp_al);
-		fprintf(stderr, "    %d unaligned\n", nunp_unal);
-		fprintf(stderr, "%d paired-end\n", npair);
-		fprintf(stderr, "    %d concordant\n", npair_conc);
-		fprintf(stderr, "    %d discordant\n", npair_disc);
-		fprintf(stderr, "    %d bad-end\n", npair_badend);
-		fprintf(stderr, "    %d unaligned\n", npair_unal);
+		cerr << "  " << nline << " lines" << endl;
+		cerr << "  " << nignored << " ignored b/c secondary" << endl;
+		cerr << "  " << nunp << " unpaired" << endl;
+		if(nunp > 0) {
+			cerr << "    " << nunp_al << " aligned" << endl;
+			cerr << "    " << nunp_unal << " unaligned" << endl;
+		}
+		cerr << "  " << npair << " paired-end" << endl;
+		if(npair > 0) {
+			cerr << "    " << npair_conc << " concordant" << endl;
+			cerr << "    " << npair_disc << " discordant" << endl;
+			cerr << "    " << npair_badend << " bad-end" << endl;
+			cerr << "    " << npair_unal << " unaligned" << endl;
+		}
 	}
 	
 	return 0;
 }
 
 #define FILEDEC(fn, fh, buf, typ, do_open) \
-	char (buf)[BUFSZ]; \
+	char buf [BUFSZ]; \
+	FILE * fh = NULL; \
 	if(do_open) { \
-		FILE *(fh) = fopen((fn).c_str(), "wb"); \
-		if((fh) == NULL) { \
-			cerr << "Could not open output " << (typ) << " file \"" << (fn) << "\"" << endl; \
+		fh = fopen( fn .c_str(), "wb"); \
+		if(fh == NULL) { \
+			cerr << "Could not open output " << typ << " file \"" << fn << "\"" << endl; \
 			return -1; \
 		} \
-		setvbuf((fh), (buf), _IOFBF, BUFSZ); \
+		setvbuf(fh, buf, _IOFBF, BUFSZ); \
 	}
 
 /**
@@ -851,6 +1020,7 @@ int main(int argc, char **argv) {
 	string orec_b_fn, omod_b_fn, oread_b_fn;
 	string orec_c_fn, omod_c_fn, oread1_c_fn, oread2_c_fn;
 	string orec_d_fn, omod_d_fn, oread1_d_fn, oread2_d_fn;
+	string prefix;
 	vector<string> fastas, sams;
 	EList<TemplateUnpaired> u_templates, b_templates;
 	EList<TemplatePaired> c_templates, d_templates;
@@ -858,9 +1028,10 @@ int main(int argc, char **argv) {
 	
 	set_seed(77, 777);
 	
-	bool do_input_model = true; // output records related to input model
-	bool do_simulation = true;  // do simulation
-	bool keep_templates = true; // keep templates in memory for simulation
+	bool do_input_model = false; // output records related to input model
+	bool do_simulation = false;  // do simulation
+	bool do_features = false; // output records related to training/prediction
+	bool keep_templates = false; // keep templates in memory for simulation
 	assert(keep_templates || !do_simulation);
 
 	// All arguments except last are SAM files to parse.  Final argument is
@@ -874,11 +1045,24 @@ int main(int argc, char **argv) {
 				continue;
 			}
 			if(section == 0) {
-				sams.push_back(string(argv[i]));
+				for(size_t j = 0; j < strlen(argv[i]); j++) {
+					if(argv[i][j] == 's') {
+						do_simulation = true;
+					} else if(argv[i][j] == 'i') {
+						do_input_model = true;
+					} else if(argv[i][j] == 'f') {
+						do_features = true;
+					} else {
+						cerr << "Warning: unrecognized option '" << argv[i][j]
+						     << "'" << endl;
+					}
+				}
 			} else if(section == 1) {
+				sams.push_back(string(argv[i]));
+			} else if(section == 2) {
 				fastas.push_back(string(argv[i]));
 			} else {
-				string prefix = argv[i];
+				prefix = argv[i];
 				prefix_set++;
 				
 				orec_u_fn = prefix + string("_rec_u.csv");
@@ -906,51 +1090,69 @@ int main(int argc, char **argv) {
 			cerr << "Usage: qsim_parse_input [sam]* -- [fasta]* -- [output prefix]" << endl;
 		}
 	}
+	keep_templates = do_simulation;
 	
-	// Unpaired
-	FILEDEC(orec_u_fn, orec_u_fh, orec_u_buf, "feature", true);
+	FILEDEC(orec_u_fn, orec_u_fh, orec_u_buf, "feature", do_features);
 	FILEDEC(omod_u_fn, omod_u_fh, omod_u_buf, "template record", do_input_model);
-	
-	// Bad-end
-	FILEDEC(orec_b_fn, orec_b_fh, orec_b_buf, "feature", true);
+	FILEDEC(orec_b_fn, orec_b_fh, orec_b_buf, "feature", do_features);
 	FILEDEC(omod_b_fn, omod_b_fh, omod_b_buf, "template record", do_input_model);
-	
-	// Concordant
-	FILEDEC(orec_c_fn, orec_c_fh, orec_c_buf, "feature", true);
+	FILEDEC(orec_c_fn, orec_c_fh, orec_c_buf, "feature", do_features);
 	FILEDEC(omod_c_fn, omod_c_fh, omod_c_buf, "template record", do_input_model);
-	
-	// Discordant
-	FILEDEC(orec_d_fn, orec_d_fh, orec_d_buf, "feature", true);
+	FILEDEC(orec_d_fn, orec_d_fh, orec_d_buf, "feature", do_features);
 	FILEDEC(omod_d_fn, omod_d_fh, omod_d_buf, "template record", do_input_model);
 
-	for(size_t i = 0; i < sams.size(); i++) {
-		FILE *fh = fopen(sams[i].c_str(), "rb");
-		if(fh == NULL) {
-			cerr << "Could not open input SAM file \"" << sams[i] << "\"" << endl;
-			return -1;
+	if(do_features || do_input_model || do_simulation) {
+		for(size_t i = 0; i < sams.size(); i++) {
+			cerr << "Parsing SAM file \"" << sams[i] << "\"" << endl;
+			FILE *fh = fopen(sams[i].c_str(), "rb");
+			if(fh == NULL) {
+				cerr << "Could not open input SAM file \"" << sams[i] << "\"" << endl;
+				return -1;
+			}
+			setvbuf(fh, buf_input_sam, _IOFBF, BUFSZ);
+			sam_pass1(fh,
+					  orec_u_fn, orec_u_fh,
+					  omod_u_fn, omod_u_fh,
+					  orec_b_fn, orec_b_fh,
+					  omod_b_fn, omod_b_fh,
+					  orec_c_fn, orec_c_fh,
+					  omod_c_fn, omod_c_fh,
+					  orec_d_fn, orec_d_fh,
+					  omod_d_fn, omod_d_fh,
+					  keep_templates ? &u_templates : NULL,
+					  keep_templates ? &b_templates : NULL,
+					  keep_templates ? &c_templates : NULL,
+					  keep_templates ? &d_templates : NULL,
+					  false); // not quiet
+			fclose(fh);
 		}
-		setvbuf(fh, buf_input_sam, _IOFBF, BUFSZ);
-		sam_pass1(fh,
-				  orec_u_fh, omod_u_fh,
-				  orec_b_fh, omod_b_fh,
-				  orec_c_fh, omod_c_fh,
-				  orec_d_fh, omod_d_fh,
-				  keep_templates ? &u_templates : NULL,
-				  keep_templates ? &b_templates : NULL,
-				  keep_templates ? &c_templates : NULL,
-				  keep_templates ? &d_templates : NULL,
-				  false); // not quiet
-		fclose(fh);
 	}
 
-	fclose(omod_u_fh);
-	fclose(orec_u_fh);
-	fclose(omod_b_fh);
-	fclose(orec_b_fh);
-	fclose(omod_c_fh);
-	fclose(orec_c_fh);
-	fclose(omod_d_fh);
-	fclose(orec_d_fh);
+	if(omod_u_fh != NULL) fclose(omod_u_fh);
+	if(orec_u_fh != NULL) fclose(orec_u_fh);
+	if(omod_b_fh != NULL) fclose(omod_b_fh);
+	if(orec_b_fh != NULL) fclose(orec_b_fh);
+	if(omod_c_fh != NULL) fclose(omod_c_fh);
+	if(orec_c_fh != NULL) fclose(orec_c_fh);
+	if(omod_d_fh != NULL) fclose(omod_d_fh);
+	if(orec_d_fh != NULL) fclose(orec_d_fh);
+	cerr << "Finished parsing SAM" << endl;
+
+	if(keep_templates) {
+		cerr << "Input model in memory:" << endl;
+		if(!u_templates.empty()) {
+			cerr << "  Saved " << u_templates.size() << " unpaired templates" << endl;
+		}
+		if(!b_templates.empty()) {
+			cerr << "  Saved " << b_templates.size() << " bad-end templates" << endl;
+		}
+		if(!c_templates.empty()) {
+			cerr << "  Saved " << c_templates.size() << " concordant pair templates" << endl;
+		}
+		if(!d_templates.empty()) {
+			cerr << "  Saved " << d_templates.size() << " discordant pair templates" << endl;
+		}
+	}
 
 	if(do_simulation) {
 		InputModelUnpaired u_model(u_templates);
@@ -965,12 +1167,29 @@ int main(int argc, char **argv) {
 		FILEDEC(oread1_d_fn, oread1_d_fh, oread1_d_buf, "FASTQ", true);
 		FILEDEC(oread2_d_fn, oread2_d_fh, oread2_d_buf, "FASTQ", true);
 
+		cerr << "Creating tandem read simulator" << endl;
 		StreamingSimulator ss(fastas, 128 * 1024,
 							  u_model, b_model, c_model, d_model,
 							  oread_u_fh, oread_b_fh,
 							  oread1_c_fh, oread2_c_fh,
 							  oread1_d_fh, oread2_d_fh);
 
+		cerr << "  Estimate total number of FASTA bases is a bit less than "
+		     << ss.num_estimated_bases() / 1000 << "k" << endl;
+		
+		cerr << "  Simulating reads..." << endl;
+		float fraction = 0.1f;
+		size_t min_u = 100;
+		size_t min_c = 100;
+		size_t min_b = 100;
+		size_t min_d = 100;
+		ss.simulate_batch(
+			fraction,
+			min_u,
+			min_c,
+			min_d,
+			min_b);
+		
 		fclose(oread_u_fh);
 		fclose(oread_b_fh);
 		fclose(oread1_c_fh);

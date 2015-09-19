@@ -13,6 +13,7 @@
 #include <algorithm>
 #include "ds.h"
 #include "template.h"
+#include "rnglib.hpp"
 
 /**
  * Encapsulates the input model so we can simulate reads similar to the input
@@ -32,11 +33,15 @@ public:
 	}
 	
 	/**
+	 * Draw a random unpaired template.
 	 *
+	 * TODO: allow the draw to be somehow weighted toward lower scores.
 	 */
 	const TemplateUnpaired& draw() const {
 		assert(!empty());
-		return ts_[0];
+		size_t rn = (size_t)(r4_uni_01() * ts_.size());
+		assert(rn < ts_.size());
+		return ts_[rn];
 	}
 	
 	/**
@@ -90,11 +95,15 @@ public:
 	}
 	
 	/**
+	 * Draw a random paired template.
 	 *
+	 * TODO: allow the draw to be somehow weighted toward lower scores.
 	 */
 	const TemplatePaired& draw() const {
 		assert(!empty());
-		return ts_[0];
+		size_t rn = (size_t)(r4_uni_01() * ts_.size());
+		assert(rn < ts_.size());
+		return ts_[rn];
 	}
 
 	/**

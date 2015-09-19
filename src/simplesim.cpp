@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <vector>
 #include <inttypes.h>
+#include <iostream>
 #include "simplesim.h"
 #include "fasta.h"
 #include "rnglib.hpp"
@@ -21,9 +22,6 @@ using namespace std;
 static inline size_t draw_binomial(size_t n, float p) {
 	return (size_t)ignbin((int)n, p);
 }
-
-static const char * startswith = "!!ts!!";
-static const char * sep = "!!ts-sep!!";
 
 /**
  * Mutate given simulated read in-place.
@@ -89,11 +87,11 @@ char asc2dnacomp[] = {
 void SimulatedRead::write(FILE *fh, const char *typ) {
 	size_t len = strlen(qual_);
 	fprintf(fh, "@%s%s%s%s%c%s%" PRIuPTR "%s%d%s%s\n",
-			startswith, sep,
-			refid_, sep,
-			fw_ ? '+' : '-', sep,
-			(uintptr_t)refoff_, sep,
-			score_, sep,
+			sim_startswith, sim_sep,
+			refid_, sim_sep,
+			fw_ ? '+' : '-', sim_sep,
+			(uintptr_t)refoff_, sim_sep,
+			score_, sim_sep,
 			typ);
 	if(fw_) {
 		fputs(seq_buf_, fh);
@@ -114,6 +112,56 @@ void SimulatedRead::write(FILE *fh, const char *typ) {
 }
 
 /**
+ * Write pair of simulated reads to parallel FASTQ files.
+ */
+void SimulatedRead::write_pair(
+	const SimulatedRead& rd1,
+	const SimulatedRead& rd2,
+	FILE *fh1,
+	FILE *fh2,
+	const char *typ)
+{
+	FILE *fhs[2] = {fh1, fh2};
+	for(size_t i = 0; i < 2; i++) {
+		fprintf(fhs[i], "@%s%s%s%s%c%s%" PRIuPTR "%s%d%s%s%s%c%s%" PRIuPTR "%s%d%s%s\n",
+				sim_startswith, sim_sep,
+				rd1.refid_, sim_sep,
+				rd1.fw_ ? '+' : '-', sim_sep,
+				(uintptr_t)rd1.refoff_, sim_sep,
+				rd1.score_, sim_sep,
+				rd2.refid_, sim_sep,
+				rd2.fw_ ? '+' : '-', sim_sep,
+				(uintptr_t)rd2.refoff_, sim_sep,
+				rd2.score_, sim_sep,
+				typ);
+		const SimulatedRead &rd = ((i == 0) ? rd1 : rd2);
+		size_t len = strlen(rd.qual_);
+		if(rd.fw_) {
+			fputs(rd.seq_buf_, fhs[i]);
+		} else {
+			for(size_t j = 0; j < len; j++) {
+				fputc(asc2dnacomp[(int)rd.seq_buf_[len-j-1]], fhs[i]);
+			}
+		}
+		fputs("\n+\n", fhs[i]);
+		if(rd.fw_) {
+			fputs(rd.qual_, fhs[i]);
+		} else {
+			for(size_t j = 0; j < len; j++) {
+				fputc(rd.qual_[len-j-1], fhs[i]);
+			}
+		}
+		fputc('\n', fhs[i]);
+	}
+}
+
+/*
+rdname = "!!ts-sep!!".join(["!!ts!!",
+							refid1, "+" if fw1 else "-", str(refoff1), str(sc1),
+							refid2, "+" if fw2 else "-", str(refoff2), str(sc2), training_nm])
+*/
+
+/**
  * Simulate a batch of reads
  */
 void StreamingSimulator::simulate_batch(
@@ -124,6 +172,7 @@ void StreamingSimulator::simulate_batch(
 	size_t min_b)
 {
 	size_t nc = 0, nd = 0, nu = 0, nb = 0;
+	size_t n_wrote_c = 0, n_wrote_d = 0, n_wrote_u = 0, n_wrote_b = 0;
 	if(!model_u_.empty()) {
 		nu = std::max((size_t)(fraction * model_u_.num_added()), min_u);
 	}
@@ -199,6 +248,7 @@ void StreamingSimulator::simulate_batch(
 				const char *lab = unp ? "unp" : (t.mate_flag_ == '1' ?
 												 "bad_end_mate1" :
 												 "bad_end_mate2");
+				if(unp) { n_wrote_u++; } else { n_wrote_b++; }
 				rd1.write(unp ? fh_u_ : fh_b_, lab);
 			} while(false);
 		}
@@ -265,12 +315,19 @@ void StreamingSimulator::simulate_batch(
 						 t.score_2_,
 						 refid.c_str(),
 						 refoff + off_2);
+				if(conc) { n_wrote_c++; } else { n_wrote_d++; }
 				const char *lab = conc ? "conc" : "disc";
-				rd1.write(conc ? fh_c_1_ : fh_d_1_, lab);
-				rd2.write(conc ? fh_c_2_ : fh_d_2_, lab);
+				SimulatedRead::write_pair(rd1, rd2,
+										  conc ? fh_c_1_ : fh_d_1_,
+										  conc ? fh_c_2_ : fh_d_2_,
+										  lab);
 			} while(false);
 		}
 	}
+	cerr << "    Wrote " << n_wrote_u << " unpaired tandem reads (target was " << nu << ")" << endl;
+	cerr << "    Wrote " << n_wrote_b << " bed-end tandem reads (target was " << nb << ")" << endl;
+	cerr << "    Wrote " << n_wrote_c << " concordant tandem pairs (target was " << nc << ")" << endl;
+	cerr << "    Wrote " << n_wrote_d << " discordant tandem pairs (target was " << nd << ")" << endl;
 }
 
 #ifdef SIMPLESIM_MAIN

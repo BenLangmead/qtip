@@ -12,9 +12,15 @@
 #include <stdio.h>
 #include <vector>
 #include <algorithm>
+#include <fstream>
 #include "fasta.h"
 #include "input_model.h"
 #include "ranlib.hpp"
+
+#define SIM_STARTSWITH_LITERAL "!!ts!!"
+#define SIM_SEPERATOR_LITERAL "!!ts-sep!!"
+static const char * sim_startswith = SIM_STARTSWITH_LITERAL;
+static const char * sim_sep = SIM_SEPERATOR_LITERAL;
 
 /**
  * The thing is really built in two stages.  First we get seq (but it's pointer
@@ -66,7 +72,20 @@ public:
 		mutate(seq);
 	}
 	
+	/**
+	 * Write unpaired simulated read to a FASTQ file.
+	 */
 	void write(FILE *fh, const char *typ);
+	
+	/**
+	 * Write pair of simulated reads to parallel FASTQ files.
+	 */
+	static void write_pair(
+		const SimulatedRead& rd1,
+		const SimulatedRead& rd2,
+		FILE *fh1,
+		FILE *fh2,
+		const char *typ);
 	
 	/**
 	 * Return read sequence, as mutated from reference.
@@ -170,14 +189,33 @@ public:
 		size_t min_c,
 		size_t min_d,
 		size_t min_b);
+	
+	/**
+	 *
+	 */
+	size_t num_estimated_bases() const {
+		return tot_fasta_len_;
+	}
 
 protected:
 	
 	/**
-	 * Given
+	 * Return size of file in bytes.
+	 */
+	static size_t filesize(const std::string& filename) {
+		std::ifstream in(filename, std::ifstream::ate | std::ifstream::binary);
+		return (size_t)in.tellg();
+	}
+	
+	/**
+	 * Given list of FASTA file names, estimate total size.
 	 */
 	static size_t estimate_fasta_length(const std::vector<std::string>& fns) {
-		return 0; //TODO
+		size_t tot = 0;
+		for(size_t i = 0; i < fns.size(); i++) {
+			tot += filesize(fns[i]);
+		}
+		return tot;
 	}
 	
 	size_t olap_;

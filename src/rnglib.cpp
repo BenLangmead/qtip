@@ -1609,7 +1609,6 @@ void set_initial_seed ( int ig1, int ig2 )
   const int a2_vw = 784306273;
   int g;
   const int g_max = 32;
-  int i;
   const int m1 = 2147483563;
   const int m2 = 2147483399;
   int t;
