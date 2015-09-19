@@ -1,0 +1,26 @@
+BT2_EG=$(BT2_HOME)/example
+
+output.txt: .unp_loc.sam .paired_loc.sam
+	../qsim-parse-input ifs -- $^ -- $(BT2_EG)/reference/lambda_virus.fa -- output_loc
+
+../qsim-parse-input:
+	$(MAKE) -C ..
+
+.unp_loc.sam:
+	$(BT2_HOME)/bowtie2 -x $(BT2_EG)/index/lambda_virus \
+                            -U $(BT2_EG)/reads/longreads.fq \
+                            -S $@ \
+                            --local \
+			    --mapq-extra
+
+.paired_loc.sam:
+	$(BT2_HOME)/bowtie2 -x $(BT2_EG)/index/lambda_virus \
+                            -1 $(BT2_EG)/reads/reads_1.fq \
+                            -2 $(BT2_EG)/reads/reads_2.fq \
+                            -S $@ \
+                            --local \
+			    --mapq-extra
+
+.PHONY: clean
+clean:
+	rm -f .*_loc.sam output_loc*
