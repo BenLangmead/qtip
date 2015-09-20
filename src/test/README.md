@@ -5,8 +5,8 @@ $TS_HOME/software/mason/mason \
     -i \
     -s 1 \
     -sq \
-    -n 100 \
-    -N 10000 \
+    -n 10 \
+    -N 50000 \
     -o $HOME/.lambda_mason_unp.fastq \
     $BT2_HOME/example/reference/lambda_virus.fa
 
@@ -25,8 +25,8 @@ $TS_HOME/software/mason/mason \
     -rn 2 \
     -ll 300 \
     -le 40 \
-    -n 100 \
-    -N 10000 \
+    -n 10 \
+    -N 25000 \
     -o $HOME/.lambda_mason_paired.fastq \
     $BT2_HOME/example/reference/lambda_virus.fa
 
