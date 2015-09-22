@@ -1707,7 +1707,6 @@ void set_seed ( int cg1, int cg2 )
 //
 {
   int g;
-  int i;
   const int m1 = 2147483563;
   const int m2 = 2147483399;
   int t;

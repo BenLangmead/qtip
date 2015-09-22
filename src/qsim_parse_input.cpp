@@ -17,9 +17,12 @@
 using namespace std;
 
 // TODO:
-// 1. Make soft clipping work
-// 2. Make simulator's interface, and overall interface, more full featured
-// 3. Check that correctness checking works for both kinds of simulated reads
+// 1. Make simulator's interface, and overall interface, more full featured
+// 2. Make wiggle a parameter
+
+// One question is how to design the interface?  Maybe make it so that some
+// parameters to ts.py get seemlessly passed on to this binary with the same
+// option names.
 
 /**
  * Two kinds of output records.
@@ -213,9 +216,7 @@ struct Alignment {
 			     << " for qsim." << endl;
 			throw 1;
 		}
-		char *ztz_tok = strtok(ztz, ",");
-		assert(ztz_tok != NULL);
-		return ztz_tok;
+		return ztz;
 	}
 	
 	/**
@@ -519,7 +520,7 @@ struct Alignment {
 				refoff *= 10;
 				refoff += (int)(*qname_cur++ - '0');
 			}
-			if(abs((int)(refoff - pos)) >= wiggle) {
+			if(abs((int)(refoff - (pos-1))) >= wiggle) {
 				return;
 			}
 			if(strncmp(qname_cur, sim_sep, sep_len) != 0) {
@@ -559,7 +560,7 @@ struct Alignment {
 					ncolon++;
 				}
 			}
-			if(nund == 8 && ncolon == 4) {
+			if(nund >= 9 && ncolon == 4) {
 				char *qname_cur = qname;
 				correct = 0;
 				if(strncmp(qname_cur, rname, rname_len) != 0) {
@@ -592,10 +593,6 @@ struct Alignment {
 					}
 				}
 				while(isdigit(*qname_cur++));
-				if(*qname_cur++ != '_') {
-					return;
-				}
-				qname_cur++;
 				int len1 = 0;
 				while(isdigit(*qname_cur)) {
 					len1 *= 10;
@@ -618,10 +615,10 @@ struct Alignment {
 				int len = (mate1 ? len1 : len2);
 				if(!flip == mate1) {
 					// left end of fragment
-					correct = abs((int)(pos - (frag_start - 1))) < wiggle;
+					correct = abs((int)(pos - frag_start)) < wiggle;
 				} else {
 					// right end of fragment
-					correct = abs((int)(pos - (frag_end - len))) < wiggle;
+					correct = abs((int)(pos - (frag_end - len + 1))) < wiggle;
 				}
 			}
 		}
@@ -694,6 +691,15 @@ static char * parse_from_rname_on(Alignment& al) {
 }
 
 int wiggle = 30;
+int input_model_size = std::numeric_limits<int>::max();
+float fraction_even = 1.0f;
+float low_score_bias = 1.0f;
+int max_allowed_fraglen = 50000;
+float sim_fraction = 0.01f;
+int sim_unp_min = 30000;
+int sim_conc_min = 30000;
+int sim_disc_min = 10000;
+int sim_bad_end_min = 10000;
 
 /**
  * No guarantee about state of strtok upon return.
@@ -703,12 +709,14 @@ static void print_unpaired(
 	size_t ordlen,
 	FILE *fh_model,
 	FILE *fh_recs,
-	EList<TemplateUnpaired> *unp_model)
+	ReservoirSampledEList<TemplateUnpaired> *unp_model)
 {
 	assert(al.is_aligned());
 	char *extra = parse_from_rname_on(al);
 	al.set_correctness(wiggle);
-	char *ztz_tok = al.parse_extra(extra);
+	char *ztz = al.parse_extra(extra);
+	char *ztz_tok = strtok(ztz, ",");
+	assert(ztz_tok != NULL);
 	al.best_score = atoi(ztz_tok);
 	char fw_flag = al.is_fw() ? 'T' : 'F';
 	
@@ -724,31 +732,47 @@ static void print_unpaired(
 				al.edit_xscript.ptr());
 	}
 	if(unp_model != NULL) {
-		unp_model->expand();
-		unp_model->back().init(
-			al.best_score,
-			(int)al.len,
-			fw_flag,
-			al.mate_flag(),
-			(int)ordlen,
-			al.qual,
-			al.edit_xscript.ptr());
+		size_t off = unp_model->add_part1();
+		if(off < unp_model->k()) {
+			unp_model->list().back().init(
+				al.best_score,
+				(int)al.len,
+				fw_flag,
+				al.mate_flag(),
+				(int)ordlen,
+				al.qual,
+				al.edit_xscript.ptr());
+		}
 	}
 	
 	if(fh_recs != NULL) {
 		// Output information relevant to MAPQ model
-		fprintf(fh_recs, "%u,%d,%" PRIuPTR,
+		fprintf(fh_recs, "%u,%" PRIuPTR,
 				(unsigned)al.len,
-				al.mapq,
 				(uintptr_t)ordlen);
 		
 		// ... including all the ZT:Z fields
 		while(ztz_tok != NULL) {
+			size_t toklen = strlen(ztz_tok);
+			/* remove trailing whitespace */
+			while(ztz_tok[toklen-1] == '\n' || ztz_tok[toklen-1] == '\r') {
+				ztz_tok[toklen-1] = '\0';
+				toklen--;
+			}
 			fprintf(fh_recs, ",%s", ztz_tok);
 			ztz_tok = strtok(NULL, ",");
 		}
+
+		if(al.correct < 0) {
+			fprintf(fh_recs, ",%d,NA\n", al.mapq);
+		} else {
+			fprintf(fh_recs, ",%d,%c\n", al.mapq, (al.correct == 1 ? 'T' : 'F'));
+		}
 	}
 }
+
+EList<char *> ztz1_buf;
+EList<char *> ztz2_buf;
 
 /**
  * No guarantee about state of strtok upon return.
@@ -758,7 +782,7 @@ static void print_paired(
 	Alignment& al2,
 	FILE *fh_model,
 	FILE *fh_recs,
-	EList<TemplatePaired> *paired_model)
+	ReservoirSampledEList<TemplatePaired> *paired_model)
 {
 	assert(al1.is_aligned());
 	assert(al2.is_aligned());
@@ -768,28 +792,28 @@ static void print_paired(
 	al1.set_correctness(wiggle);
 	al2.set_correctness(wiggle);
 	
-	char *ztz_tok1 = al1.parse_extra(extra1);
-	al1.best_score = atoi(ztz_tok1);
-	char fw_flag1 = al1.is_fw() ? 'T' : 'F';
-	
-	size_t fraglen = Alignment::fragment_length(al1, al2);
+	char *ztz1 = al1.parse_extra(extra1);
+	char *ztz2 = al2.parse_extra(extra2);
+	size_t fraglen = std::min((size_t)max_allowed_fraglen,
+							  Alignment::fragment_length(al1, al2));
 	bool upstream1 = al1.pos < al2.pos;
 	assert(al1.cigar != NULL);
 	assert(al2.cigar != NULL);
+
+	char *ztz_tok1 = strtok(ztz1, ",");
+	assert(ztz_tok1 != NULL);
+	al1.best_score = atoi(ztz_tok1);
+	char fw_flag1 = al1.is_fw() ? 'T' : 'F';	
 	
 	if(fh_recs != NULL) {
+		ztz1_buf.clear();
 		
 		//
 		// Mate 1
 		//
 		
 		// Output information relevant to input model
-		fprintf(fh_recs, "%u,%d,%u,%d,%" PRIuPTR,
-				(unsigned)al1.len,
-				al1.mapq,
-				(unsigned)al2.len,
-				al2.mapq,
-				fraglen);
+		fprintf(fh_recs, "%u", (unsigned)al1.len);
 		// ... including all the ZT:Z fields
 		while(ztz_tok1 != NULL) {
 			size_t toklen = strlen(ztz_tok1);
@@ -799,27 +823,25 @@ static void print_paired(
 				toklen--;
 			}
 			fprintf(fh_recs, ",%s", ztz_tok1);
+			ztz1_buf.push_back(ztz_tok1);
 			ztz_tok1 = strtok(NULL, ",");
 		}
 	}
 	
-	char *ztz_tok2 = al2.parse_extra(extra2);
+	char *ztz_tok2 = strtok(ztz2, ",");
+	assert(ztz_tok2 != NULL);
 	al2.best_score = atoi(ztz_tok2);
 	char fw_flag2 = al2.is_fw() ? 'T' : 'F';
 	
 	if(fh_recs != NULL) {
+		ztz2_buf.clear();
 		
 		//
 		// Mate 2
 		//
 		
 		// Output information relevant to input model
-		fprintf(fh_recs, ",%u,%d,%u,%d,%" PRIuPTR,
-				(unsigned)al2.len,
-				al2.mapq,
-				(unsigned)al1.len,
-				al1.mapq,
-				(uintptr_t)fraglen);
+		fprintf(fh_recs, ",%u,%" PRIuPTR, (unsigned)al2.len, (uintptr_t)fraglen);
 		// ... including all the ZT:Z fields
 		while(ztz_tok2 != NULL) {
 			size_t toklen = strlen(ztz_tok2);
@@ -829,9 +851,34 @@ static void print_paired(
 				toklen--;
 			}
 			fprintf(fh_recs, ",%s", ztz_tok2);
+			ztz2_buf.push_back(ztz_tok2);
 			ztz_tok2 = strtok(NULL, ",");
 		}
-		fprintf(fh_recs, "\n");
+		// Now aligner-predicted MAPQ and correctness
+		if(al1.correct < 0) {
+			fprintf(fh_recs, ",%d,NA\n", al1.mapq);
+		} else {
+			fprintf(fh_recs, ",%d,%c\n", al1.mapq, (al1.correct == 1 ? 'T' : 'F'));
+		}
+		
+		//
+		// Now mate 2 again
+		//
+		fprintf(fh_recs, "%u", (unsigned)al2.len);
+		for(size_t i = 0; i < ztz2_buf.size(); i++) {
+			fprintf(fh_recs, ",%s", ztz2_buf[i]);
+		}
+		// Now mate 1 again
+		fprintf(fh_recs, ",%u,%" PRIuPTR, (unsigned)al1.len, (uintptr_t)fraglen);
+		for(size_t i = 0; i < ztz1_buf.size(); i++) {
+			fprintf(fh_recs, ",%s", ztz1_buf[i]);
+		}
+		// Now aligner-predicted MAPQ and correctness
+		if(al2.correct < 0) {
+			fprintf(fh_recs, ",%d,NA\n", al2.mapq);
+		} else {
+			fprintf(fh_recs, ",%d,%c\n", al2.mapq, (al2.correct == 1 ? 'T' : 'F'));
+		}
 	}
 	
 	if(fh_model != NULL) {
@@ -853,22 +900,49 @@ static void print_paired(
 	}
 
 	if(paired_model != NULL) {
-		paired_model->expand();
-		paired_model->back().init(
-			al1.best_score + al2.best_score,
-			al1.best_score,
-			(int)al1.len,
-			fw_flag1,
-			al1.qual,
-			al1.edit_xscript.ptr(),
-			al2.best_score,
-			(int)al2.len,
-			fw_flag2,
-			al2.qual,
-			al2.edit_xscript.ptr(),
-			upstream1,
-			fraglen);
+		size_t j = paired_model->add_part1();
+		if(j < paired_model->k()) {
+			paired_model->list().back().init(
+				al1.best_score + al2.best_score,
+				al1.best_score,
+				(int)al1.len,
+				fw_flag1,
+				al1.qual,
+				al1.edit_xscript.ptr(),
+				al2.best_score,
+				(int)al2.len,
+				fw_flag2,
+				al2.qual,
+				al2.edit_xscript.ptr(),
+				upstream1,
+				fraglen);
+		}
 	}
+}
+
+/**
+ * Given a SAM record for an aligned read, count the number of comma-delimited
+ * records in the ZT:Z extra field.
+ */
+static int infer_num_ztzs(const char *rest_of_line) {
+	const char * cur = rest_of_line;
+	int n_ztz_fields = 1;
+	while(*cur != '\0') {
+		if(*cur++ == '\t') {
+			if(*cur++ == 'Z') {
+				if(*cur++ == 'T') {
+					if(strncmp(cur, ":Z:", 3) == 0) {
+						while(*cur++ != '\t') {
+							if(*cur == ',') {
+								n_ztz_fields++;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return n_ztz_fields;
 }
 
 /**
@@ -885,10 +959,10 @@ static int sam_pass1(
 	const string& omod_c_fn, FILE *omod_c_fh,
 	const string& orec_d_fn, FILE *orec_d_fh,
 	const string& omod_d_fn, FILE *omod_d_fh,
-	EList<TemplateUnpaired> *u_templates,
-	EList<TemplateUnpaired> *b_templates,
-	EList<TemplatePaired> *c_templates,
-	EList<TemplatePaired> *d_templates,
+	ReservoirSampledEList<TemplateUnpaired> *u_templates,
+	ReservoirSampledEList<TemplateUnpaired> *b_templates,
+	ReservoirSampledEList<TemplatePaired> *c_templates,
+	ReservoirSampledEList<TemplatePaired> *d_templates,
 	bool quiet)
 {
 	/* Advise the kernel of our access pattern.  */
@@ -964,6 +1038,17 @@ static int sam_pass1(
 			
 			// Case 2: Current read is unpaired and aligned
 			else {
+				// If this is the first alignment, determine number of ZT:Z
+				// fields and write a header line to the record output file
+				if(nunp_al == 0 && orec_u_fh != NULL) {
+					const int n_ztz_fields = infer_num_ztzs(al_cur.rest_of_line);
+					fprintf(orec_u_fh, "len,olen");
+					for(int i = 0; i < n_ztz_fields; i++) {
+						fprintf(orec_u_fh, ",ztz%d", i);
+					}
+					fprintf(orec_u_fh, ",mapq,correct\n");
+				}
+
 				nunp_al++;
 				print_unpaired(al_cur, 0, omod_u_fh, orec_u_fh, u_templates);
 			}
@@ -982,10 +1067,24 @@ static int sam_pass1(
 			// Case 5: Current read is paired and unlineigned, opposite mate is aligned
 			//         we handle both here
 			else if(mate1->is_aligned() != mate2->is_aligned()) {
+				bool m1al = mate1->is_aligned();
+				Alignment& alm = m1al ? *mate1 : *mate2;
+				
+				// If this is the first alignment, determine number of ZT:Z
+				// fields and write a header line to the record output file
+				if(npair_badend == 0 && orec_b_fh != NULL) {
+					const int n_ztz_fields = infer_num_ztzs(alm.rest_of_line);
+					fprintf(orec_b_fh, "len,olen");
+					for(int i = 0; i < n_ztz_fields; i++) {
+						fprintf(orec_b_fh, ",ztz%d", i);
+					}
+					fprintf(orec_b_fh, ",mapq,correct\n");
+				}
+
 				npair_badend++;
 				print_unpaired(
-					mate1->is_aligned() ? *mate1 : *mate2,
-					mate1->is_aligned() ? mate2->len : mate1->len,
+					alm,
+					m1al ? mate2->len : mate1->len,
 					omod_b_fh, orec_b_fh, b_templates);
 			}
 			
@@ -993,12 +1092,38 @@ static int sam_pass1(
 				assert(mate1->is_concordant() == mate2->is_concordant());
 				
 				if(mate1->is_concordant()) {
+					if(npair_conc == 0 && orec_c_fh != NULL) {
+						const int n_ztz_fields = infer_num_ztzs(mate1->rest_of_line);
+						fprintf(orec_c_fh, "len");
+						for(int i = 0; i < n_ztz_fields; i++) {
+							fprintf(orec_c_fh, ",ztz_%d", i);
+						}
+						fprintf(orec_c_fh, ",olen,fraglen");
+						for(int i = 0; i < n_ztz_fields; i++) {
+							fprintf(orec_c_fh, ",oztz1_%d", i);
+						}
+						fprintf(orec_c_fh, ",mapq,correct\n");
+					}
+					
 					// Case 6: Current read is paired and both mates aligned, concordantly
 					npair_conc++;
 					print_paired(*mate1, *mate2, omod_c_fh, orec_c_fh, c_templates);
 				}
 				
 				else {
+					if(npair_disc == 0 && orec_d_fh != NULL) {
+						const int n_ztz_fields = infer_num_ztzs(mate1->rest_of_line);
+						fprintf(orec_d_fh, "len");
+						for(int i = 0; i < n_ztz_fields; i++) {
+							fprintf(orec_d_fh, ",ztz_%d", i);
+						}
+						fprintf(orec_d_fh, ",olen,fraglen");
+						for(int i = 0; i < n_ztz_fields; i++) {
+							fprintf(orec_d_fh, ",oztz1_%d", i);
+						}
+						fprintf(orec_d_fh, ",mapq,correct\n");
+					}
+
 					// Case 7: Current read is paired and both mates aligned, not condordantly
 					npair_disc++;
 					print_paired(*mate1, *mate2, omod_d_fh, orec_d_fh, d_templates);
@@ -1050,17 +1175,34 @@ static int sam_pass1(
  */
 int main(int argc, char **argv) {
 	
+	if(argc == 1) {
+		// print which arguments from ts.py should pass through to here
+		cout << "wiggle "
+		     << "input-model-size "
+		     << "fraction-even "
+		     << "low-score-bias "
+		     << "max-allowed-fraglen "
+		     << "sim-fraction "
+		     << "sim-unp-min "
+		     << "sim-conc-min "
+		     << "sim-disc-min "
+		     << "sim-bad-end-min "
+		     << "seed "
+		     << endl;
+		return 0;
+	}
+	
 	string orec_u_fn, omod_u_fn, oread_u_fn;
 	string orec_b_fn, omod_b_fn, oread_b_fn;
 	string orec_c_fn, omod_c_fn, oread1_c_fn, oread2_c_fn;
 	string orec_d_fn, omod_d_fn, oread1_d_fn, oread2_d_fn;
 	string prefix;
 	vector<string> fastas, sams;
-	EList<TemplateUnpaired> u_templates, b_templates;
-	EList<TemplatePaired> c_templates, d_templates;
+	ReservoirSampledEList<TemplateUnpaired> u_templates(input_model_size);
+	ReservoirSampledEList<TemplateUnpaired> b_templates(input_model_size);
+	ReservoirSampledEList<TemplatePaired> c_templates(input_model_size);
+	ReservoirSampledEList<TemplatePaired> d_templates(input_model_size);
 	char buf_input_sam[BUFSZ];
-	
-	set_seed(77, 777);
 	
 	bool do_input_model = false; // output records related to input model
 	bool do_simulation = false;  // do simulation
@@ -1092,8 +1234,51 @@ int main(int argc, char **argv) {
 					}
 				}
 			} else if(section == 1) {
-				sams.push_back(string(argv[i]));
+				if(i == argc-1) {
+					cerr << "Error: odd number of arguments in options section" << endl;
+					throw 1;
+				}
+				// this is where parameters get set
+				if(strcmp(argv[i], "wiggle") == 0) {
+					wiggle = atoi(argv[++i]);
+				}
+				if(strcmp(argv[i], "input-model-size") == 0) {
+					input_model_size = atoi(argv[++i]);
+				}
+				if(strcmp(argv[i], "fraction-even") == 0) {
+					fraction_even = atof(argv[++i]);
+					cerr << "Warning: fraction-even not currently implemented" << endl;
+				}
+				if(strcmp(argv[i], "low-score-bias") == 0) {
+					low_score_bias = atof(argv[++i]);
+					cerr << "Warning: low-score bias not currently implemented" << endl;
+				}
+				if(strcmp(argv[i], "max-allowed-fraglen") == 0) {
+					max_allowed_fraglen = atoi(argv[++i]);
+				}
+				if(strcmp(argv[i], "sim-fraction") == 0) {
+					sim_fraction = atof(argv[++i]);
+				}
+				if(strcmp(argv[i], "sim-unp-min") == 0) {
+					sim_unp_min = atoi(argv[++i]);
+				}
+				if(strcmp(argv[i], "sim-conc-min") == 0) {
+					sim_conc_min = atoi(argv[++i]);
+				}
+				if(strcmp(argv[i], "sim-disc-min") == 0) {
+					sim_disc_min = atoi(argv[++i]);
+				}
+				if(strcmp(argv[i], "sim-bad-end-min") == 0) {
+					sim_bad_end_min = atoi(argv[++i]);
+				}
+				if(strcmp(argv[i], "seed") == 0) {
+					// Unsure whether this is a good way to do this
+					set_seed(atoi(argv[i+1]), atoi(argv[i+1])*77);
+					i++;
+				}
 			} else if(section == 2) {
+				sams.push_back(string(argv[i]));
+			} else if(section == 3) {
 				fastas.push_back(string(argv[i]));
 			} else {
 				prefix = argv[i];
@@ -1189,10 +1374,10 @@ int main(int argc, char **argv) {
 	}
 
 	if(do_simulation) {
-		InputModelUnpaired u_model(u_templates);
-		InputModelUnpaired b_model(b_templates);
-		InputModelPaired c_model(c_templates);
-		InputModelPaired d_model(d_templates);
+		InputModelUnpaired u_model(u_templates.list(), fraction_even, low_score_bias);
+		InputModelUnpaired b_model(b_templates.list(), fraction_even, low_score_bias);
+		InputModelPaired c_model(c_templates.list(), fraction_even, low_score_bias);
+		InputModelPaired d_model(d_templates.list(), fraction_even, low_score_bias);
 		
 		FILEDEC(oread_u_fn, oread_u_fh, oread_u_buf, "FASTQ", true);
 		FILEDEC(oread_b_fn, oread_b_fh, oread_b_buf, "FASTQ", true);
@@ -1212,17 +1397,12 @@ int main(int argc, char **argv) {
 		     << ss.num_estimated_bases() / 1000 << "k" << endl;
 		
 		cerr << "  Simulating reads..." << endl;
-		float fraction = 0.1f;
-		size_t min_u = 100;
-		size_t min_c = 100;
-		size_t min_b = 100;
-		size_t min_d = 100;
 		ss.simulate_batch(
-			fraction,
-			min_u,
-			min_c,
-			min_d,
-			min_b);
+			sim_fraction,
+			sim_unp_min,
+			sim_conc_min,
+			sim_disc_min,
+			sim_bad_end_min);
 		
 		fclose(oread_u_fh);
 		fclose(oread_b_fh);

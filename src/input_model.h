@@ -23,7 +23,14 @@ class InputModelUnpaired {
 	
 public:
 	
-	InputModelUnpaired(const EList<TemplateUnpaired>& ts) : ts_(ts) {
+	InputModelUnpaired(
+		const EList<TemplateUnpaired>& ts,
+		float fraction_even,
+		float low_score_bias) :
+		ts_(ts),
+		fraction_even_(fraction_even),
+		low_score_bias_(low_score_bias)
+	{
 		fraglen_avg_ = 0.0f;
 		fraglen_max_ = 0;
 		for(size_t i = 0; i < ts.size(); i++) {
@@ -80,13 +87,22 @@ protected:
 	float fraglen_avg_;
 	size_t n_;
 	size_t fraglen_max_;
+	float fraction_even_;
+	float low_score_bias_;
 };
 
 class InputModelPaired {
 	
 public:
 	
-	InputModelPaired(const EList<TemplatePaired>& ts) : ts_(ts) {
+	InputModelPaired(
+		const EList<TemplatePaired>& ts,
+		float fraction_even,
+		float low_score_bias) :
+		ts_(ts),
+		fraction_even_(fraction_even),
+		low_score_bias_(low_score_bias)
+	{
 		fraglen_avg_ = 0.0f;
 		for(size_t i = 0; i < ts.size(); i++) {
 			fraglen_avg_ += ((float)ts[i].fraglen_ / ts.size());
@@ -142,6 +158,8 @@ protected:
 	float fraglen_avg_;
 	size_t n_;
 	size_t fraglen_max_;
+	float fraction_even_;
+	float low_score_bias_;
 };
 
 #endif /* defined(__qsim__input_model__) */

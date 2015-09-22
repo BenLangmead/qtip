@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <string.h>
+#include "rnglib.hpp"
 
 template <typename T, int S = 128>
 class EList {
@@ -402,6 +403,90 @@ private:
 	size_t sz_;    // capacity
 	size_t cur_;   // occupancy (AKA size)
 };
+
+/**
+ * Reservoir sampled version of an EList<T>
+ */
+template<typename T>
+class ReservoirSampledEList {
+	
+public:
+
+	ReservoirSampledEList(size_t k) : k_(k), n_(0), list_() { }
+
+	/**
+	 * Possibly add item, using reservoir sampling.
+	 */
+	void add(const T& t) {
+		n_++;
+		if(list_.size() < k_) {
+			list_.push_back(t);
+		} else {
+			size_t j = (size_t)(r4_uni_01() * n_);
+			assert(j < n_);
+			if(j < list_.size()) {
+				list_[j] = t;
+			}
+		}
+	}
+
+	/**
+	 * Possibly add item, using reservoir sampling.
+	 */
+	size_t add_part1() {
+		n_++;
+		if(list_.size() < k_) {
+			assert(list_.size() == n_-1);
+			list_.expand();
+			return list_.size()-1;
+		} else {
+			return (size_t)(r4_uni_01() * n_);
+		}
+	}
+
+	/**
+	 * Return the number of items added (not all of which were retained by the
+	 * sampler).
+	 */
+	size_t size() const {
+		return n_;
+	}
+	
+	/**
+	 * Return true iff no items have yet been added.
+	 */
+	bool empty() const {
+		return size() == 0;
+	}
+	
+	/**
+	 * Return reservoir size.
+	 */
+	size_t k() const {
+		return k_;
+	}
+	
+	/**
+	 * Return const version of list.
+	 */
+	const EList<T> list() const {
+		return list_;
+	}
+
+	/**
+	 * Return list.
+	 */
+	EList<T> list() {
+		return list_;
+	}
+
+protected:
+	
+	size_t k_;
+	size_t n_;
+	EList<T> list_;
+};
+
 
 #endif
 
