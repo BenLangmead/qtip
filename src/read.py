@@ -1,6 +1,7 @@
 import re
-from sam import Cigar
 from abc import ABCMeta, abstractmethod
+
+from bin.old.sam import Cigar
 
 
 class Read(object):
