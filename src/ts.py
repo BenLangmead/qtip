@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
+from subprocess import Popen, PIPE
 
 """
 ts.py
@@ -9,186 +10,31 @@ A "tandem simulator," which wraps an alignment tool as it runs, eavesdrops on
 input and output, simulates a new dataset similar to the input data, aligns
 it, uses those alignments as training data to build a model to predict MAPQ,
 then re-calcualtes MAPQs for the original input using that predictor.
-
-Output files encapsulate:
-1. Input data model
-2. Simulated reads
-3. Alignments for simulated reads
-4. (3) converted into training-data records
-5. Trained models
-6. Results of running the trained models on the training data
-
-Things we learn from reads
-==========================
-
-- Read length distribution
-
-Things we learn from alignments
-===============================
-
-- Alignment type (aligned, unaligned, concordant, discordant)
-- Fragment length distribution
-- Number and placement of mismatches and gaps and corresponding quality values
-
-SAM extra fields used
-=====================
-
- Normal: AS:i, XS:i, MD:Z
- 
- Bowtie-specific: Xs:i, YT:Z, YS:i, Zp:i, YN:i, Yn:i
- (and we potentially don't need YS:i or YT:Z?)
-
 """
 
-__author__ = "Ben Langmead"
-__email__ = "langmea@cs.jhu.edu"
-
 import os
+from os.path import join, getsize
 import sys
-import random
 import time
 import logging
 import errno
-import csv
-from collections import defaultdict
 try:
     from Queue import Queue, Empty, Full
 except ImportError:
     from queue import Queue, Empty, Full  # python 3.x
 
 # Modules that are part of the tandem simulator
-from simplesim import FragmentSimSerial2
-from read import Read
 from bowtie2 import AlignmentBowtie2, Bowtie2
 from bwamem import AlignmentBwaMem, BwaMem
 from snap import AlignmentSnap, SnapAligner
-from reference import ReferenceIndexed, ReferenceOOB
 from tempman import TemporaryFileManager
-from operator import itemgetter
+
+__author__ = "Ben Langmead"
+__email__ = "langmea@cs.jhu.edu"
 
 bin_dir = os.path.dirname(os.path.realpath(__file__))
 
 VERSION = '0.2.0'
-
-
-class Dists(object):
-    
-    """ Encapsulates the distributions that we capture from real data.
-        We collect random subsets of qualities/edits or unpaired reads
-        and same for paired-end mate 1s and mate 2s.  We also collect
-        data on concordant and discordantly aligned pairs, such as
-        their fragment length and strands. """
-
-    def __init__(self,
-                 prefix,
-                 max_allowed_fraglen=100000,
-                 fraction_even=0.5,
-                 bias=1.0,
-                 reservoir_size=10000):
-        self.tabs = {}
-        self.avglen = {}
-        self.bias = bias
-        self.fraction_even = fraction_even
-        for ext in 'ubcd':
-            fullext = '_mod_%s.csv' % ext
-            with open(prefix + fullext, 'rb') as fh:
-                self.tabs[ext] = [el.split(',') for el in fh.read().split('\n')]
-            if len(self.tabs[ext]) == 0:
-                del self.tabs[ext]
-            else:
-                if len(self.tabs[ext]) > reservoir_size:
-                    self.tabs[ext] = random.sample(self.tabs[ext], reservoir_size)
-                if ext in 'cd':
-                    # standardize fragment length and sum total fragment length
-                    def _adj_and_sum(x):
-                        x[-1] = min(x[-1], max_allowed_fraglen)
-                        return x[-1]
-                    tot_len = sum(map(_adj_and_sum, self.tabs[ext]))
-                else:
-                    # just sum total fragment length
-                    tot_len = sum(map(itemgetter(-1), self.tabs[ext]))
-                self.maxlen[ext] = max(map(itemgetter(-1), self.tabs[ext]))
-                self.avglen[ext] = tot_len / float(len(self.tabs[ext]))
-
-    def __len__(self):
-        """ Return the total number of templates stored. """
-        return sum(map(len, self.tabs.values()))
-
-    def has_pairs(self):
-        """ Return true iff at least one pair was added """
-        return 'c' in self.tabs or 'd' in self.tabs
-
-    def has_concordant_pairs(self):
-        """ Return true iff at least one concordant paired-end read was
-            added. """
-        return 'c' in self.tabs
-
-    def has_discordant_pairs(self):
-        """ Return true iff at least one concordant paired-end read was
-            added. """
-        return 'd' in self.tabs
-
-    def has_bad_end_reads(self):
-        """ Return true iff at least one bad-end was added. """
-        return 'b' in self.tabs
-
-    def has_unpaired_reads(self):
-        """ Return true iff at least one unpaired read was added. """
-        return 'u' in self.tabs
-
-    def avg_concordant_fraglen(self):
-        return self.avglen['c']
-
-    def avg_discordant_fraglen(self):
-        return self.avglen['d']
-
-    def avg_unpaired_readlen(self):
-        return self.avglen['u']
-
-    def longest_fragment(self):
-        """ Return length of longest fragment we'll have to sample
-            from genome. """
-        return max(self.maxlen['c'], self.maxlen['d'])
-
-    def longest_unpaired(self):
-        """ Return length of longest substring we'll have to sample
-            from genome in order to simulate an unpaired read using
-            this distribution. """
-        return self.maxlen['u']
-
-
-"""
-Pass 1: parsing SAM resulting from alignment of input reads.
-======
-
-The fast C++ code does the parsing and emits tables.
-
-One question is: can the output of the C++ code allow us to completely bypass
-the process of writing via the DatasetOnDisk object?  I believe so.  I think
-we can completely get rid of samples.py and just modify the code in predict.py
-accordingly.  Note that predict.py does not use DatasetOnDisk; it uses pandas
-read_csv instead.
-
-Can we get rid of the AlignmentReader object?  Yes.  There's no longer any
-reason for the Python code to go through the SAM line by line.  Instead, the
-fast C++ code emits two tables which we parse separately from Python.  One
-is the input model, which ts.py parses (maybe using pandas).  And the other
-is the record table, which predict.py parses (maybe using pandas).
-
-Another question is: can we add parsing so that, in the event that the read
-is simulated, we can assess whether the alignment is correct.  We can do this,
-it just involves porting some Python code over to C++.
-
-Pass 2: parsing SAM resulting from alignment of tandem reads.
-======
-
-The fast C++ code does the parsing and emits tables.  One additional
-complication is that we want it to also assess correctness of the alignments,
-which involves parsing some crud that we put in the read names.
-
-Again, seems like we can avoid DatasetOnDisk entirely.
-
-"""
 
 
 class Timing(object):
@@ -219,41 +65,48 @@ def sanity_check_binary(exe):
             raise RuntimeError('Binary "%s" exists but is not executable' % exe)
 
 
-def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
-    """ Main driver for tandem simulator """
-
-    random.seed(args['seed'])
-    import numpy
-    numpy.random.seed(args['seed'])
-
-    tim = Timing()
-    tim.start_timer('Overall')
-
+def mkdir_quiet(dr):
     # Create output directory if needed
-    if not os.path.isdir(args['output_directory']):
+    if not os.path.isdir(dr):
         try:
-            os.makedirs(args['output_directory'])
+            os.makedirs(dr)
         except OSError as exception:
             if exception.errno != errno.EEXIST:
                 raise
 
+
+def recursive_size(dr):
+    tot = 0
+    for root, dirs, files in os.walk(dr):
+        tot += sum(getsize(join(root, name)) for name in files)
+    return tot
+
+
+def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
+
+    tim = Timing()
+    tim.start_timer('Overall')
+
+    # Sanity-check arguments
     if not args['input_reads_simulated'] and args['write_test_distances']:
         raise RuntimeError('if --write-test-distances is set, --input-reads-simulated must also be')
+
+    # Create output directory if needed
+    odir = args['output_directory']
+    mkdir_quiet(odir)
 
     # Set up logger
     logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', datefmt='%m/%d/%y-%H:%M:%S',
                         level=logging.DEBUG if args['verbose'] else logging.INFO)
-
-    if args['write_logs'] or args['write_all']:
-        fn = os.path.join(args['output_directory'], 'ts_logs.txt')
-        fh = logging.FileHandler(fn)
-        fh.setLevel(logging.DEBUG)
-        logging.getLogger('').addHandler(fh)
+    fn = join(odir, 'ts_logs.txt')
+    fh = logging.FileHandler(fn)
+    fh.setLevel(logging.DEBUG)
+    logging.getLogger('').addHandler(fh)
 
     if args['U'] is not None and args['m1'] is not None:
         raise RuntimeError('Input must consist of only unpaired or only paired-end reads')
     
-    # Construct command to invoke aligner - right now we only support Bowtie 2 and BWA-MEM
+    # Start building alignment command; right now we support Bowtie 2, BWA-MEM and SNAP
     aligner_class, alignment_class = Bowtie2, AlignmentBowtie2
     align_cmd = None
     if args['aligner'] == 'bowtie2':
@@ -278,412 +131,235 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     temp_man = TemporaryFileManager(args['temp_directory'])
 
     def _get_pass1_file_prefix():
+        """
+        Return the file prefix that should be used for naming intermediate
+        files generated by qsim-parse when parsing input SAM.
+        """
         if args['write_all'] or args['write_input_intermediates']:
             def _purge():
                 pass
-            return os.path.join(args['output_directory'], 'input_intermediates'), _purge
+            return join(odir, 'input_intermediates'), _purge
         else:
             dr = temp_man.get_dir('input_intermediates', 'input_intermediates')
 
             def _purge():
                 dr.remove_group('input_intermediates')
-            return os.path.join(dr, 'tmp'), _purge
+            return join(dr, 'tmp'), _purge
 
-    # Note: this is only needed when either MD:Z information is missing from
-    # alignments or when --ref-soft-clipping is specified
-    logging.info('Loading reference data')
-    with ReferenceIndexed(args['ref']) as ref:
-    
-        # ##################################################
-        # ALIGN REAL DATA (or read in alignments from SAM)
-        # ##################################################
+    def _get_pass2_file_prefix():
+        """
+        Return the file prefix that should be used for naming intermediate
+        files generated by qsim-parse when parsing the tandem SAM.
+        """
+        if args['write_all'] or args['write_tandem_intermediates']:
+            def _purge():
+                pass
+            return join(odir, 'tandem_intermediates'), _purge
+        else:
+            dr = temp_man.get_dir('tandem_intermediates', 'tandem_intermediates')
 
-        tim.start_timer('Aligning input reads')
-        sam_fn = os.path.join(args['output_directory'], 'input.sam')
-        logging.info('Command for aligning input data: "%s"' % align_cmd)
+            def _purge():
+                dr.remove_group('tandem_intermediates')
+            return join(dr, 'tmp'), _purge
+
+    parse_input_exe = "%s/qsim-parse" % bin_dir
+
+    def _get_passthrough_args():
+        op = Popen(parse_input_exe, stdout=PIPE).communicate()[0]
+        ls = []
+        for ar in op.strip().split(' '):
+            ar = ar.replace('-', '_')
+            assert ar in args, "\"%s\"" % ar
+            logging.debug('  passing through argument "%s"="%s"' % (ar, str(args[ar])))
+            ls.append(ar)
+            ls.append(str(args[ar]))
+        return ' '.join(ls)
+
+    def _wait_for_aligner(_al):
+        while _al.pipe.poll() is None:
+            time.sleep(0.5)
+
+    def _exists_and_nonempty(fn):
+        return os.path.exists(fn) and os.stat(fn).st_size > 0
+
+    def _have_unpaired_tandem_reads(prefix):
+        ufn = prefix + '_reads_u.fastq'
+        bfn = prefix + '_reads_b.fastq'
+        return _exists_and_nonempty(ufn) or _exists_and_nonempty(bfn)
+
+    def _have_paired_tandem_reads(prefix):
+        cfn = prefix + '_reads_c_1.fastq'
+        dfn = prefix + '_reads_d_1.fastq'
+        return _exists_and_nonempty(cfn) or _exists_and_nonempty(dfn)
+
+    def _unpaired_tandem_reads(prefix):
+        ls = []
+        ufn = prefix + '_reads_u.fastq'
+        if _exists_and_nonempty(ufn):
+            ls.append(ufn)
+        bfn = prefix + '_reads_b.fastq'
+        if _exists_and_nonempty(bfn):
+            ls.append(bfn)
+        return ls
+
+    def _paired_tandem_reads(prefix):
+        ls1, ls2 = [], []
+        cfn1 = prefix + '_reads_c_1.fastq'
+        cfn2 = prefix + '_reads_c_2.fastq'
+        if _exists_and_nonempty(cfn1):
+            ls1.append(cfn1)
+            ls2.append(cfn2)
+        bfn1 = prefix + '_reads_b_1.fastq'
+        bfn2 = prefix + '_reads_b_2.fastq'
+        if _exists_and_nonempty(bfn1):
+            ls1.append(bfn1)
+            ls2.append(bfn2)
+        return zip(ls1, ls2)
+
+    # ##################################################
+    # 1. Align input reads
+    # ##################################################
+
+    tim.start_timer('Aligning input reads')
+    sam_fn = join(odir, 'input.sam')
+    logging.info('Command for aligning input data: "%s"' % align_cmd)
+    aligner = aligner_class(
+        align_cmd,
+        aligner_args,
+        aligner_unpaired_args,
+        aligner_paired_args,
+        args['index'],
+        unpaired=args['U'],
+        paired=None if args['m1'] is None else zip(args['m1'], args['m2']),
+        sam=sam_fn)
+
+    logging.debug('  waiting for aligner to finish...')
+    _wait_for_aligner(aligner)
+    logging.debug('  aligner finished; results in "%s"' % sam_fn)
+    tim.end_timer('Aligning input reads')
+
+    # ##################################################
+    # 2. Parse input SAM
+    # ##################################################
+
+    tim.start_timer('Parsing input alignments')
+    sanity_check_binary(parse_input_exe)
+    pass1_prefix, pass1_cleanup = _get_pass1_file_prefix()
+    cmd = "%s ifs -- %s -- %s -- %s -- %s" % \
+          (parse_input_exe, _get_passthrough_args(), sam_fn, ' '.join(args['ref']), pass1_prefix)
+    logging.info('  running "%s"' % cmd)
+    ret = os.system(cmd)
+    if ret != 0:
+        raise RuntimeError("qsim-parse returned %d" % ret)
+    pass1_cleanup()
+    logging.debug('  parsing finished; results in "%s.*"' % pass1_prefix)
+    tim.end_timer('Parsing input alignments')
+
+    # ##################################################
+    # 3. Align tandem reads
+    # ##################################################
+
+    tim.start_timer('Aligning tandem reads')
+    if _have_unpaired_tandem_reads(pass1_prefix) and _have_paired_tandem_reads(pass1_prefix) and aligner.supports_mix():
+        logging.info('Aligning tandem reads (mix)')
         aligner = aligner_class(
             align_cmd,
             aligner_args,
             aligner_unpaired_args,
             aligner_paired_args,
             args['index'],
-            unpaired=args['U'],
-            paired=None if args['m1'] is None else zip(args['m1'], args['m2']),
-            sam=sam_fn)
+            unpaired=_unpaired_tandem_reads(pass1_prefix),
+            paired=_paired_tandem_reads(pass1_prefix),
+            sam=sam_fn,
+            input_format='fastq')
+        _wait_for_aligner(aligner)
+        logging.debug('Finished aligning unpaired and paired-end tandem reads')
+    else:
+        if _have_unpaired_tandem_reads():
+            logging.info('Aligning tandem reads (unpaired)')
+            aligner = aligner_class(
+                align_cmd,
+                aligner_args,
+                aligner_unpaired_args,
+                aligner_paired_args,
+                args['index'],
+                unpaired=_unpaired_tandem_reads(pass1_prefix),
+                sam=sam_fn,
+                input_format='fastq')
+            _wait_for_aligner(aligner)
+            logging.debug('Finished aligning unpaired tandem reads')
+        if _have_paired_tandem_reads():
+            logging.info('Aligning tandem reads (paired)')
+            aligner = aligner_class(
+                align_cmd,
+                aligner_args,
+                aligner_unpaired_args,
+                aligner_paired_args,
+                args['index'],
+                paired=_paired_tandem_reads(pass1_prefix),
+                sam=sam_fn,
+                input_format='fastq')
+            _wait_for_aligner(aligner)
+            logging.debug('Finished aligning paired tandem reads')
+    tim.end_timer('Aligning tandem reads')
 
-        logging.debug('  waiting for aligner to finish...')
-        while aligner.pipe.poll() is None:
-            time.sleep(0.5)
-        logging.debug('  aligner finished; results in "%s"' % sam_fn)
-        tim.end_timer('Aligning input reads')
+    # ##################################################
+    # 4. Parse tandem alignments
+    # ##################################################
 
-        tim.start_timer('Parsing input reads')
-        parse_input_exe = "%s/qsim-parse-input" % bin_dir
-        sanity_check_binary(parse_input_exe)
-        pass1_prefix, pass1_cleanup = _get_pass1_file_prefix()
-        ret = os.system("%s %s %s" % (parse_input_exe, sam_fn, pass1_prefix))
-        if ret != 0:
-            raise RuntimeError("qsim-parse-input returned %d" % ret)
-        logging.debug('  parsing finished; results in "%s.*"' % pass1_prefix)
-        tim.end_timer('Parsing input reads')
+    tim.start_timer('Parsing tandem alignments')
+    sanity_check_binary(parse_input_exe)
+    pass2_prefix, pass2_cleanup = _get_pass2_file_prefix()
+    cmd = "%s f -- %s -- %s -- %s -- %s" % \
+          (parse_input_exe, _get_passthrough_args(), sam_fn, ' '.join(args['ref']), pass2_prefix)
+    logging.info('  running "%s"' % cmd)
+    ret = os.system(cmd)
+    if ret != 0:
+        raise RuntimeError("qsim-parse returned %d" % ret)
+    pass2_cleanup()
+    logging.debug('  parsing finished; results in "%s.*"' % pass2_prefix)
+    tim.end_timer('Parsing tandem alignments')
 
-        tim.start_timer('Parsing input model')
-        dists = Dists(
-            pass1_prefix,
-            args['max_allowed_fraglen'],
-            fraction_even=args['fraction_even'],
-            bias=args['low_score_bias'],
-            reservoir_size=args['input_model_size'])
-        logging.debug('  parsing finished; resulted in model with %d total templates' % len(dists))
-        tim.end_timer('Parsing input model')
+    # ##################################################
+    # 5. Predict
+    # ##################################################
 
-        # ##################################################
-        # SIMULATE TANDEM READS
-        # ##################################################
+    tim.start_timer('Make MAPQ predictions')
 
-        # Construct sequence and quality simulators
-        logging.info('  Finalizing distributions')
-        dists.finalize()
-        logging.info('    Longest unpaired=%d, fragment=%d' % (dists.longest_unpaired(), dists.longest_fragment()))
-        # TODO: print something about average length and average alignment score
+    tim.end_timer('Make MAPQ predictions')
 
-        # If the training data is all unpaired, or if the aligner
-        # allows us to provide a mix a paired-end and unpaired data,
-        # then we always align the training data with one aligner
-        # process.  Otherwise, we need two aligner processes; one for
-        # the paired-end and one for the unpaired data.
-        
-        iters = (1 if dists.has_unpaired_reads() else 0) + (1 if dists.has_pairs() else 0)
-        if iters == 2 and aligner.supports_mix():
-            iters = 1
-        if iters == 2:
-            logging.info('Aligner does not accept unpaired/paired mix; training will have 2 rounds')
+    # ##################################################
+    # 6. Rewrite SAM
+    # ##################################################
 
-        for paired, lab in [(True, 'paired-end'), (False, 'unpaired')]:
-            both = False
-            if paired and not dists.has_pairs():
-                logging.debug('No paired-end reads in the input model')
-                continue
-            if not paired and not dists.has_unpaired_reads():
-                logging.debug('No unpaired reads in the input model')
-                continue
-            if aligner.supports_mix() and dists.has_pairs() and dists.has_unpaired_reads():
-                # Do both unpaired and paired simualted reads in one round
-                both, lab = True, 'both paired-end and unpaired'
+    tim.start_timer('Rewrite SAM file')
 
-            def simulate(simw, unpaired_format, paired_format, aligner=None):
-                type_to_format = {'conc': paired_format,
-                                  'disc': paired_format,
-                                  'bad_end': paired_format,
-                                  'unp': unpaired_format}
-                write_training_reads = args['write_training_reads'] or args['write_all']
-                training_out_fn, training_out_fh = {}, {}
-                types = []
-                if paired or both:
-                    types.extend(zip(['conc', 'disc', 'bad_end'], [paired_format] * 3))
-                if not paired or both:
-                    types.extend(zip(['unp'], [unpaired_format]))
-                for t, frmt in types:
-                    fn_base = 'training_%s.%s' % (t, frmt)
-                    fn = os.path.join(args['output_directory'], fn_base)
-                    if not write_training_reads:
-                        fn = temp_man.get_file(fn_base, 'tandem reads')
-                    training_out_fn[t] = fn
-                    training_out_fh[t] = open(fn, 'w')
-
-                logging.info('  Simulating reads')
-
-                _finish_sim_profiling = lambda: None
-                if args['profile_simulating']:
-                    import cProfile
-                    import pstats
-                    import StringIO
-                    pr = cProfile.Profile()
-                    pr.enable()
-
-                    def _finish_sim_profiling():
-                        pr.disable()
-                        s = StringIO.StringIO()
-                        ps = pstats.Stats(pr, stream=s).sort_stats('tottime')
-                        ps.print_stats(30)
-                        print(s.getvalue())
-
-                n_simread, typ_count = 0, defaultdict(int)
-                for t, rdp1, rdp2 in simw.simulate_batch(args['sim_fraction'], args['sim_unp_min'],
-                                                         args['sim_conc_min'], args['sim_disc_min'],
-                                                         args['sim_bad_end_min']):
-                    assert t in type_to_format
-                    frmt = type_to_format[t]
-                    if t in training_out_fh:
-                        # read is going to a file
-                        if frmt == 'tab6':
-                            # preferred format for Bowtie 2
-                            training_out_fh[t].write(Read.to_tab6(rdp1, rdp2) + '\n')
-                        elif frmt == 'interleaved_fastq':
-                            # preferred paired-end format for BWA & SNAP
-                            training_out_fh[t].write(Read.to_interleaved_fastq(rdp1, rdp2) + '\n')
-                        elif frmt == 'fastq':
-                            # preferred unpaired format for BWA & SNAP
-                            assert rdp2 is None
-                            training_out_fh[t].write(Read.to_fastq(rdp1) + '\n')
-                        else:
-                            raise RuntimeError('Bad training read output format "%s"' % frmt)
-                    if aligner is not None:
-                        # here, there's no guarantee about the order in which
-                        # reads are being fed to the aligner, so the aligner
-                        # had better be ready to accept a mixed stream of
-                        # unpaired and paired
-                        assert aligner.supports_mix()
-                        aligner.put(rdp1, rdp2)  # read is going directly to the aligner
-                    typ_count[t] += 1
-                    n_simread += 1
-                    if (n_simread % 20000) == 0:
-                        logging.info('    simulated %d reads (%d conc, %d disc, %d bad-end, %d unp)' %
-                                     (n_simread, typ_count['conc'], typ_count['disc'],
-                                      typ_count['bad_end'], typ_count['unp']))
-
-                for t in training_out_fh.keys():
-                    training_out_fh[t].close()
-                    logging.info('  Training reads written to "%s"' % training_out_fn[t])
-
-                _finish_sim_profiling()
-
-                logging.info('  Finished simulating reads (%d conc, %d disc, %d bad_end, %d unp)' %
-                             (typ_count['conc'], typ_count['disc'], typ_count['bad_end'], typ_count['unp']))
-
-                return typ_count, training_out_fn
-
-            # TODO: optional random-access simulator
-            simw = FragmentSimSerial2(args['ref'], dists)
-
-            #
-            # Simulate
-            #
-
-            tim.start_timer('Simulating tandem reads')
-            logging.info('Simulating tandem reads (%s)' % lab)
-            typ_sim_count, training_out_fn = simulate(simw,
-                                                      aligner.preferred_unpaired_format(),
-                                                      aligner.preferred_paired_format())
-
-            # TODO: why is this correct?  the simulated bad_end reads seem
-            # to be paired-end, and should be aligned in paired-end mode
-            unpaired_arg = None
-            if False:
-                if 'unp' in training_out_fn or 'bad_end' in training_out_fn:
-                    unpaired_arg = []
-                    for t in ['unp', 'bad_end']:
-                        if t in training_out_fn:
-                            unpaired_arg.append(training_out_fn[t])
-                paired_combined_arg = None
-                if 'conc' in training_out_fn or 'disc' in training_out_fn:
-                    paired_combined_arg = []
-                    for t in ['conc', 'disc']:
-                        if t in training_out_fn:
-                            paired_combined_arg.append(training_out_fn[t])
-                    if len(paired_combined_arg) > 1:
-                        # new file
-                        fn_base = 'training_paired.%s' % aligner.preferred_paired_format()
-                        fn = temp_man.get_file(fn_base, 'tandem reads')
-                        with open(fn, 'w') as fh:
-                            for ifn in paired_combined_arg:
-                                with open(ifn) as ifh:
-                                    for ln in ifh:
-                                        fh.write(ln)
-                        paired_combined_arg = [fn]
-            else:
-                if 'unp' in training_out_fn:
-                    unpaired_arg = []
-                    for t in ['unp']:
-                        if t in training_out_fn:
-                            unpaired_arg.append(training_out_fn[t])
-                paired_combined_arg = None
-                if 'conc' in training_out_fn or 'disc' in training_out_fn or 'bad_end' in training_out_fn:
-                    paired_combined_arg = []
-                    for t in ['conc', 'disc', 'bad_end']:
-                        if t in training_out_fn:
-                            paired_combined_arg.append(training_out_fn[t])
-                    if len(paired_combined_arg) > 1:
-                        # new file
-                        fn_base = 'training_paired.%s' % aligner.preferred_paired_format()
-                        fn = temp_man.get_file(fn_base, 'tandem reads')
-                        with open(fn, 'w') as fh:
-                            for ifn in paired_combined_arg:
-                                with open(ifn) as ifh:
-                                    for ln in ifh:
-                                        fh.write(ln)
-                        paired_combined_arg = [fn]
-
-            assert unpaired_arg is not None or paired_combined_arg is not None
-
-            logging.info('Finished simulating tandem reads')
-            tim.end_timer('Simulating tandem reads')
-
-            #
-            # Align
-            #
-
-            tim.start_timer('Aligning tandem reads')
-
-            def _wait_for_aligner(_al):
-                while _al.pipe.poll() is None:
-                    time.sleep(0.5)
-
-            if args['write_training_sam'] or args['write_all']:
-                sam_fn = os.path.join(args['output_directory'], 'training.sam')
-            else:
-                sam_fn = temp_man.get_file('training.sam', 'tandem sam')
-
-            if aligner.supports_mix():
-                logging.info('Aligning tandem reads (%s, mix)' % lab)
-                aligner = aligner_class(align_cmd,
-                                        aligner_args, aligner_unpaired_args, aligner_paired_args,
-                                        args['index'],
-                                        unpaired=unpaired_arg, paired_combined=paired_combined_arg,
-                                        sam=sam_fn, input_format=aligner.preferred_paired_format())
-                # the aligner_class gets to decide what order to do unpaired/paired
-                _wait_for_aligner(aligner)
-                logging.debug('Finished aligning unpaired and paired-end tandem reads')
-            else:
-                paired_sam, unpaired_sam = None, None
-                if unpaired_arg is not None:
-                    logging.info('Aligning tandem reads (%s, unpaired)' % lab)
-                    unpaired_sam = temp_man.get_file('training_unpaired.sam', 'tandem sam')
-                    aligner = aligner_class(align_cmd,
-                                            aligner_args, aligner_unpaired_args, aligner_paired_args,
-                                            args['index'],
-                                            unpaired=unpaired_arg, paired_combined=None,
-                                            sam=unpaired_sam, input_format=aligner.preferred_unpaired_format())
-                    _wait_for_aligner(aligner)
-                    logging.debug('Finished aligning unpaired tandem reads')
-
-                if paired_combined_arg is not None:
-                    logging.info('Aligning tandem reads (%s, paired)' % lab)
-                    paired_sam = temp_man.get_file('training_paired.sam', 'tandem sam')
-                    aligner = aligner_class(align_cmd,
-                                            aligner_args, aligner_unpaired_args, aligner_paired_args,
-                                            args['index'],
-                                            unpaired=None, paired_combined=paired_combined_arg,
-                                            sam=paired_sam, input_format=aligner.preferred_paired_format())
-                    _wait_for_aligner(aligner)
-                    logging.debug('Finished aligning paired-end tandem reads')
-
-                logging.debug('Concatenating unpaired and paired-end files')
-                with open(sam_fn, 'w') as ofh:
-                    for fn in [paired_sam, unpaired_sam]:
-                        if fn is not None:
-                            with open(fn) as fh:
-                                for ln in fh:
-                                    ofh.write(ln)
-
-            # remove temporary reads
-            temp_man.update_peak()
-            temp_man.remove_group('tandem reads')
-
-            cor_dist, incor_dist = defaultdict(int), defaultdict(int)
-
-            logging.info('Parsing tandem alignments (%s)' % lab)
-            tim.end_timer('Aligning tandem reads')
-            tim.start_timer('Parsing tandem alignments')
-            with open(sam_fn, 'r') as sam_fh:
-                result_training_q = Queue()
-                sam_reader = csv.reader(sam_fh, delimiter='\t', quotechar=None)
-                reader = AlignmentReader(
-                    args,
-                    sam_reader,
-                    training_data,
-                    None,
-                    ref,
-                    alignment_class,
-                    cor_dist,
-                    incor_dist,
-                    result_training_q)
-                reader.run()
-                typ_align_count, sc_diffs = reader.typ_hist, reader.sc_diffs
-
-            # remove temporary alignments
-            temp_man.update_peak()
-            temp_man.remove_group('tandem sam')
-
-            othread_result = result_training_q.get()
-            if not othread_result:
-                raise RuntimeError('Tandem alignment parser encountered error')
-            logging.info('Finished parsing tandem alignments')
-            tim.end_timer('Parsing tandem alignments')
-
-            if not dists.sc_dist_unp.empty() and dists.sc_dist_unp.has_correctness_info:
-                logging.info('    %d unpaired draws, %0.3f%% correct' % (dists.sc_dist_unp.num_drawn,
-                                                                         100*dists.sc_dist_unp.frac_correct()))
-            if not dists.sc_dist_conc.empty() and dists.sc_dist_conc.has_correctness_info:
-                logging.info('    %d concordant draws, %0.3f%%/%0.3f%% correct' % (dists.sc_dist_conc.num_drawn,
-                                                                                   100*dists.sc_dist_conc.frac_correct1(),
-                                                                                   100*dists.sc_dist_conc.frac_correct2()))
-            if not dists.sc_dist_disc.empty() and dists.sc_dist_disc.has_correctness_info:
-                logging.info('    %d discordant draws, %0.3f%%/%0.3f%% correct' % (dists.sc_dist_disc.num_drawn,
-                                                                                   100*dists.sc_dist_disc.frac_correct1(),
-                                                                                   100*dists.sc_dist_disc.frac_correct2()))
-            if not dists.sc_dist_bad_end.empty() and dists.sc_dist_bad_end.has_correctness_info:
-                logging.info('    %d bad-end draws, %0.3f%% correct' % (dists.sc_dist_bad_end.num_drawn,
-                                                                        100*dists.sc_dist_bad_end.frac_correct()))
-
-            # Check the fraction of simualted reads that were aligned and
-            # where we got an alignment of the expected type
-            logging.info('Tally of how many of each simualted type aligned as that type:')
-            for typ, cnt in typ_sim_count.iteritems():
-                if cnt == 0:
-                    continue
-                if typ not in typ_align_count:
-                    logging.warning('  %s: simulated:%d but ALIGNED NONE' % (typ, cnt))
-                else:
-                    func = logging.warning if (cnt / float(typ_align_count[typ])) < 0.3 else logging.info
-                    func('  %s: simulated:%d aligned:%d (%0.2f%%)' %
-                         (typ, cnt, typ_align_count[typ], 100.0 * typ_align_count[typ] / cnt))
-
-            if both:
-                break
-        
-    logging.info('Score difference (expected - actual) histogram:')
-    for k, v in sorted(sc_diffs.iteritems()):
-        logging.info('  %d: %d' % (k, v))
-
-    training_data.finalize()
-
-    tim.start_timer('Writing training data')
-
-    # Writing training data
-    training_csv_fn_prefix = os.path.join(args['output_directory'], 'training')
-    training_data.save(training_csv_fn_prefix)
-    logging.info('Training data (CSV format) written to "%s*"' % training_csv_fn_prefix)
-    training_data.purge()
-
-    tim.end_timer('Writing training data')
+    tim.end_timer('Rewrite SAM file')
 
     temp_man.purge()
-    logging.info('Peak temporary file size %0.2fMB' % (temp_man.peak_size / (1024.0 * 1024)))
+    logging.info('Peak temporary file size: %0.2fMB' % (temp_man.peak_size / (1024.0 * 1024)))
+    logging.info('Total size of output directory: %0.2fMB' % (recursive_size(odir) / (1024.0 * 1024)))
 
     tim.end_timer('Overall')
     for ln in str(tim).split('\n'):
         if len(ln) > 0:
             logging.info(ln)
     if args['write_timings'] or args['write_all']:
-        with open(os.path.join(args['output_directory'], 'timing.tsv'), 'w') as fh:
+        with open(join(odir, 'timing.tsv'), 'w') as fh:
             fh.write(str(tim))
+    logging.info('Time overhead: %0.01f%%' % (100.0 * (tim.timers['Overall'] - tim.timers['Aligning input reads']) /
+                                              tim.timers['Aligning input reads']))
 
 
 def add_args(parser):
     # Inputs
     parser.add_argument('--ref', metavar='path', type=str, nargs='+', required=True,
                         help='FASTA file(s) containing reference genome sequences')
-    parser.add_argument('--pickle-ref', metavar='path', type=str,
-                        help='Pickle FASTA input for speed, or use pickled version if it exists already.  Pickled '
-                             'version is stored at given path')
     parser.add_argument('--U', metavar='path', type=str, nargs='+', help='Unpaired read files')
     parser.add_argument('--m1', metavar='path', type=str, nargs='+',
                         help='Mate 1 files; must be specified in same order as --m2')
     parser.add_argument('--m2', metavar='path', type=str, nargs='+',
                         help='Mate 2 files; must be specified in same order as --m1')
-    parser.add_argument('--fastq', action='store_const', const=True, default=True, help='Input reads are FASTQ')
-    parser.add_argument('--fasta', action='store_const', const=True, default=False, help='Input reads are FASTA')
     parser.add_argument('--index', metavar='path', type=str, help='Index file to use (usually a prefix).')
 
     parser.add_argument('--seed', metavar='int', type=int, default=99099, required=False,
@@ -755,16 +431,8 @@ def add_args(parser):
                         help='Write distances between true/actual alignments.')
     parser.add_argument('--write-timings', action='store_const', const=True, default=False,
                         help='Write timing info to "timing.tsv".')
-    parser.add_argument('--write-logs', action='store_const', const=True, default=False,
-                        help='Write logs to "ts_log.txt" in the output directory.')
     parser.add_argument('--write-all', action='store_const', const=True, default=False,
                         help='Same as specifying all --write-* options')
-    parser.add_argument('--compress-output', action='store_const', const=True, default=False,
-                        help='gzip all output files')
-    parser.add_argument('--profile-parsing', action='store_const', const=True, default=False,
-                        help='output profiling info related to parsing')
-    parser.add_argument('--profile-simulating', action='store_const', const=True, default=False,
-                        help='output profiling info related to simulating reads')
 
 
 def go_profile(args, aligner_args, aligner_unpaired_args, aligner_paired_args):

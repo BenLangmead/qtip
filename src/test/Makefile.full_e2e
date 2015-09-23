@@ -1,0 +1,17 @@
+BT2_EG=$(BT2_HOME)/example
+
+full_e2e/ts_logs.txt:
+	python ../ts.py \
+		--ref $(BT2_EG)/reference/lambda_virus.fa \
+		--m1 $(BT2_EG)/reads/reads_1.fq \
+		--m2 $(BT2_EG)/reads/reads_2.fq \
+		--index $(BT2_EG)/index/lambda_virus \
+		--seed 34 \
+		--aligner bowtie2 \
+		--bt2-exe $(BT2_HOME)/bowtie2 \
+		--output-directory full_e2e \
+		--write-all
+
+.PHONY: clean
+clean:
+	rm -rf full_e2e

@@ -1306,7 +1306,15 @@ int main(int argc, char **argv) {
 			}
 		}
 		if(sams.empty() || !prefix_set) {
-			cerr << "Usage: qsim_parse_input [sam]* -- [fasta]* -- [output prefix]" << endl;
+			cerr << "Usage: qsim_parse_input [modes]* -- [argument value]* -- [sam]* -- [fasta]* -- [output prefix]" << endl;
+			cerr << "Modes:" << endl;
+			cerr << "  i: write input-model templates" << endl;
+			cerr << "  f: write feature records for learning/prediction" << endl;
+			cerr << "  s: simulate reads based on input model templates" << endl;
+			cerr << "Arguments:" << endl;
+			cerr << "  wiggle <int>: if the reported alignment is within "
+			     << "this many of the true ailgnment, it's considered correct"
+			     << endl;
 		}
 	}
 	keep_templates = do_simulation;

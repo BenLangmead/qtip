@@ -469,14 +469,14 @@ public:
 	/**
 	 * Return const version of list.
 	 */
-	const EList<T> list() const {
+	const EList<T>& list() const {
 		return list_;
 	}
 
 	/**
 	 * Return list.
 	 */
-	EList<T> list() {
+	EList<T>& list() {
 		return list_;
 	}
 
