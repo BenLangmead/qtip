@@ -1138,6 +1138,7 @@ static int sam_pass1(
 	
 	if(!quiet) {
 		cerr << "  " << nline << " lines" << endl;
+		cerr << "  " << nhead << " header lines" << endl;
 		cerr << "  " << nignored << " ignored b/c secondary" << endl;
 		cerr << "  " << nunp << " unpaired" << endl;
 		if(nunp > 0) {

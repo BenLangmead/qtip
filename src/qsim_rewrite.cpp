@@ -42,6 +42,17 @@ const static size_t BUFSZ = 65536;
 // the prediction file.
 
 int main(int argc, char **argv) {
+
+	if(argc == 1) {
+		// print which arguments from ts.py should pass through to here
+		cout << "orig-mapq-flag "
+		     << "precise-mapq-flag "
+		     << "write-orig-mapq "
+		     << "write-precise-mapq"
+		     << endl;
+		return 0;
+	}
+
 	string fn;
 	string prefix;
 	vector<string> sams;

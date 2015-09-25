@@ -1,8 +1,6 @@
 import re
 from abc import ABCMeta, abstractmethod
 
-from bin.old.sam import Cigar
-
 
 class Read(object):
     """ A read, along with some helper functions for parsing and
@@ -144,26 +142,9 @@ class Alignment(object):
         """ Return true iff opposite mate aligned """
         return (self.flags & 8) == 0
 
-    @staticmethod
-    def fragment_length(al1, al2):
-        """ Return fragment length """
-        cigar1, cigar2 = Cigar(al1.cigar), Cigar(al2.cigar)
-        if abs(al1.tlen) == 0:
-            return 0  # no implied fragment
-        al1_left = al1.pos - al1.soft_clipped_left()
-        al1_rght = al1.pos + cigar1.reference_length() + al1.soft_clipped_right()
-        al2_left = al2.pos - al2.soft_clipped_left()
-        al2_rght = al2.pos + cigar2.reference_length() + al2.soft_clipped_right()
-        return max(al1_rght, al2_rght) - min(al1_left, al2_left)
-
     def __len__(self):
         """ Return read length """
         return len(self.seq)
-
-    def parse_cigar(self):
-        """ Lazily parse self.cigar into self.cigar_obj """
-        if self.cigar_obj is None:
-            self.cigar_obj = Cigar(self.cigar)
 
     def soft_clipped_left(self):
         """ Return amt soft-clipped from LHS """
