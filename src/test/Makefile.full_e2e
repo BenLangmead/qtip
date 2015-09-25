@@ -10,7 +10,7 @@ full_e2e/ts_logs.txt:
 		--aligner bowtie2 \
 		--bt2-exe $(BT2_HOME)/bowtie2 \
 		--output-directory full_e2e \
-		--write-all
+		--keep-intermediates
 
 .PHONY: clean
 clean:
