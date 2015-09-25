@@ -16,14 +16,6 @@
 
 using namespace std;
 
-// TODO:
-// 1. Make simulator's interface, and overall interface, more full featured
-// 2. Make wiggle a parameter
-
-// One question is how to design the interface?  Maybe make it so that some
-// parameters to ts.py get seemlessly passed on to this binary with the same
-// option names.
-
 /**
  * Two kinds of output records.
  *
@@ -58,18 +50,20 @@ using namespace std;
  * ===============
  *
  * Unpaired columns:
- * 1. Read length
- * 2. Reported MAPQ
- * 3. Template length
- * 4+. All the ZT:Z fields
+ * 1. Alignment id, so predictions can be ordered in parallel to input SAM
+ * 2. Read length
+ * 3. Reported MAPQ
+ * 4. Template length
+ * 5+. All the ZT:Z fields
  *
  * Paired-end columns:
- * 1. Mate 1 read length
- * 2. Mate 1 reported MAPQ
- * 3. Mate 2 read length
- * 4. Mate 2 reported MAPQ
- * 5. Fragment length
- * 6+. All the ZT:Z fields for mate 1
+ * 1. Alignment id, so predictions can be ordered in parallel to input SAM
+ * 2. Mate 1 read length
+ * 3. Mate 1 reported MAPQ
+ * 4. Mate 2 read length
+ * 5. Mate 2 reported MAPQ
+ * 6. Fragment length
+ * 7+. All the ZT:Z fields for mate 1
  * X+. All the ZT:Z fields for mate 2
  */
 
@@ -127,6 +121,7 @@ struct Alignment {
 		mdz_char.clear();
 		mdz_oro.clear();
 		correct = -1;
+		line = 0;
 	}
 	
 	inline bool is_aligned() const {
@@ -643,6 +638,7 @@ struct Alignment {
 	int left_clip;
 	int right_clip;
 	int correct;
+	size_t line;
 	
 	// For holding stacked alignment result
 	EList<char> rf_aln_buf;
@@ -747,7 +743,8 @@ static void print_unpaired(
 	
 	if(fh_recs != NULL) {
 		// Output information relevant to MAPQ model
-		fprintf(fh_recs, "%u,%" PRIuPTR,
+		fprintf(fh_recs, "%" PRIuPTR ",%u,%" PRIuPTR,
+				(uintptr_t)al.line,
 				(unsigned)al.len,
 				(uintptr_t)ordlen);
 		
@@ -813,7 +810,7 @@ static void print_paired(
 		//
 		
 		// Output information relevant to input model
-		fprintf(fh_recs, "%u", (unsigned)al1.len);
+		fprintf(fh_recs, "%" PRIuPTR ",%u", al1.line, (unsigned)al1.len);
 		// ... including all the ZT:Z fields
 		while(ztz_tok1 != NULL) {
 			size_t toklen = strlen(ztz_tok1);
@@ -864,7 +861,7 @@ static void print_paired(
 		//
 		// Now mate 2 again
 		//
-		fprintf(fh_recs, "%u", (unsigned)al2.len);
+		fprintf(fh_recs, "%" PRIuPTR ",%u", al2.line, (unsigned)al2.len);
 		for(size_t i = 0; i < ztz2_buf.size(); i++) {
 			fprintf(fh_recs, ",%s", ztz2_buf[i]);
 		}
@@ -946,6 +943,32 @@ static int infer_num_ztzs(const char *rest_of_line) {
 }
 
 /**
+ * Print column headers for an unpaired file of feature records.
+ */
+static void print_unpaired_header(FILE *fh, int n_ztz_fields) {
+	fprintf(fh, "id,len,olen");
+	for(int i = 0; i < n_ztz_fields; i++) {
+		fprintf(fh, ",ztz%d", i);
+	}
+	fprintf(fh, ",mapq,correct\n");
+}
+
+/**
+ * Print column headers for a paired-end file of feature records.
+ */
+static void print_paired_header(FILE *fh, int n_ztz_fields) {
+	fprintf(fh, "id,len");
+	for(int i = 0; i < n_ztz_fields; i++) {
+		fprintf(fh, ",ztz_%d", i);
+	}
+	fprintf(fh, ",olen,fraglen");
+	for(int i = 0; i < n_ztz_fields; i++) {
+		fprintf(fh, ",oztz1_%d", i);
+	}
+	fprintf(fh, ",mapq,correct\n");
+}
+
+/**
  * Read the input SAM file while simultaneously writing out records used to
  * train a MAPQ model as well as records used to build an input model.
  */
@@ -975,18 +998,20 @@ static int sam_pass1(
 	
 	int al_cur1 = 1;
 	
-	int nline = 0, nignored = 0, npair = 0, nunp = 0;
-	int nunp_al = 0, nunp_unal = 0, npair_badend = 0, npair_conc = 0, npair_disc = 0, npair_unal = 0;
+	int nline = 0, nhead = 0, nignored = 0, npair = 0, nunp = 0;
+	int nunp_al = 0, nunp_unal = 0, npair_badend = 0, npair_conc = 0,
+	    npair_disc = 0, npair_unal = 0;
 	
 	while(1) {
 		char *line = line1 ? linebuf1 : linebuf2;
 		if(fgets(line, BUFSZ, fh) == NULL) {
 			break; /* done */
 		}
+		nline++;
 		if(line[0] == '@') {
+			nhead++;
 			continue; // skip header
 		}
-		nline++;
 		char *qname = strtok(line, "\t"); assert(qname != NULL);
 		assert(qname == line);
 		char *flag_str = strtok(NULL, "\t"); assert(flag_str != NULL);
@@ -1009,6 +1034,7 @@ static int sam_pass1(
 		al_cur.rest_of_line = flag_str + strlen(flag_str) + 1; /* for re-parsing */
 		al_cur.qname = qname;
 		al_cur.flag = flag;
+		al_cur.line = nline;
 		
 		/* If we're able to mate up ends at this time, do it */
 		Alignment *mate1 = NULL, *mate2 = NULL;
@@ -1041,12 +1067,7 @@ static int sam_pass1(
 				// If this is the first alignment, determine number of ZT:Z
 				// fields and write a header line to the record output file
 				if(nunp_al == 0 && orec_u_fh != NULL) {
-					const int n_ztz_fields = infer_num_ztzs(al_cur.rest_of_line);
-					fprintf(orec_u_fh, "len,olen");
-					for(int i = 0; i < n_ztz_fields; i++) {
-						fprintf(orec_u_fh, ",ztz%d", i);
-					}
-					fprintf(orec_u_fh, ",mapq,correct\n");
+					print_unpaired_header(orec_u_fh, infer_num_ztzs(al_cur.rest_of_line));
 				}
 
 				nunp_al++;
@@ -1073,12 +1094,7 @@ static int sam_pass1(
 				// If this is the first alignment, determine number of ZT:Z
 				// fields and write a header line to the record output file
 				if(npair_badend == 0 && orec_b_fh != NULL) {
-					const int n_ztz_fields = infer_num_ztzs(alm.rest_of_line);
-					fprintf(orec_b_fh, "len,olen");
-					for(int i = 0; i < n_ztz_fields; i++) {
-						fprintf(orec_b_fh, ",ztz%d", i);
-					}
-					fprintf(orec_b_fh, ",mapq,correct\n");
+					print_unpaired_header(orec_b_fh, infer_num_ztzs(alm.rest_of_line));
 				}
 
 				npair_badend++;
@@ -1093,16 +1109,7 @@ static int sam_pass1(
 				
 				if(mate1->is_concordant()) {
 					if(npair_conc == 0 && orec_c_fh != NULL) {
-						const int n_ztz_fields = infer_num_ztzs(mate1->rest_of_line);
-						fprintf(orec_c_fh, "len");
-						for(int i = 0; i < n_ztz_fields; i++) {
-							fprintf(orec_c_fh, ",ztz_%d", i);
-						}
-						fprintf(orec_c_fh, ",olen,fraglen");
-						for(int i = 0; i < n_ztz_fields; i++) {
-							fprintf(orec_c_fh, ",oztz1_%d", i);
-						}
-						fprintf(orec_c_fh, ",mapq,correct\n");
+						print_paired_header(orec_c_fh, infer_num_ztzs(mate1->rest_of_line));
 					}
 					
 					// Case 6: Current read is paired and both mates aligned, concordantly
@@ -1112,16 +1119,7 @@ static int sam_pass1(
 				
 				else {
 					if(npair_disc == 0 && orec_d_fh != NULL) {
-						const int n_ztz_fields = infer_num_ztzs(mate1->rest_of_line);
-						fprintf(orec_d_fh, "len");
-						for(int i = 0; i < n_ztz_fields; i++) {
-							fprintf(orec_d_fh, ",ztz_%d", i);
-						}
-						fprintf(orec_d_fh, ",olen,fraglen");
-						for(int i = 0; i < n_ztz_fields; i++) {
-							fprintf(orec_d_fh, ",oztz1_%d", i);
-						}
-						fprintf(orec_d_fh, ",mapq,correct\n");
+						print_paired_header(orec_d_fh, infer_num_ztzs(mate1->rest_of_line));
 					}
 
 					// Case 7: Current read is paired and both mates aligned, not condordantly
