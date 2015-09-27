@@ -45,6 +45,8 @@ public:
 	{
 		seq_buf_len_ = 64;
 		seq_buf_ = new char[seq_buf_len_];
+		qual_buf_len_ = 64;
+		qual_buf_ = new char[qual_buf_len_];
 	}
 	
 	~SimulatedRead() {
@@ -52,12 +54,16 @@ public:
 			delete[] seq_buf_;
 			seq_buf_ = NULL;
 		}
+		if(qual_buf_ != NULL) {
+			delete[] qual_buf_;
+			qual_buf_ = NULL;
+		}
 	}
 	
 	void init(
 		const char *seq,
-		const char *qual,
-		const char *edit_xscript,
+		char *qual,
+		char *edit_xscript,
 		bool fw,
 		int score,
 		const char *refid,
@@ -70,6 +76,39 @@ public:
 		refid_ = refid;
 		refoff_ = refoff;
 		mutate(seq);
+	}
+	
+	/**
+	 * Initialize with random bases and sequence string.
+	 */
+	void init_random(
+		size_t len,
+		bool fw,
+		int score,
+		const char *refid,
+		size_t refoff)
+	{
+		assert(len > 0);
+		while(len+1 >= qual_buf_len_) {
+			double_qual_buf();
+		}
+		while(len+1 >= seq_buf_len_) {
+			double_seq_buf();
+		}
+		fw_ = fw;
+		score_ = score;
+		refid_ = refid;
+		refoff_ = refoff;
+		char *seq_cur = seq_buf_;
+		char *qual_cur = qual_buf_;
+		for(size_t i = 0; i < len; i++) {
+			int c = "ACGT"[(int)(r4_uni_01() * 4.0f)];
+			int q = 'I';
+			*seq_cur++ = c;
+			*qual_cur++ = q;
+		}
+		*seq_cur = *qual_cur = '\0';
+		qual_ = qual_buf_;
 	}
 	
 	/**
@@ -126,9 +165,18 @@ protected:
 		seq_buf_len_ *= 2;
 		seq_buf_ = new char[seq_buf_len_];
 	}
-	
+
+	/**
+	 * Double the size of the quality buffer.
+	 */
+	void double_qual_buf() {
+		delete[] qual_buf_;
+		qual_buf_len_ *= 2;
+		qual_buf_ = new char[qual_buf_len_];
+	}
+
 	bool fw_;
-	const char *qual_;
+	char *qual_;
 	const char *edit_xscript_;
 	int score_;
 	const char *refid_;
@@ -136,6 +184,9 @@ protected:
 	
 	size_t seq_buf_len_;
 	char *seq_buf_;
+
+	size_t qual_buf_len_;
+	char *qual_buf_;
 };
 
 /**
@@ -157,7 +208,8 @@ public:
 		const InputModelPaired& model_c,
 		const InputModelPaired& model_d,
 		FILE *fh_u,
-		FILE *fh_b,
+		FILE *fh_b_1,
+		FILE *fh_b_2,
 		FILE *fh_c_1,
 		FILE *fh_c_2,
 		FILE *fh_d_1,
@@ -171,7 +223,8 @@ public:
 		model_c_(model_c),
 		model_d_(model_d),
 		fh_u_(fh_u),
-		fh_b_(fh_b),
+		fh_b_1_(fh_b_1),
+		fh_b_2_(fh_b_2),
 		fh_c_1_(fh_c_1),
 		fh_c_2_(fh_c_2),
 		fh_d_1_(fh_d_1),
@@ -191,7 +244,8 @@ public:
 		size_t min_b);
 	
 	/**
-	 *
+	 * Return the estimated number of bases in all the FASTA files, based on
+	 * the file sizes.
 	 */
 	size_t num_estimated_bases() const {
 		return tot_fasta_len_;
@@ -226,7 +280,8 @@ protected:
 	const InputModelPaired& model_c_;
 	const InputModelPaired& model_d_;
 	FILE *fh_u_;
-	FILE *fh_b_;
+	FILE *fh_b_1_;
+	FILE *fh_b_2_;
 	FILE *fh_c_1_;
 	FILE *fh_c_2_;
 	FILE *fh_d_1_;

@@ -98,6 +98,7 @@ struct Alignment {
 		rest_of_line = NULL;
 		valid = false;
 		qname = NULL;
+		typ = NULL;
 		flag = 0;
 		rname = NULL;
 		pos = 0;
@@ -143,6 +144,16 @@ struct Alignment {
 	inline char mate_flag() const {
 		return ((flag & 64) != 0) ? '1' : (((flag & 128) != 0) ? '2' : '0');
 	}
+	
+	/**
+	 * Return true iff this read should be parsed as unpaired.
+	inline bool is_unpaired() const {
+		if(typ == NULL || strcmp(typ, "unp") == 0) {
+			return mate_flag() == '0';
+		}
+		return false;
+	}
+	 */
 	
 	/**
 	 * Return fragment length, as inferred from pos & CIGAR.  Don't rely on
@@ -622,6 +633,7 @@ struct Alignment {
 	char *rest_of_line;
 	bool valid;
 	char *qname;
+	char *typ;
 	int flag;
 	char *rname;
 	size_t pos;
@@ -929,7 +941,7 @@ static int infer_num_ztzs(const char *rest_of_line) {
 			if(*cur++ == 'Z') {
 				if(*cur++ == 'T') {
 					if(strncmp(cur, ":Z:", 3) == 0) {
-						while(*cur++ != '\t') {
+						while(*cur++ != '\n') {
 							if(*cur == ',') {
 								n_ztz_fields++;
 							}
@@ -940,6 +952,28 @@ static int infer_num_ztzs(const char *rest_of_line) {
 		}
 	}
 	return n_ztz_fields;
+}
+
+/**
+ *
+ */
+static size_t infer_read_length(const char *rest_of_line) {
+	size_t tabs = 0;
+	size_t len = 0;
+	const char *cur = rest_of_line;
+	while(true) {
+		if(*cur++ == '\t') {
+			tabs++;
+			if(tabs == 7) {
+				while(*cur++ != '\t') {
+					len++;
+				}
+				return len;
+			}
+		}
+	}
+	assert(false);
+	return 0;
 }
 
 /**
@@ -998,9 +1032,9 @@ static int sam_pass1(
 	
 	int al_cur1 = 1;
 	
-	int nline = 0, nhead = 0, nignored = 0, npair = 0, nunp = 0;
+	int nline = 0, nhead = 0, nsec = 0, npair = 0, nunp = 0;
 	int nunp_al = 0, nunp_unal = 0, npair_badend = 0, npair_conc = 0,
-	    npair_disc = 0, npair_unal = 0;
+	    npair_disc = 0, npair_unal = 0, ntyp_mismatch = 0;
 	
 	while(1) {
 		char *line = line1 ? linebuf1 : linebuf2;
@@ -1017,7 +1051,7 @@ static int sam_pass1(
 		char *flag_str = strtok(NULL, "\t"); assert(flag_str != NULL);
 		int flag = atoi(flag_str);
 		if((flag & 2048) != 0) {
-			nignored++;
+			nsec++;
 			continue;
 		}
 		
@@ -1053,6 +1087,22 @@ static int sam_pass1(
 			npair++;
 		}
 		
+		// TODO: for tandem reads, you have to look in the name of the read to
+		// figure out whether it should count and what category of alignment it
+		// should count as
+		if(strncmp(al_cur.qname, sim_startswith, strlen(sim_startswith)) == 0) {
+			// skip to final !
+			char *cur = al_cur.qname;
+			assert(al_cur.typ == NULL);
+			while(*cur != '\0') {
+				if(*cur == '!') {
+					al_cur.typ = cur+1;
+				}
+				cur++;
+			}
+			assert(al_cur.typ != NULL);
+		}
+		
 		if(al_cur.mate_flag() == '0') {
 			nunp++;
 			
@@ -1063,7 +1113,7 @@ static int sam_pass1(
 			}
 			
 			// Case 2: Current read is unpaired and aligned
-			else {
+			else if(al_cur.typ == NULL || al_cur.typ[0] == 'u') {
 				// If this is the first alignment, determine number of ZT:Z
 				// fields and write a header line to the record output file
 				if(nunp_al == 0 && orec_u_fh != NULL) {
@@ -1073,10 +1123,14 @@ static int sam_pass1(
 				nunp_al++;
 				print_unpaired(al_cur, 0, omod_u_fh, orec_u_fh, u_templates);
 			}
+			
+			else if(al_cur.typ != NULL) {
+				ntyp_mismatch++; // type mismatch
+			}
 		}
 		
 		else if(mate1 != NULL) {
-			// Case 3: Current read is paired and unlineigned, opposite mate is
+			// Case 3: Current read is paired and unaligned, opposite mate is
 			// also unaligned; nothing more to do!
 			assert(mate2 != NULL);
 			if(!mate1->is_aligned() && !mate2->is_aligned()) {
@@ -1090,41 +1144,64 @@ static int sam_pass1(
 			else if(mate1->is_aligned() != mate2->is_aligned()) {
 				bool m1al = mate1->is_aligned();
 				Alignment& alm = m1al ? *mate1 : *mate2;
-				
-				// If this is the first alignment, determine number of ZT:Z
-				// fields and write a header line to the record output file
-				if(npair_badend == 0 && orec_b_fh != NULL) {
-					print_unpaired_header(orec_b_fh, infer_num_ztzs(alm.rest_of_line));
+				if(alm.typ == NULL || (alm.typ[0] == 'b' && alm.typ[1] == mate1->mate_flag())) {
+					// If this is the first alignment, determine number of ZT:Z
+					// fields and write a header line to the record output file
+					if(npair_badend == 0 && orec_b_fh != NULL) {
+						print_unpaired_header(orec_b_fh,
+											  infer_num_ztzs(alm.rest_of_line));
+					}
+					
+					npair_badend++;
+					// the call to infer_read_length is needed because we
+					// haven't parsed the sequence
+					print_unpaired(
+						alm,
+						infer_read_length(m1al ? mate2->rest_of_line : mate1->rest_of_line),
+						omod_b_fh, orec_b_fh, b_templates);
 				}
-
-				npair_badend++;
-				print_unpaired(
-					alm,
-					m1al ? mate2->len : mate1->len,
-					omod_b_fh, orec_b_fh, b_templates);
+				
+				else if(alm.typ != NULL) {
+					ntyp_mismatch++; // type mismatch
+				}
 			}
 			
 			else {
 				assert(mate1->is_concordant() == mate2->is_concordant());
 				
 				if(mate1->is_concordant()) {
-					if(npair_conc == 0 && orec_c_fh != NULL) {
-						print_paired_header(orec_c_fh, infer_num_ztzs(mate1->rest_of_line));
+					if(mate1->typ == NULL || mate1->typ[0] == 'c') {
+						if(npair_conc == 0 && orec_c_fh != NULL) {
+							print_paired_header(orec_c_fh,
+												infer_num_ztzs(mate1->rest_of_line));
+						}
+						
+						// Case 6: Current read is paired and both mates
+						// aligned, concordantly
+						npair_conc++;
+						print_paired(*mate1, *mate2, omod_c_fh,
+									 orec_c_fh, c_templates);
 					}
 					
-					// Case 6: Current read is paired and both mates aligned, concordantly
-					npair_conc++;
-					print_paired(*mate1, *mate2, omod_c_fh, orec_c_fh, c_templates);
+					else if(mate1->typ != NULL) {
+						ntyp_mismatch++; // type mismatch
+					}
 				}
 				
 				else {
-					if(npair_disc == 0 && orec_d_fh != NULL) {
-						print_paired_header(orec_d_fh, infer_num_ztzs(mate1->rest_of_line));
+					if(mate1->typ == NULL || mate1->typ[0] == 'd') {
+						if(npair_disc == 0 && orec_d_fh != NULL) {
+							print_paired_header(orec_d_fh, infer_num_ztzs(mate1->rest_of_line));
+						}
+
+						// Case 7: Current read is paired and both mates aligned, not condordantly
+						npair_disc++;
+						print_paired(*mate1, *mate2, omod_d_fh, orec_d_fh, d_templates);
 					}
 
-					// Case 7: Current read is paired and both mates aligned, not condordantly
-					npair_disc++;
-					print_paired(*mate1, *mate2, omod_d_fh, orec_d_fh, d_templates);
+					else if(mate1->typ != NULL) {
+						ntyp_mismatch++; // type mismatch
+					}
 				}
 			}
 		}
@@ -1139,7 +1216,8 @@ static int sam_pass1(
 	if(!quiet) {
 		cerr << "  " << nline << " lines" << endl;
 		cerr << "  " << nhead << " header lines" << endl;
-		cerr << "  " << nignored << " ignored b/c secondary" << endl;
+		cerr << "  " << nsec << " ignored b/c secondary" << endl;
+		cerr << "  " << ntyp_mismatch << " alignment type didn't match simulated type" << endl;
 		cerr << "  " << nunp << " unpaired" << endl;
 		if(nunp > 0) {
 			cerr << "    " << nunp_al << " aligned" << endl;
@@ -1192,7 +1270,7 @@ int main(int argc, char **argv) {
 	}
 	
 	string orec_u_fn, omod_u_fn, oread_u_fn;
-	string orec_b_fn, omod_b_fn, oread_b_fn;
+	string orec_b_fn, omod_b_fn, oread1_b_fn, oread2_b_fn;
 	string orec_c_fn, omod_c_fn, oread1_c_fn, oread2_c_fn;
 	string orec_d_fn, omod_d_fn, oread1_d_fn, oread2_d_fn;
 	string prefix;
@@ -1294,9 +1372,10 @@ int main(int argc, char **argv) {
 				omod_d_fn = prefix + string("_mod_d.csv");
 
 				oread_u_fn = prefix + string("_reads_u.fastq");
-				oread_b_fn = prefix + string("_reads_b.fastq");
+				oread1_b_fn = prefix + string("_reads_b_1.fastq");
 				oread1_c_fn = prefix + string("_reads_c_1.fastq");
 				oread1_d_fn = prefix + string("_reads_d_1.fastq");
+				oread2_b_fn = prefix + string("_reads_b_2.fastq");
 				oread2_c_fn = prefix + string("_reads_c_2.fastq");
 				oread2_d_fn = prefix + string("_reads_d_2.fastq");
 			}
@@ -1387,7 +1466,8 @@ int main(int argc, char **argv) {
 		InputModelPaired d_model(d_templates.list(), fraction_even, low_score_bias);
 		
 		FILEDEC(oread_u_fn, oread_u_fh, oread_u_buf, "FASTQ", true);
-		FILEDEC(oread_b_fn, oread_b_fh, oread_b_buf, "FASTQ", true);
+		FILEDEC(oread1_b_fn, oread1_b_fh, oread1_b_buf, "FASTQ", true);
+		FILEDEC(oread2_b_fn, oread2_b_fh, oread2_b_buf, "FASTQ", true);
 		FILEDEC(oread1_c_fn, oread1_c_fh, oread1_c_buf, "FASTQ", true);
 		FILEDEC(oread2_c_fn, oread2_c_fh, oread2_c_buf, "FASTQ", true);
 		FILEDEC(oread1_d_fn, oread1_d_fh, oread1_d_buf, "FASTQ", true);
@@ -1396,7 +1476,8 @@ int main(int argc, char **argv) {
 		cerr << "Creating tandem read simulator" << endl;
 		StreamingSimulator ss(fastas, 128 * 1024,
 							  u_model, b_model, c_model, d_model,
-							  oread_u_fh, oread_b_fh,
+							  oread_u_fh,
+							  oread1_b_fh, oread2_b_fh,
 							  oread1_c_fh, oread2_c_fh,
 							  oread1_d_fh, oread2_d_fh);
 
@@ -1412,7 +1493,8 @@ int main(int argc, char **argv) {
 			sim_bad_end_min);
 		
 		fclose(oread_u_fh);
-		fclose(oread_b_fh);
+		fclose(oread1_b_fh);
+		fclose(oread2_b_fh);
 		fclose(oread1_c_fh);
 		fclose(oread2_c_fh);
 		fclose(oread1_d_fh);

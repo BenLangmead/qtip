@@ -4,7 +4,11 @@ import os
 import pandas
 import warnings
 import math
+import numpy as np
 
+
+def _exists_and_nonempty(fn):
+    return os.path.exists(fn) and os.stat(fn).st_size > 0
 
 class FeatureTableReader(object):
 
@@ -30,33 +34,43 @@ class FeatureTableReader(object):
     """
 
     #            short name   suffix
-    datasets = [('u',         '_unp.csv'),
-                ('d',         '_disc.csv'),
-                ('c',         '_conc.csv'),
-                ('b',         '_bad_end.csv')]
+    datasets = [('u',         '_rec_u.csv'),
+                ('d',         '_rec_d.csv'),
+                ('c',         '_rec_c.csv'),
+                ('b',         '_rec_b.csv')]
 
     def __init__(self, prefix, chunksize=50000):
         self.prefix = prefix
         self.dfs = {}
         self.readers = {}
+        nonempty = False
+        fns = []
         for sn, suf in self.datasets:
             fn = self.prefix + suf
-            if any(map(os.path.exists, [fn, fn + '.gz', fn + '.bz2'])):
+            fns.append(fn)
+            for fnex in [fn, fn + '.gz', fn + '.bz2']:
+                if _exists_and_nonempty(fnex):
+                    nonempty = True
 
-                def gen_new_iterator(_fn, _chunksize):
-                    def _new_iterator():
-                        if os.path.exists(_fn):
-                            return pandas.io.parsers.read_csv(_fn, quoting=2, chunksize=_chunksize)
-                        elif os.path.exists(_fn + '.gz'):
-                            return pandas.io.parsers.read_csv(_fn + '.gz', quoting=2, chunksize=_chunksize, compression='gzip')
-                        elif os.path.exists(_fn + '.bz2'):
-                            return pandas.io.parsers.read_csv(_fn + '.bz2', quoting=2, chunksize=_chunksize, compression='bz2')
-                        else:
-                            raise RuntimeError('No such file: "%s"' % _fn)
+                    def gen_new_iterator(_fn, _chunksize):
+                        def _new_iterator():
+                            if os.path.exists(_fn):
+                                return pandas.io.parsers.read_csv(_fn, quoting=2, chunksize=_chunksize)
+                            elif os.path.exists(_fn + '.gz'):
+                                return pandas.io.parsers.read_csv(_fn + '.gz', quoting=2, chunksize=_chunksize, compression='gzip')
+                            elif os.path.exists(_fn + '.bz2'):
+                                return pandas.io.parsers.read_csv(_fn + '.bz2', quoting=2, chunksize=_chunksize, compression='bz2')
+                            else:
+                                raise RuntimeError('No such file: "%s"' % _fn)
 
-                    return _new_iterator
+                        return _new_iterator
 
-                self.readers[sn] = gen_new_iterator(fn, chunksize)
+                    self.readers[sn] = gen_new_iterator(fn, chunksize)
+                    break
+
+        if not nonempty:
+            raise RuntimeError('No non-empty input files with names like: ' + str(fns))
+
 
     @staticmethod
     def _postprocess_data_frame(df):

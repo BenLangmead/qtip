@@ -24,8 +24,10 @@ class MapqFit:
                     labs.append(col)
             self.training_labs[shortname] = labs
         else:
-            assert shortname in self.training_labs
+            assert shortname in self.training_labs, (shortname, str(self.training_labs.keys()))
             labs = self.training_labs[shortname]
+            for lab in labs:
+                assert lab in data, "Column %s in training data, but not in test (%s)" % (lab, shortname)
         # TODO: remove duplicate data columns?
         for lab in labs:
             assert not np.isnan(data[lab]).any()
@@ -33,7 +35,7 @@ class MapqFit:
         correct = np.array(map(lambda x: x == 1, data['correct']))
 
         assert not np.isinf(data_mat).any() and not np.isnan(data_mat).any()
-        return data_mat, np.array(data['id']), data['mapq_1' if shortname in 'dc' else 'mapq'], correct, labs
+        return data_mat, np.array(data['id']), data['mapq'], correct, labs
 
     @staticmethod
     def _subsample(x_train, mapq_orig_train, y_train, sample_fraction):
@@ -103,7 +105,7 @@ class MapqFit:
             train = pandas.concat([x for x in dfs.dataset_iter(ds)])
             if train.shape[0] == 0:
                 continue  # empty
-            log.info('Fitting %s training data with random seed %d' % (ds_long, self.random_seed))
+            log.info('Fitting %d %s training data records (seed=%d)' % (train.shape[0], ds_long, self.random_seed))
             # seed pseudo-random generators
             random.seed(self.random_seed)
             np.random.seed(self.random_seed)

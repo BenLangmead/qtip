@@ -41,6 +41,8 @@ class TemporaryFileManager(object):
         assert not self.purged
         if dir_basename in self.dirs:
             raise RuntimeError('Temporary directory with name "%s" already exists' % dir_basename)
+        if len(group) == 0:
+            group = dir_basename
         self.groups[group].append((dir_basename, True))
         self.dirs.add(dir_basename)
         fullpath = join(self.dir, dir_basename)

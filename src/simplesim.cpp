@@ -29,7 +29,7 @@ static inline size_t draw_binomial(size_t n, float p) {
  */
 void SimulatedRead::mutate(const char *seq) {
 	const size_t newsz = strlen(qual_);
-	while(newsz >= seq_buf_len_) {
+	while(newsz+1 >= seq_buf_len_) {
 		double_seq_buf();
 	}
 	size_t rdoff = 0, rfoff = 0;
@@ -206,22 +206,19 @@ void StreamingSimulator::simulate_batch(
 		// Maybe N content should affect choice for n*_chances
 		
 		//
-		// Unpaired & bad-end
+		// Unpaired
 		//
 		
 		size_t nu_chances = retsz - model_u_.avg_len() + 1;
-		size_t nb_chances = retsz - model_b_.avg_len() + 1;
 		size_t nu_samp = draw_binomial(nu, float(nu_chances) / tot_fasta_len_);
-		size_t nb_samp = draw_binomial(nb, float(nb_chances) / tot_fasta_len_);
-		for(size_t i = 0; i < nu_samp + nb_samp; i++) {
-			bool unp = i < nu_samp;
+		for(size_t i = 0; i < nu_samp; i++) {
 			int attempts = 0;
 			do {
 				if(attempts > max_attempts) {
 					break;
 				}
 				attempts++;
-				const TemplateUnpaired &t = (unp ? model_u_.draw() : model_b_.draw());
+				const TemplateUnpaired &t = model_u_.draw();
 				size_t nslots = retsz - olap_;
 				size_t off = (size_t)(r4_uni_01() * nslots);
 				assert(off < nslots);
@@ -240,14 +237,74 @@ void StreamingSimulator::simulate_batch(
 					t.best_score_,
 					refid.c_str(),
 					refoff + off);
-				const char *lab = unp ? "unp" : (t.mate_flag_ == '1' ?
-												 "bad_end_mate1" :
-												 "bad_end_mate2");
-				if(unp) { n_wrote_u++; } else { n_wrote_b++; }
-				rd1.write(unp ? fh_u_ : fh_b_, lab);
+				n_wrote_u++;
+				rd1.write(fh_u_, "u");
 			} while(false);
 		}
 		
+		//
+		// Bad-end
+		//
+
+		size_t nb_chances = retsz - model_b_.avg_len() + 1;
+		size_t nb_samp = draw_binomial(nb, float(nb_chances) / tot_fasta_len_);
+		for(size_t i = 0; i < nb_samp; i++) {
+			int attempts = 0;
+			do {
+				if(attempts > max_attempts) {
+					break;
+				}
+				attempts++;
+				const TemplateUnpaired &t = model_b_.draw();
+				bool mate1 = t.mate_flag_ == '1';
+				size_t nslots = retsz - olap_;
+				size_t off = (size_t)(r4_uni_01() * nslots);
+				assert(off < nslots);
+				const size_t rflen = t.reflen();
+				for(size_t j = off; j < off + rflen; j++) {
+					const int b = buf[j];
+					if(b != 'A' && b != 'C' && b != 'G' && b != 'T') {
+						continue; // uses 1 attempt
+					}
+				}
+				if(mate1) {
+					rd1.init(
+						buf + off,
+						t.qual_,
+						t.edit_xscript_,
+						t.fw_flag_ == 'T',
+						t.best_score_,
+						refid.c_str(),
+						refoff + off);
+					rd2.init_random(
+						t.opp_len_,
+						t.fw_flag_ == 'T', // doesn't matter much, but need them for name
+						t.best_score_, // doesn't matter much, but need them for name
+						refid.c_str(), // doesn't matter much, but need them for name
+						refoff + off); // doesn't matter much, but need them for name
+				} else {
+					rd2.init(
+						buf + off,
+						t.qual_,
+						t.edit_xscript_,
+						t.fw_flag_ == 'T',
+						t.best_score_,
+						refid.c_str(),
+						refoff + off);
+					rd1.init_random(
+						t.opp_len_,
+						t.fw_flag_ == 'T', // doesn't matter much, but need them for name
+						t.best_score_, // doesn't matter much, but need them for name
+						refid.c_str(), // doesn't matter much, but need them for name
+						refoff + off); // doesn't matter much, but need them for name
+				}
+				n_wrote_b++;
+				const char *lab = mate1 ? "b1" : "b2";
+				rd1.write(fh_b_1_, lab);
+				rd2.write(fh_b_2_, lab);
+			} while(false);
+		}
+
 		//
 		// Concordant & discordant
 		//
@@ -305,7 +362,7 @@ void StreamingSimulator::simulate_batch(
 						 refid.c_str(),
 						 refoff + off_2);
 				if(conc) { n_wrote_c++; } else { n_wrote_d++; }
-				const char *lab = conc ? "conc" : "disc";
+				const char *lab = conc ? "c" : "d";
 				SimulatedRead::write_pair(rd1, rd2,
 										  conc ? fh_c_1_ : fh_d_1_,
 										  conc ? fh_c_2_ : fh_d_2_,
@@ -314,7 +371,7 @@ void StreamingSimulator::simulate_batch(
 		}
 	}
 	cerr << "    Wrote " << n_wrote_u << " unpaired tandem reads (target was " << nu << ")" << endl;
-	cerr << "    Wrote " << n_wrote_b << " bed-end tandem reads (target was " << nb << ")" << endl;
+	cerr << "    Wrote " << n_wrote_b << " bad-end tandem reads (target was " << nb << ")" << endl;
 	cerr << "    Wrote " << n_wrote_c << " concordant tandem pairs (target was " << nc << ")" << endl;
 	cerr << "    Wrote " << n_wrote_d << " discordant tandem pairs (target was " << nd << ")" << endl;
 }
