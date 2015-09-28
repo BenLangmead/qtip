@@ -8,7 +8,6 @@
 
 #include <iostream>
 #include <stdio.h>
-#include <inttypes.h>
 #include <string.h>
 #include <string>
 #include <vector>
@@ -51,7 +50,7 @@ static bool next_prediction(FILE *fh, size_t& line, float& mapq) {
 	if(fgets(linebuf, BUFSZ, fh) == NULL) {
 		return false; // done
 	}
-	sscanf(linebuf, "%" PRIuPTR ",%f", &line, &mapq);
+	sscanf(linebuf, "%llu,%f", (unsigned long long*)&line, &mapq);
 	assert(last_line == 0 || line > last_line);
 	last_line = line;
 	assert(mapq >= 0.0f);
