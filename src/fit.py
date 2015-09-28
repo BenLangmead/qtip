@@ -123,7 +123,7 @@ class MapqFit:
             # fit training data with the model
             self.trained_models[ds].fit(x_train, y_train)
 
-    def predict(self, dfs, keep_data=False, keep_per_category=False, verbose=False, log=logging):
+    def predict(self, dfs, keep_data=False, keep_per_category=False, log=logging):
 
         pred_overall = MapqPredictions()
         pred_per_category = {}
@@ -145,11 +145,11 @@ class MapqFit:
                     prd.add_pcors(pcor, ids, mapq_orig_test, ds, data=data, correct=y_test)
 
         log.info('Finalizing results for overall test data (%d alignments)' % len(pred_overall.pcor))
-        pred_overall.finalize(verbose=verbose)
+        pred_overall.finalize()
         if len(pred_per_category) > 1:
             for ds, pred in pred_per_category.iteritems():
                 log.info('Finalizing results for "%s" test data (%d alignments)' % (ds, len(pred.pcor)))
-                pred.finalize(verbose=verbose)
+                pred.finalize()
         log.info('Done')
 
         if keep_per_category:

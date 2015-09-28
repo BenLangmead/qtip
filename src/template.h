@@ -27,7 +27,14 @@
  */
 struct TemplateUnpaired {
 	
-	TemplateUnpaired() { }
+	TemplateUnpaired() :
+		best_score_(0),
+		fw_flag_(0),
+		len_(0),
+		mate_flag_(0),
+		opp_len_(0),
+		qual_(NULL),
+		edit_xscript_(NULL) { }
 	
 	TemplateUnpaired(
 		int best_score,
@@ -110,7 +117,20 @@ struct TemplateUnpaired {
  */
 struct TemplatePaired {
 	
-	TemplatePaired() { }
+	TemplatePaired() :
+		score_12_(0),
+		score_1_(0),
+		len_1_(0),
+		fw_flag_1_(0),
+		qual_1_(NULL),
+		edit_xscript_1_(NULL),
+		score_2_(0),
+		len_2_(0),
+		fw_flag_2_(0),
+		qual_2_(NULL),
+		edit_xscript_2_(NULL),
+		upstream1_(false),
+		fraglen_(0) { }
 	
 	TemplatePaired(
 		int score_12,

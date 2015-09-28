@@ -383,7 +383,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     fit.write_out_of_bag_scores(join(odir, ''))
     fit.write_parameters(join(odir, ''))
     logging.info('  making predictions')
-    pred = fit.predict(tab_ts, verbose=args['verbose'])
+    pred = fit.predict(tab_ts)
     pred.write_predictions(predictions_fn)
     tim.end_timer('Make MAPQ predictions')
 

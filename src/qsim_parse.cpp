@@ -502,7 +502,9 @@ struct Alignment {
 			const size_t sep_len = strlen(sim_sep);
 			assert(strncmp(qname_cur, sim_sep, sep_len) == 0);
 			qname_cur += sep_len;
-			if(strncmp(qname_cur, rname, rname_len) != 0) {
+			if(mate_flag() != '2' &&
+			   strncmp(qname_cur, rname, rname_len) != 0)
+			{
 				return;
 			}
 			qname_cur += rname_len;
@@ -511,8 +513,7 @@ struct Alignment {
 			}
 			qname_cur += sep_len;
 			// now pointing to fw +/- flag
-			char fw_flag = is_fw() ? '+' : '-';
-			if(qname_cur[0] != fw_flag) {
+			if(mate_flag() != '2' && qname_cur[0] != (is_fw() ? '+' : '-')) {
 				return;
 			}
 			qname_cur++;
@@ -526,6 +527,65 @@ struct Alignment {
 				refoff *= 10;
 				refoff += (int)(*qname_cur++ - '0');
 			}
+			if(mate_flag() != '2' && abs((int)(refoff - (pos-1))) >= wiggle) {
+				return;
+			}
+			if(strncmp(qname_cur, sim_sep, sep_len) != 0) {
+				return;
+			}
+			qname_cur += sep_len;
+			// now pointing to score
+			int score1 = 0;
+			bool negative = false;
+			if(*qname_cur == '-') {
+				qname_cur++;
+				negative = true;
+			}
+			while(isdigit(*qname_cur)) {
+				score1 *= 10;
+				score1 += (int)(*qname_cur++ - '0');
+			}
+			if(negative) {
+				score1 = -score1;
+			}
+			if(strncmp(qname_cur, sim_sep, sep_len) != 0) {
+				return;
+			}
+			qname_cur += sep_len;
+			if(qname[0] == 'u' && (qname[1] == '\0' || isspace(qname[1]))) {
+				correct = 1; // unpaired and correct
+				return;
+			}
+			assert(mate_flag() != '0');
+			if(mate_flag() != '2') {
+				correct = 1; // paired-end, mate 1, and correct
+				return;
+			}
+			// Final case: read is paired-end and mate 2
+			if(strncmp(qname_cur, rname, rname_len) != 0)
+			{
+				return;
+			}
+			qname_cur += rname_len;
+			if(strncmp(qname_cur, sim_sep, sep_len) != 0) {
+				return;
+			}
+			qname_cur += sep_len;
+			// now pointing to fw +/- flag
+			if(qname_cur[0] != (is_fw() ? '+' : '-')) {
+				return;
+			}
+			qname_cur++;
+			if(strncmp(qname_cur, sim_sep, sep_len) != 0) {
+				return;
+			}
+			qname_cur += sep_len;
+			// now pointing to refoff
+			refoff = 0;
+			while(isdigit(*qname_cur)) {
+				refoff *= 10;
+				refoff += (int)(*qname_cur++ - '0');
+			}
 			if(abs((int)(refoff - (pos-1))) >= wiggle) {
 				return;
 			}
@@ -534,16 +594,25 @@ struct Alignment {
 			}
 			qname_cur += sep_len;
 			// now pointing to score
-			int score = 0;
+			int score2 = 0;
+			negative = false;
+			if(*qname_cur == '-') {
+				qname_cur++;
+				negative = true;
+			}
 			while(isdigit(*qname_cur)) {
-				score *= 10;
-				score += (int)(*qname_cur++ - '0');
+				score2 *= 10;
+				score2 += (int)(*qname_cur++ - '0');
+			}
+			if(negative) {
+				score2 = -score2;
 			}
 			if(strncmp(qname_cur, sim_sep, sep_len) != 0) {
 				return;
 			}
 			qname_cur += sep_len;
-			correct = 1;
+			assert(qname_cur[0] == 'b' || qname_cur[0] == 'c' || qname_cur[0] == 'd');
+			correct = 1; // paired-end, mate 2, and correct
 		} else {
 			// This may still be a simulated read; depends on whether input
 			// data was simulated.  Here we only check if it has a very special

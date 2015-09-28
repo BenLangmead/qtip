@@ -1549,7 +1549,6 @@ int ignpoi ( float mu )
   int k;
   int kflag;
   int l;
-  int m;
   float omega;
   float p;
   float p0;
@@ -1568,7 +1567,6 @@ int ignpoi ( float mu )
 //
   if ( mu < 10.0 )
   {
-    m = i4_max ( 1, ( int ) ( mu ) );
     p = exp ( - mu );
     q = p;
     p0 = p;
@@ -3067,7 +3065,7 @@ float sgamma ( float a )
   float t;
   float u;
   float v;
-  float value;
+  float value = 0.0f;
   float w;
   float x;
 

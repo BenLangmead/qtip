@@ -130,7 +130,7 @@ void SimulatedRead::write_pair(
 		fprintf(fhs[i], "@%s%s%s%s%c%s%" PRIuPTR "%s%d%s%s%s%c%s%" PRIuPTR "%s%d%s%s\n",
 				sim_startswith, sim_sep,
 				rd1.refid_, sim_sep,
-				rd1.fw_ ? '+' : '-', sim_sep,
+				rd1.fw_ ? '+' : '-', sim_sep, // got different fws
 				(uintptr_t)rd1.refoff_, sim_sep,
 				rd1.score_, sim_sep,
 				rd2.refid_, sim_sep,
@@ -300,8 +300,7 @@ void StreamingSimulator::simulate_batch(
 				}
 				n_wrote_b++;
 				const char *lab = mate1 ? "b1" : "b2";
-				rd1.write(fh_b_1_, lab);
-				rd2.write(fh_b_2_, lab);
+				SimulatedRead::write_pair(rd1, rd2, fh_b_1_, fh_b_2_, lab);
 			} while(false);
 		}
 

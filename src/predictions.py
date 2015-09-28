@@ -103,7 +103,16 @@ class MapqPredictions:
             for i in range(len(self.mapq)):
                 fh.write('%d,%0.3f\n' % (self.ids[i], self.mapq[i]))
 
-    def finalize(self, verbose=False, log=logging):
+    def _reorder_by(self, ls):
+        ordr = np.argsort(ls)
+        self.pcor = self.pcor[ordr]
+        self.ids = self.ids[ordr]
+        self.mapq_orig = self.mapq_orig[ordr]
+        self.category = [self.category[x] for x in ordr]
+        if self.correct is not None:
+            self.correct = [self.correct[x] for x in ordr]
+
+    def finalize(self, log=logging):
         self.pcor_hist = Counter(self.pcor)
 
         pcor, mapq_orig = self.pcor, self.mapq_orig
@@ -111,27 +120,17 @@ class MapqPredictions:
         self.pcor_orig = pcor_orig = 1.0 - 10.0 ** (-0.1 * mapq_orig)
         # now pcor, pcor_orig, mapq, mapq_orig are all populated
 
-        def _reorder_by(ls):
-            ordr = np.argsort(ls)
-            self.pcor = self.pcor[ordr]
-            self.ids = self.ids[ordr]
-            self.mapq_orig = self.mapq_orig[ordr]
-            self.category = [self.category[x] for x in ordr]
-            if self.data is not None:
-                self.data = [self.data[x] for x in ordr]
-
-        _reorder_by(self.ids)
-        self.ordered_by = "ids"
-
         # calculate error measures and other measures
         if self.correct is not None:
-            # TODO: this depends on things having been reordered
+            log.info('  Correctness information is present; compiling error measures')
+
+            log.info('  Reordering by mapq')
+            self._reorder_by(self.pcor)
+            self.ordered_by = "pcor"
+            correct = self.correct
 
             # calculate # of highest pcors and max # pcors in a row that
             # correspond to correct alignments
-            if verbose:
-                logging.info('  Finding correct runs')
-            self.correct = correct = self.correct[pcor_order]
             end, run = True, 0
             for i in range(len(correct)-1, -1, -1):
                 if correct[i] and end:
@@ -143,8 +142,7 @@ class MapqPredictions:
 
             # ranking error; +1 is to avoid division-by-zero when a dataset
             # is perfectly ranked
-            if verbose:
-                logging.info('  Calculating rank error')
+            log.info('  Calculating rank error')
             self.rank_err_orig = ranking_error(pcor_orig, correct) + 1
             self.rank_err_raw = ranking_error(pcor, correct) + 1
             self.rank_err_raw_round = ranking_error(pcor, correct, rounded=True) + 1
@@ -154,12 +152,10 @@ class MapqPredictions:
             self.rank_err_diff_round_pct = 100.0 * self.rank_err_diff_round / self.rank_err_orig
             self.rank_err = self.rank_err_raw / self.rank_err_orig
             self.rank_err_round = self.rank_err_raw_round / self.rank_err_orig
-            if verbose:
-                logging.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.rank_err_diff_pct,
-                                                                       self.rank_err_diff_round_pct))
+            log.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.rank_err_diff_pct,
+                                                               self.rank_err_diff_round_pct))
 
-            if verbose:
-                logging.info('  Calculating AUC')
+            log.info('  Calculating AUC')
             self.auc_orig = auc(pcor_orig, correct)
             self.auc_raw = auc(pcor, correct)
             self.auc_raw_round = auc(pcor, correct, rounded=True)
@@ -177,11 +173,9 @@ class MapqPredictions:
             else:
                 self.auc_diff_pct = 100.0 * self.auc_diff / self.auc_orig
                 self.auc_diff_round_pct = 100.0 * self.auc_diff_round / self.auc_orig
-            if verbose:
-                logging.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.auc_diff_pct, self.auc_diff_round_pct))
+            log.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.auc_diff_pct, self.auc_diff_round_pct))
 
-            if verbose:
-                logging.info('  Calculating MSE')
+            log.info('  Calculating MSE')
             self.mse_orig = mseor(pcor_orig, correct)
             self.mse_raw = mseor(pcor, correct)
             self.mse_raw_round = mseor(pcor, correct, rounded=True)
@@ -191,11 +185,12 @@ class MapqPredictions:
             self.mse_diff_round_pct = 100.0 * self.mse_diff_round / self.mse_orig
             self.mse = self.mse_raw / self.mse_orig
             self.mse_round = mseor(pcor, correct, rounded=True) / self.mse_orig
-            if verbose:
-                logging.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.mse_diff_pct, self.mse_diff_round_pct))
+            log.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.mse_diff_pct, self.mse_diff_round_pct))
 
-        # summary statistics over pcors and mapqs
-        if verbose:
-            logging.info('  Calculating MAPQ summaries')
+        log.info('  Reordering by read id')
+        self._reorder_by(self.ids)
+        self.ordered_by = "ids"
+
+        log.info('  Calculating MAPQ summaries')
         self.mapq_avg, self.mapq_orig_avg = float(np.mean(mapq)), float(np.mean(mapq_orig))
         self.mapq_std, self.mapq_orig_std = float(np.std(mapq)), float(np.std(mapq_orig))
