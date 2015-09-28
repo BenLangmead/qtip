@@ -1330,10 +1330,6 @@ int main(int argc, char **argv) {
 	string orec_d_fn, omod_d_fn, oread1_d_fn, oread2_d_fn;
 	string prefix;
 	vector<string> fastas, sams;
-	ReservoirSampledEList<TemplateUnpaired> u_templates(input_model_size);
-	ReservoirSampledEList<TemplateUnpaired> b_templates(input_model_size);
-	ReservoirSampledEList<TemplatePaired> c_templates(input_model_size);
-	ReservoirSampledEList<TemplatePaired> d_templates(input_model_size);
 	char buf_input_sam[BUFSZ];
 	
 	bool do_input_model = false; // output records related to input model
@@ -1464,6 +1460,11 @@ int main(int argc, char **argv) {
 	FILEDEC(omod_c_fn, omod_c_fh, omod_c_buf, "template record", do_input_model);
 	FILEDEC(orec_d_fn, orec_d_fh, orec_d_buf, "feature", do_features);
 	FILEDEC(omod_d_fn, omod_d_fh, omod_d_buf, "template record", do_input_model);
+
+	ReservoirSampledEList<TemplateUnpaired> u_templates(input_model_size);
+	ReservoirSampledEList<TemplateUnpaired> b_templates(input_model_size);
+	ReservoirSampledEList<TemplatePaired> c_templates(input_model_size);
+	ReservoirSampledEList<TemplatePaired> d_templates(input_model_size);
 
 	if(do_features || do_input_model || do_simulation) {
 		for(size_t i = 0; i < sams.size(); i++) {

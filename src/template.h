@@ -86,6 +86,7 @@ struct TemplateUnpaired {
 	 * indicated by edit transcript.
 	 */
 	size_t reflen() const {
+		assert(edit_xscript_ != NULL);
 		return edit_xscript_to_rflen(edit_xscript_);
 	}
 	
