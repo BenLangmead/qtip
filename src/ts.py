@@ -376,7 +376,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     logging.info('  instantiating model family')
     fam = model_family(args)
     logging.info('  instantiating feature table readers')
-    tab_tr, tab_ts = FeatureTableReader(pass1_prefix), FeatureTableReader(pass2_prefix)
+    tab_ts, tab_tr = FeatureTableReader(pass1_prefix), FeatureTableReader(pass2_prefix)
     logging.info('  creating fit')
     fit = MapqFit(tab_tr, fam, random_seed=args['seed'])
     fit.write_feature_importances(join(odir, ''))

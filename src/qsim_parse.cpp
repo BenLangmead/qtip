@@ -844,7 +844,7 @@ static void print_unpaired(
 		if(al.correct < 0) {
 			fprintf(fh_recs, ",%d,NA\n", al.mapq);
 		} else {
-			fprintf(fh_recs, ",%d,%c\n", al.mapq, (al.correct == 1 ? 'T' : 'F'));
+			fprintf(fh_recs, ",%d,%d\n", al.mapq, al.correct);
 		}
 	}
 }
@@ -936,7 +936,7 @@ static void print_paired(
 		if(al1.correct < 0) {
 			fprintf(fh_recs, ",%d,NA\n", al1.mapq);
 		} else {
-			fprintf(fh_recs, ",%d,%c\n", al1.mapq, (al1.correct == 1 ? 'T' : 'F'));
+			fprintf(fh_recs, ",%d,%d\n", al1.mapq, al1.correct);
 		}
 		
 		//
@@ -955,7 +955,7 @@ static void print_paired(
 		if(al2.correct < 0) {
 			fprintf(fh_recs, ",%d,NA\n", al2.mapq);
 		} else {
-			fprintf(fh_recs, ",%d,%c\n", al2.mapq, (al2.correct == 1 ? 'T' : 'F'));
+			fprintf(fh_recs, ",%d,%d\n", al2.mapq, al2.correct);
 		}
 	}
 	
@@ -1066,7 +1066,7 @@ static void print_paired_header(FILE *fh, int n_ztz_fields) {
 	}
 	fprintf(fh, ",olen,fraglen");
 	for(int i = 0; i < n_ztz_fields; i++) {
-		fprintf(fh, ",oztz1_%d", i);
+		fprintf(fh, ",oztz_%d", i);
 	}
 	fprintf(fh, ",mapq,correct\n");
 }

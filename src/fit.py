@@ -19,8 +19,13 @@ class MapqFit:
         labs = []
         if training:
             assert shortname not in self.training_labs
+            data_dedup = data.T.drop_duplicates().T
+            data_dedup['correct'] = data['correct']
+            data_dedup['id'] = data['id']
+            data_dedup['mapq'] = data['mapq']
+            data = data_dedup
             for col in data:
-                if col != 'id' and data[col].nunique() > 1:
+                if col != 'id' and col != 'mapq' and data[col].nunique() > 1:
                     labs.append(col)
             self.training_labs[shortname] = labs
         else:
@@ -28,14 +33,11 @@ class MapqFit:
             labs = self.training_labs[shortname]
             for lab in labs:
                 assert lab in data, "Column %s in training data, but not in test (%s)" % (lab, shortname)
-        # TODO: remove duplicate data columns?
         for lab in labs:
             assert not np.isnan(data[lab]).any()
         data_mat = data[labs].values
-        correct = np.array(map(lambda x: x == 1, data['correct']))
-
         assert not np.isinf(data_mat).any() and not np.isnan(data_mat).any()
-        return data_mat, np.array(data['id']), data['mapq'], correct, labs
+        return data_mat, np.array(data['id']), data['mapq'], data['correct'], labs
 
     @staticmethod
     def _subsample(x_train, mapq_orig_train, y_train, sample_fraction):
@@ -105,6 +107,8 @@ class MapqFit:
             train = pandas.concat([x for x in dfs.dataset_iter(ds)])
             if train.shape[0] == 0:
                 continue  # empty
+            if train['correct'].nunique() == 1:
+                raise RuntimeError('Error: All training data has correct=%d' % (train['correct'][0]))
             log.info('Fitting %d %s training data records (seed=%d)' % (train.shape[0], ds_long, self.random_seed))
             # seed pseudo-random generators
             random.seed(self.random_seed)

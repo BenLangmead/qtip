@@ -89,10 +89,6 @@ class FeatureTableReader(object):
         if df.shape[0] == 0:
             return
 
-        # Turn the correct column into 0/1
-        if df['correct'].count() == len(df['correct']):
-            df['correct'] = df['correct'].map(lambda x: 1 if x == 'T' else 0)
-
         for col in df:
             if df[col].dtype != 'object':
                 _fill_nas(df, col)

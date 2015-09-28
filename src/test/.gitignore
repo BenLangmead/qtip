@@ -2,3 +2,4 @@
 *.fastq
 *.sam
 full_e2e
+.r?.fq

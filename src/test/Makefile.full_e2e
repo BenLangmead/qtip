@@ -1,10 +1,10 @@
 BT2_EG=$(BT2_HOME)/example
 
-full_e2e/ts_logs.txt:
+full_e2e/ts_logs.txt: .r1.fq .r2.fq
 	python ../ts.py \
 		--ref $(BT2_EG)/reference/lambda_virus.fa \
-		--m1 $(BT2_EG)/reads/reads_1.fq \
-		--m2 $(BT2_EG)/reads/reads_2.fq \
+		--m1 .r1.fq \
+		--m2 .r2.fq \
 		--index $(BT2_EG)/index/lambda_virus \
 		--seed 34 \
 		--aligner bowtie2 \
@@ -12,6 +12,13 @@ full_e2e/ts_logs.txt:
 		--output-directory full_e2e \
 		--keep-intermediates
 
+.r1.fq: $(BT2_EG)/reads/reads_1.fq
+	awk '{ln += 1} ln % 2 == 0 {print substr($$1, 1, length($$1)/5)} ln % 2 == 1 {print}' $^ > $@
+
+.r2.fq: $(BT2_EG)/reads/reads_2.fq
+	awk '{ln += 1} ln % 2 == 0 {print substr($$1, 1, length($$1)/5)} ln % 2 == 1 {print}' $^ > $@
+
 .PHONY: clean
 clean:
 	rm -rf full_e2e
+	rm -f .r?.fq
