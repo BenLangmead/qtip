@@ -25,9 +25,9 @@ except ImportError:
     from queue import Queue, Empty, Full  # python 3.x
 
 # Modules that are part of the tandem simulator
-from bowtie2 import AlignmentBowtie2, Bowtie2
-from bwamem import AlignmentBwaMem, BwaMem
-from snap import AlignmentSnap, SnapAligner
+from bowtie2 import Bowtie2
+from bwamem import BwaMem
+from snap import SnapAligner
 from tempman import TemporaryFileManager
 from model_fam import model_family
 from feature_table import FeatureTableReader
@@ -125,7 +125,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         raise RuntimeError('Input must consist of only unpaired or only paired-end reads')
     
     # Start building alignment command; right now we support Bowtie 2, BWA-MEM and SNAP
-    aligner_class, alignment_class = Bowtie2, AlignmentBowtie2
+    aligner_class = Bowtie2
     align_cmd = None
     if args['aligner'] == 'bowtie2':
         align_cmd = 'bowtie2 '
@@ -136,12 +136,12 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         align_cmd = 'bwa mem '
         if args['bwa_exe'] is not None:
             align_cmd = args['bwa_exe'] + ' mem '
-        aligner_class, alignment_class = BwaMem, AlignmentBwaMem
+        aligner_class = BwaMem
     elif args['aligner'] == 'snap':
         align_cmd = 'snap-aligner '
         if args['snap_exe'] is not None:
             align_cmd = args['snap_exe'] + ' '
-        aligner_class, alignment_class = SnapAligner, AlignmentSnap
+        aligner_class = SnapAligner
     elif args['aligner'] is not None:
         raise RuntimeError('Aligner not supported: "%s"' % args['aligner'])
 
