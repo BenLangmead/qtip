@@ -8,7 +8,6 @@
 
 #include <stdlib.h>
 #include <vector>
-#include <inttypes.h>
 #include <iostream>
 #include "simplesim.h"
 #include "fasta.h"
@@ -90,11 +89,11 @@ char asc2dnacomp[] = {
  */
 void SimulatedRead::write(FILE *fh, const char *typ) {
 	size_t len = strlen(qual_);
-	fprintf(fh, "@%s%s%s%s%c%s%" PRIuPTR "%s%d%s%s\n",
+	fprintf(fh, "@%s%s%s%s%c%s%llu%s%d%s%s\n",
 			sim_startswith, sim_sep,
 			refid_, sim_sep,
 			fw_ ? '+' : '-', sim_sep,
-			(uintptr_t)refoff_, sim_sep,
+			(unsigned long long)refoff_, sim_sep,
 			score_, sim_sep,
 			typ);
 	if(fw_) {
@@ -127,15 +126,15 @@ void SimulatedRead::write_pair(
 {
 	FILE *fhs[2] = {fh1, fh2};
 	for(size_t i = 0; i < 2; i++) {
-		fprintf(fhs[i], "@%s%s%s%s%c%s%" PRIuPTR "%s%d%s%s%s%c%s%" PRIuPTR "%s%d%s%s\n",
+		fprintf(fhs[i], "@%s%s%s%s%c%s%llu%s%d%s%s%s%c%s%llu%s%d%s%s\n",
 				sim_startswith, sim_sep,
 				rd1.refid_, sim_sep,
 				rd1.fw_ ? '+' : '-', sim_sep, // got different fws
-				(uintptr_t)rd1.refoff_, sim_sep,
+				(unsigned long long)rd1.refoff_, sim_sep,
 				rd1.score_, sim_sep,
 				rd2.refid_, sim_sep,
 				rd2.fw_ ? '+' : '-', sim_sep,
-				(uintptr_t)rd2.refoff_, sim_sep,
+				(unsigned long long)rd2.refoff_, sim_sep,
 				rd2.score_, sim_sep,
 				typ);
 		const SimulatedRead &rd = ((i == 0) ? rd1 : rd2);

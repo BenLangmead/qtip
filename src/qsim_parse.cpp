@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <string>
 #include <vector>
-#include <inttypes.h>
 #include "ds.h"
 #include "template.h"
 #include "input_model.h"
