@@ -206,7 +206,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         ls = []
         for ar in op.strip().split(' '):
             ar_underscore = ar.replace('-', '_')
-            assert ar in args, "\"%s\"" % ar
+            assert ar_underscore in args, "\"%s\"" % ar_underscore
             logging.debug('  passing through argument "%s"="%s"' % (ar, str(args[ar_underscore])))
             ls.append(ar)
             ls.append(str(args[ar_underscore]))
@@ -501,7 +501,7 @@ def add_args(parser):
     parser.add_argument('--output-directory', metavar='path', type=str, required=True,
                         help='Write outputs to this directory')
     parser.add_argument('--vanilla-output', action='store_const', const=True, default=False,
-                        help='Only output final SAM file; suppress all other output')
+                        help='Only write final SAM file; suppress all other output')
     parser.add_argument('--keep-intermediates', action='store_const', const=True, default=False,
                         help='Keep intermediates in output directory; if not specified, '
                              'intermediates are written to a temporary directory then deleted')

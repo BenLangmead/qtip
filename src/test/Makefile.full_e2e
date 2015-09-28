@@ -19,7 +19,9 @@ full_e2e/ts_logs.txt: .r_1.fastq .r_2.fastq
 		--aligner bowtie2 \
 		--bt2-exe $(BT2_HOME)/bowtie2 \
 		--output-directory full_e2e \
-		--keep-intermediates
+		--keep-intermediates \
+		--write-orig-mapq \
+		--write-precise-mapq
 
 .r_1.fastq: .rtmp_1.fastq
 	$(MASON_CONVERT) --in1 $< --in2 $(<:_1.fastq=_2.fastq) --out1 $@ --out2 $(@:_1.fastq=_2.fastq)
