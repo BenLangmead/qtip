@@ -241,7 +241,7 @@ struct Alignment {
 				run += ((int)cigar[i] - (int)'0');
 				i++;
 			} while(isdigit(cigar[i]));
-			assert(isalpha(cigar[i]));
+			assert(isalpha(cigar[i]) || cigar[i] == '=');
 			if(cigar_ops.empty() && cigar[i] == 'S') {
 				left_clip = run;
 			} else if(i+1 >= clen && cigar[i] == 'S') {
@@ -793,7 +793,7 @@ static void print_unpaired(
 	char *ztz = al.parse_extra(extra);
 	if(al.edit_xscript.empty()) {
 		cerr << "Error: Input SAM file has neither extended CIGAR (using ="
-		     << " and X instead of M) not MD:Z field.  One or the other is"
+		     << " and X instead of M) nor MD:Z field.  One or the other is"
 		     << " required for use with Qsim." << endl;
 		throw 1;
 	}
@@ -873,7 +873,7 @@ static void print_paired(
 	char *ztz1 = al1.parse_extra(extra1);
 	if(al1.edit_xscript.empty()) {
 		cerr << "Error: Input SAM file has neither extended CIGAR (using ="
-		     << " and X instead of M) not MD:Z field.  One or the other is"
+		     << " and X instead of M) nor MD:Z field.  One or the other is"
 		     << " required for use with Qsim." << endl;
 		throw 1;
 	}
