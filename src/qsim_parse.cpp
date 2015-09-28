@@ -1283,7 +1283,7 @@ static int sam_pass1(
 	if(!quiet) {
 		cerr << "  " << nline << " lines" << endl;
 		cerr << "  " << nhead << " header lines" << endl;
-		cerr << "  " << nsec << " ignored b/c secondary" << endl;
+		cerr << "  " << nsec << " secondary alignments ignored" << endl;
 		cerr << "  " << ntyp_mismatch << " alignment type didn't match simulated type" << endl;
 		cerr << "  " << nunp << " unpaired" << endl;
 		if(nunp > 0) {
@@ -1546,7 +1546,8 @@ int main(int argc, char **argv) {
 		FILEDEC(oread2_d_fn, oread2_d_fh, oread2_d_buf, "FASTQ", true);
 
 		cerr << "Creating tandem read simulator" << endl;
-		StreamingSimulator ss(fastas, 128 * 1024,
+		const size_t chunksz = 128 * 1024;
+		StreamingSimulator ss(fastas, chunksz,
 							  u_model, b_model, c_model, d_model,
 							  oread_u_fh,
 							  oread1_b_fh, oread2_b_fh,

@@ -104,6 +104,7 @@ public:
 		low_score_bias_(low_score_bias)
 	{
 		fraglen_avg_ = 0.0f;
+		fraglen_max_ = 0;
 		for(size_t i = 0; i < ts.size(); i++) {
 			fraglen_avg_ += ((float)ts[i].fraglen_ / ts.size());
 			fraglen_max_ = std::max(fraglen_max_, ts[i].fraglen_);
