@@ -551,7 +551,7 @@ struct Alignment {
 				return;
 			}
 			qname_cur += sep_len;
-			if(qname[0] == 'u' && (qname[1] == '\0' || isspace(qname[1]))) {
+			if(qname_cur[0] == 'u' && (qname_cur[1] == '\0' || isspace(qname_cur[1]))) {
 				correct = 1; // unpaired and correct
 				return;
 			}
