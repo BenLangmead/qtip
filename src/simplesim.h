@@ -257,7 +257,7 @@ protected:
 	 * Return size of file in bytes.
 	 */
 	static size_t filesize(const std::string& filename) {
-		std::ifstream in(filename, std::ifstream::ate | std::ifstream::binary);
+		std::ifstream in(filename.c_str(), std::ifstream::ate | std::ifstream::binary);
 		return (size_t)in.tellg();
 	}
 	
