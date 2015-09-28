@@ -57,7 +57,8 @@ For concordantly-aligned paired-end examples:
 
 import shutil
 import os
-from read import Alignment
+
+from bin.old.read import Alignment
 
 try:
     import numpypy as np
