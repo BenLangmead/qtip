@@ -188,8 +188,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 dr.remove_group('input_alignments')
             return join(dr, 'tmp'), _purge
 
-    def _get_final_sam_fn():
-        return join(odir, 'final.sam')
+    def _get_final_prefix():
+        return join(odir, 'final')
 
     def _get_tandem_sam_fns():
         if args['keep_intermediates']:
@@ -205,11 +205,11 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         op = Popen(exe, stdout=PIPE).communicate()[0]
         ls = []
         for ar in op.strip().split(' '):
-            ar = ar.replace('-', '_')
+            ar_underscore = ar.replace('-', '_')
             assert ar in args, "\"%s\"" % ar
-            logging.debug('  passing through argument "%s"="%s"' % (ar, str(args[ar])))
+            logging.debug('  passing through argument "%s"="%s"' % (ar, str(args[ar_underscore])))
             ls.append(ar)
-            ls.append(str(args[ar]))
+            ls.append(str(args[ar_underscore]))
         return ' '.join(ls)
 
     def _wait_for_aligner(_al):
@@ -392,11 +392,10 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     # ##################################################
 
     tim.start_timer('Rewrite SAM file')
-    final_sam_fn = _get_final_sam_fn()
     sanity_check_binary(rewrite_exe)
     pass3_prefix, pass3_cleanup = _get_pass3_file_prefix()
     cmd = "%s %s -- %s -- %s -- %s" % \
-          (rewrite_exe, _get_passthrough_args(rewrite_exe), input_sam_fn, predictions_fn, final_sam_fn)
+          (rewrite_exe, _get_passthrough_args(rewrite_exe), input_sam_fn, predictions_fn, _get_final_prefix())
     logging.info('  running "%s"' % cmd)
     ret = os.system(cmd)
     if ret != 0:
