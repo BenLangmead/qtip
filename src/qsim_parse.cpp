@@ -791,6 +791,12 @@ static void print_unpaired(
 	char *extra = parse_from_rname_on(al);
 	al.set_correctness(wiggle);
 	char *ztz = al.parse_extra(extra);
+	if(al.edit_xscript == NULL) {
+		cerr << "Error: Input SAM file has neither extended CIGAR (using ="
+		     << " and X instead of M) not MD:Z field.  One or the other is"
+		     << " required for use with Qsim." << endl;
+		throw 1;
+	}
 	char *ztz_tok = strtok(ztz, ",");
 	assert(ztz_tok != NULL);
 	al.best_score = atoi(ztz_tok);
@@ -865,6 +871,12 @@ static void print_paired(
 	al2.set_correctness(wiggle);
 	
 	char *ztz1 = al1.parse_extra(extra1);
+	if(al1.edit_xscript == NULL) {
+		cerr << "Error: Input SAM file has neither extended CIGAR (using ="
+		     << " and X instead of M) not MD:Z field.  One or the other is"
+		     << " required for use with Qsim." << endl;
+		throw 1;
+	}
 	char *ztz2 = al2.parse_extra(extra2);
 	size_t fraglen = std::min((size_t)max_allowed_fraglen,
 							  Alignment::fragment_length(al1, al2));
