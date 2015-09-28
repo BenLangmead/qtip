@@ -791,7 +791,7 @@ static void print_unpaired(
 	char *extra = parse_from_rname_on(al);
 	al.set_correctness(wiggle);
 	char *ztz = al.parse_extra(extra);
-	if(al.edit_xscript == NULL) {
+	if(al.edit_xscript.empty()) {
 		cerr << "Error: Input SAM file has neither extended CIGAR (using ="
 		     << " and X instead of M) not MD:Z field.  One or the other is"
 		     << " required for use with Qsim." << endl;
@@ -871,7 +871,7 @@ static void print_paired(
 	al2.set_correctness(wiggle);
 	
 	char *ztz1 = al1.parse_extra(extra1);
-	if(al1.edit_xscript == NULL) {
+	if(al1.edit_xscript.empty()) {
 		cerr << "Error: Input SAM file has neither extended CIGAR (using ="
 		     << " and X instead of M) not MD:Z field.  One or the other is"
 		     << " required for use with Qsim." << endl;
