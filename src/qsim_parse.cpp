@@ -824,10 +824,10 @@ static void print_unpaired(
 	
 	if(fh_recs != NULL) {
 		// Output information relevant to MAPQ model
-		fprintf(fh_recs, "%" PRIuPTR ",%u,%" PRIuPTR,
-				(uintptr_t)al.line,
+		fprintf(fh_recs, "%llu,%u,%llu",
+				(unsigned long long)al.line,
 				(unsigned)al.len,
-				(uintptr_t)ordlen);
+				(unsigned long long)ordlen);
 		
 		// ... including all the ZT:Z fields
 		while(ztz_tok != NULL) {
@@ -886,7 +886,7 @@ static void print_paired(
 		//
 		
 		// Output information relevant to input model
-		fprintf(fh_recs, "%" PRIuPTR ",%u", al1.line, (unsigned)al1.len);
+		fprintf(fh_recs, "%llu,%u", (unsigned long long)al1.line, (unsigned)al1.len);
 		// ... including all the ZT:Z fields
 		while(ztz_tok1 != NULL) {
 			size_t toklen = strlen(ztz_tok1);
@@ -914,7 +914,7 @@ static void print_paired(
 		//
 		
 		// Output information relevant to input model
-		fprintf(fh_recs, ",%u,%" PRIuPTR, (unsigned)al2.len, (uintptr_t)fraglen);
+		fprintf(fh_recs, ",%u,%llu", (unsigned)al2.len, (unsigned long long)fraglen);
 		// ... including all the ZT:Z fields
 		while(ztz_tok2 != NULL) {
 			size_t toklen = strlen(ztz_tok2);
@@ -933,12 +933,12 @@ static void print_paired(
 		//
 		// Now mate 2 again
 		//
-		fprintf(fh_recs, "%" PRIuPTR ",%u", al2.line, (unsigned)al2.len);
+		fprintf(fh_recs, "%llu,%u", (unsigned long long)al2.line, (unsigned)al2.len);
 		for(size_t i = 0; i < ztz2_buf.size(); i++) {
 			fprintf(fh_recs, ",%s", ztz2_buf[i]);
 		}
 		// Now mate 1 again
-		fprintf(fh_recs, ",%u,%" PRIuPTR, (unsigned)al1.len, (uintptr_t)fraglen);
+		fprintf(fh_recs, ",%u,%llu", (unsigned)al1.len, (unsigned long long)fraglen);
 		for(size_t i = 0; i < ztz1_buf.size(); i++) {
 			fprintf(fh_recs, ",%s", ztz1_buf[i]);
 		}
@@ -948,7 +948,7 @@ static void print_paired(
 	
 	if(fh_model != NULL) {
 		// Output information relevant to input model
-		fprintf(fh_model, "%d,%c,%s,%d,%u,%s,%c,%s,%d,%u,%s,%c,%" PRIuPTR "\n",
+		fprintf(fh_model, "%d,%c,%s,%d,%u,%s,%c,%s,%d,%u,%s,%c,%llu\n",
 				al1.best_score + al2.best_score,
 				fw_flag1,
 				al1.qual,
@@ -961,7 +961,7 @@ static void print_paired(
 				(unsigned)al2.len,
 				al2.edit_xscript.ptr(),
 				upstream1 ? 'T' : 'F',
-				(uintptr_t)fraglen);
+				(unsigned long long)fraglen);
 	}
 
 	if(paired_model != NULL) {
