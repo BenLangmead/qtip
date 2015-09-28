@@ -18,6 +18,7 @@ import sys
 import time
 import logging
 import errno
+import resource
 try:
     from Queue import Queue, Empty, Full
 except ImportError:
@@ -106,6 +107,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         args['keep_intermediates'] = False
 
     # Create output directory if needed
+    odir = None
     if args['output_directory'] is not None:
         odir = args['output_directory']
         mkdir_quiet(odir)
@@ -129,7 +131,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         align_cmd = 'bowtie2 '
         if args['bt2_exe'] is not None:
             align_cmd = args['bt2_exe'] + " "
-        aligner_args.extend(['--mapq-extra'])  # TODO: do we want --reorder?
+        aligner_args.extend(['--mapq-extra'])
     elif args['aligner'] == 'bwa-mem':
         align_cmd = 'bwa mem '
         if args['bwa_exe'] is not None:
@@ -247,8 +249,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         while _al.pipe.poll() is None:
             time.sleep(0.5)
 
-    def _exists_and_nonempty(fn):
-        return os.path.exists(fn) and os.stat(fn).st_size > 0
+    def _exists_and_nonempty(_fn):
+        return os.path.exists(_fn) and os.stat(_fn).st_size > 0
 
     def _have_unpaired_tandem_reads(prefix):
         ufn = prefix + '_reads_u.fastq'
@@ -451,6 +453,11 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         logging.info('Total size of output directory: %0.2fMB (%0.2f%% of output SAM)' % (tot_sz / (1024.0 * 1024),
                                                                                           100.0 * tot_sz / out_sz))
 
+    logging.info('Peak memory usage (RSS) of Python wrapper: %0.2fMB' %
+                 (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)))
+    logging.info('Peak memory usage (RSS) of children: %0.2fMB' %
+                 (resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / (1024.0 * 1024.0)))
+
     tim.end_timer('Overall')
     for ln in str(tim).split('\n'):
         if len(ln) > 0:
@@ -555,8 +562,8 @@ def go_profile(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         go(args, aligner_args, aligner_unpaired_args, aligner_paired_args)
 
 
-def parse_aligner_parameters_from_argv(_argv):
-    argv = _argv[:]
+def parse_aligner_parameters_from_argv(argv):
+    argv = argv[:]
     sections = [[]]
     for arg in argv:
         if arg == '--':
