@@ -62,11 +62,15 @@ struct TemplateUnpaired {
 		fw_flag_ = fw_flag;
 		mate_flag_ = mate_flag;
 		opp_len_ = opp_len;
+		assert(qual != NULL);
 		if(qual != NULL) {
 			qual_ = strdup(qual);
+			assert(qual_ != NULL);
 		}
+		assert(edit_xscript != NULL);
 		if(edit_xscript != NULL) {
 			edit_xscript_ = strdup(edit_xscript);
+			assert(edit_xscript_ != NULL);
 		}
 	}
 	
