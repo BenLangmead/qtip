@@ -2,6 +2,7 @@ import random
 import logging
 import pandas
 import numpy as np
+import itertools
 from predictions import MapqPredictions
 from sklearn import cross_validation
 
@@ -11,7 +12,7 @@ __author__ = 'langmead'
 class MapqFit:
     """ Encapsulates an object that fits models and makes predictions """
 
-    def _df_to_mat(self, data, shortname, training):
+    def _df_to_mat(self, data, shortname, training, log=logging):
         """ Convert a data frame read with read_dataset into a matrix suitable
             for use with scikit-learn, and parallel vectors giving the
             original MAPQ predictions, the ids for the alignments (i.e. their
@@ -19,14 +20,16 @@ class MapqFit:
         labs = []
         if training:
             assert shortname not in self.training_labs
-            data_dedup = data.T.drop_duplicates().T
-            data_dedup['correct'] = data['correct']
-            data_dedup['id'] = data['id']
-            data_dedup['mapq'] = data['mapq']
-            data = data_dedup
+            log.info('  Removing duplicate columns')
             for col in data:
                 if col not in ['id', 'mapq', 'correct'] and data[col].nunique() > 1:
                     labs.append(col)
+            to_remove = set()
+            for x, y in itertools.combinations(labs, 2):
+                if (data[x] == data[y]).all():
+                    to_remove.add(y)
+            for lab in to_remove:
+                labs.remove(lab)
             self.training_labs[shortname] = labs
         else:
             assert shortname in self.training_labs, (shortname, str(self.training_labs.keys()))
@@ -109,19 +112,20 @@ class MapqFit:
                 continue  # empty
             if train['correct'].nunique() == 1:
                 raise RuntimeError('Error: All training data has correct=%d' % (train['correct'][0]))
-            log.info('Fitting %d %s training data records (seed=%d)' % (train.shape[0], ds_long, self.random_seed))
+            log.info('Getting ready to fit %d %s training data records (seed=%d)' % (train.shape[0], ds_long, self.random_seed))
             # seed pseudo-random generators
             random.seed(self.random_seed)
             np.random.seed(self.random_seed)
             # extract features, convert to matrix
-            x_train, _, mapq_orig_train, y_train, self.col_names[ds] = self._df_to_mat(train, ds, True)
+            x_train, _, mapq_orig_train, y_train, self.col_names[ds] = self._df_to_mat(train, ds, True, log=log)
             # optionally subsample
             if frac < 1.0:
-                log.info('Sampling %0.2f%% of %d rows of %s training data' % (100.0 * frac, train.shape[0], ds_long))
+                log.info('  Sampling %0.2f%% of %d rows of %s training data' % (100.0 * frac, train.shape[0], ds_long))
                 x_train, mapq_orig_train, y_train = \
                     self._subsample(x_train, mapq_orig_train, y_train, frac)
                 log.info('  Now has %d rows' % x_train.shape[0])
             # use cross-validation to pick a model
+            log.info('  Fitting')
             self.trained_models[ds], self.trained_params[ds], self.crossval_avg[ds] = \
                 self._crossval_fit(self.model_gen, x_train, y_train, ds)
             # fit training data with the model
@@ -140,8 +144,9 @@ class MapqFit:
             nchunk = 0
             for test_chunk in dfs.dataset_iter(ds):
                 nchunk += 1
-                log.info('  Making predictions for %s chunk %d, %d rows' % (ds_long, nchunk, test_chunk.shape[0]))
-                x_test, ids, mapq_orig_test, y_test, col_names = self._df_to_mat(test_chunk, ds, False)
+                log.info('  Getting ready to make predictions for %s chunk %d, %d rows' % (ds_long, nchunk, test_chunk.shape[0]))
+                x_test, ids, mapq_orig_test, y_test, col_names = self._df_to_mat(test_chunk, ds, False, log=log)
+                log.info('  Making predictions')
                 pcor = self.trained_models[ds].predict(x_test)  # make predictions
                 pcor = np.array(self.postprocess_predictions(pcor, ds_long))
                 data = x_test.tolist() if keep_data else None
