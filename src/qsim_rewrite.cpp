@@ -9,6 +9,7 @@
 #include <iostream>
 #include <stdio.h>
 #include <inttypes.h>
+#include <string.h>
 #include <string>
 #include <vector>
 #include <cassert>
