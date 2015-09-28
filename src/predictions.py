@@ -121,7 +121,7 @@ class MapqPredictions:
         # now pcor, pcor_orig, mapq, mapq_orig are all populated
 
         # calculate error measures and other measures
-        if self.correct is not None:
+        if max(self.correct) > -1:
             log.info('  Correctness information is present; compiling error measures')
 
             log.info('  Reordering by mapq')

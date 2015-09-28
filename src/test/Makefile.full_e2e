@@ -1,24 +1,45 @@
 BT2_EG=$(BT2_HOME)/example
+MASON=$(TS_HOME)/software/mason/mason
+MASON_CONVERT=python $(TS_HOME)/bin/mason_convert.py
+LAMBDA=$(BT2_EG)/reference/lambda_virus.fa
+LAMBDA_IDX=$(BT2_EG)/index/lambda_virus
 
-full_e2e/ts_logs.txt: .r1.fq .r2.fq
+# This experiment does not have labeled test data...
+
+# Need to simulate the reads and label them appropriately before we can have
+# a test that fully exercises the prediction module and its summaries.
+
+full_e2e/ts_logs.txt: .r_1.fastq .r_2.fastq
 	python ../ts.py \
-		--ref $(BT2_EG)/reference/lambda_virus.fa \
-		--m1 .r1.fq \
-		--m2 .r2.fq \
-		--index $(BT2_EG)/index/lambda_virus \
+		--ref $(LAMBDA) \
+		--m1 .r_1.fastq \
+		--m2 .r_2.fastq \
+		--index $(LAMBDA_IDX) \
 		--seed 34 \
 		--aligner bowtie2 \
 		--bt2-exe $(BT2_HOME)/bowtie2 \
 		--output-directory full_e2e \
 		--keep-intermediates
 
-.r1.fq: $(BT2_EG)/reads/reads_1.fq
-	awk '{ln += 1} ln % 2 == 0 {print substr($$1, 1, length($$1)/5)} ln % 2 == 1 {print}' $^ > $@
+.r_1.fastq: .rtmp_1.fastq
+	$(MASON_CONVERT) --in1 $< --in2 $(<:_1.fastq=_2.fastq) --out1 $@ --out2 $(@:_1.fastq=_2.fastq)
 
-.r2.fq: $(BT2_EG)/reads/reads_2.fq
-	awk '{ln += 1} ln % 2 == 0 {print substr($$1, 1, length($$1)/5)} ln % 2 == 1 {print}' $^ > $@
+.rtmp_1.fastq:
+	$(MASON) \
+		illumina \
+		-i \
+		-s 1 \
+		-sq \
+		-mp \
+		-rn 2 \
+		-ll 300 \
+		-le 40 \
+		-n 10 \
+		-N 25000 \
+		-o .rtmp.fastq \
+		$(LAMBDA)
 
 .PHONY: clean
 clean:
 	rm -rf full_e2e
-	rm -f .r?.fq
+	rm -f .r*.fastq

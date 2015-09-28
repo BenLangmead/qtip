@@ -25,7 +25,7 @@ class MapqFit:
             data_dedup['mapq'] = data['mapq']
             data = data_dedup
             for col in data:
-                if col != 'id' and col != 'mapq' and data[col].nunique() > 1:
+                if col not in ['id', 'mapq', 'correct'] and data[col].nunique() > 1:
                     labs.append(col)
             self.training_labs[shortname] = labs
         else:
@@ -169,10 +169,14 @@ class MapqFit:
         fi_colnames, fi_vals = [], []
         for ds, model in sorted(self.trained_models.items()):
             with open(prefix + 'featimport_' + ds + '.tsv', 'w') as fh:
-                ranks = np.argsort(model.feature_importances_)[::-1]
+                assert len(self.col_names[ds]) == len(model.feature_importances_)
+                ranks = np.argsort(model.feature_importances_)[::-1] + 1
                 inv_ranks = [0] * len(ranks)
                 for i, r in enumerate(ranks):
-                    inv_ranks[r] = i
+                    assert inv_ranks[r-1] == 0
+                    inv_ranks[r-1] = i+1
+                assert min(inv_ranks) == 1
+                assert max(inv_ranks) == len(ranks)
                 i = 0
                 fh.write('feature\timportance\trank\n')
                 for im, r in zip(model.feature_importances_, inv_ranks):

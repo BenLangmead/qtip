@@ -840,12 +840,7 @@ static void print_unpaired(
 			fprintf(fh_recs, ",%s", ztz_tok);
 			ztz_tok = strtok(NULL, ",");
 		}
-
-		if(al.correct < 0) {
-			fprintf(fh_recs, ",%d,NA\n", al.mapq);
-		} else {
-			fprintf(fh_recs, ",%d,%d\n", al.mapq, al.correct);
-		}
+		fprintf(fh_recs, ",%d,%d\n", al.mapq, al.correct);
 	}
 }
 
@@ -933,11 +928,7 @@ static void print_paired(
 			ztz_tok2 = strtok(NULL, ",");
 		}
 		// Now aligner-predicted MAPQ and correctness
-		if(al1.correct < 0) {
-			fprintf(fh_recs, ",%d,NA\n", al1.mapq);
-		} else {
-			fprintf(fh_recs, ",%d,%d\n", al1.mapq, al1.correct);
-		}
+		fprintf(fh_recs, ",%d,%d\n", al1.mapq, al1.correct);
 		
 		//
 		// Now mate 2 again
@@ -952,11 +943,7 @@ static void print_paired(
 			fprintf(fh_recs, ",%s", ztz1_buf[i]);
 		}
 		// Now aligner-predicted MAPQ and correctness
-		if(al2.correct < 0) {
-			fprintf(fh_recs, ",%d,NA\n", al2.mapq);
-		} else {
-			fprintf(fh_recs, ",%d,%d\n", al2.mapq, al2.correct);
-		}
+		fprintf(fh_recs, ",%d,%d\n", al2.mapq, al2.correct);
 	}
 	
 	if(fh_model != NULL) {
