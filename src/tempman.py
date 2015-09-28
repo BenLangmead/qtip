@@ -2,6 +2,7 @@ import os
 import tempfile
 import errno
 import shutil
+import logging
 from collections import defaultdict
 from os.path import join, getsize
 
@@ -57,17 +58,22 @@ class TemporaryFileManager(object):
     def remove_group(self, group):
         """ Remove all the temporary files belonging to the named group """
         assert not self.purged
+        self.update_peak()
         for base, is_dir in self.groups[group]:
             if is_dir:
                 self.dirs.remove(base)
-                shutil.rmtree(base)
+                shutil.rmtree(join(self.dir, base))
             else:
                 self.files.remove(base)
                 os.remove(join(self.dir, base))
         del self.groups[group]
 
-    def purge(self):
-        """ Remove all temporary files created for the instantiator """
+    def purge(self, log=logging):
+        """ Remove all temporary files created for caller """
+        self.update_peak()
+        for root, subdirs, files in os.walk(self.dir):
+            for fn in files:
+                log.debug("  still have: %s/%s" % (root, fn))
         shutil.rmtree(self.dir)
         self.purged = True
 

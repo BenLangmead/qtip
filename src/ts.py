@@ -94,17 +94,30 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     tim = Timing()
     tim.start_timer('Overall')
 
+    if args['vanilla_output'] is not None and args['output_directory'] is not None:
+        logging.warning("--vanilla-output overrides and disables --output-directory")
+        args['output_directory'] = None
+
+    if args['vanilla_output'] is None and args['output_directory'] is None:
+        args['output_directory'] = 'out'
+
+    if args['vanilla_output'] is not None and args['keep_intermediates']:
+        logging.warning("--vanilla-output overrides and disables --keep-intermediates")
+        args['keep_intermediates'] = False
+
     # Create output directory if needed
-    odir = args['output_directory']
-    mkdir_quiet(odir)
+    if args['output_directory'] is not None:
+        odir = args['output_directory']
+        mkdir_quiet(odir)
 
     # Set up logger
     logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', datefmt='%m/%d/%y-%H:%M:%S',
                         level=logging.DEBUG if args['verbose'] else logging.INFO)
-    fn = join(odir, 'ts_logs.txt')
-    fh = logging.FileHandler(fn)
-    fh.setLevel(logging.DEBUG)
-    logging.getLogger('').addHandler(fh)
+    if args['output_directory'] is not None:
+        fn = join(odir, 'ts_logs.txt')
+        fh = logging.FileHandler(fn)
+        fh.setLevel(logging.DEBUG)
+        logging.getLogger('').addHandler(fh)
 
     if args['U'] is not None and args['m1'] is not None:
         raise RuntimeError('Input must consist of only unpaired or only paired-end reads')
@@ -141,10 +154,11 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         if args['keep_intermediates']:
             return join(odir, 'input_intermediates'), _nop
         else:
-            dr = temp_man.get_dir('input_intermediates', 'input_intermediates')
+            dr = temp_man.get_dir('input_intermediates')
+            assert os.path.isdir(dr)
 
             def _purge():
-                dr.remove_group('input_intermediates')
+                temp_man.remove_group('input_intermediates')
             return join(dr, 'tmp'), _purge
 
     def _get_pass2_file_prefix():
@@ -155,10 +169,11 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         if args['keep_intermediates']:
             return join(odir, 'tandem_intermediates'), _nop
         else:
-            dr = temp_man.get_dir('tandem_intermediates', 'tandem_intermediates')
+            dr = temp_man.get_dir('tandem_intermediates')
+            assert os.path.isdir(dr)
 
             def _purge():
-                dr.remove_group('tandem_intermediates')
+                temp_man.remove_group('tandem_intermediates')
             return join(dr, 'tmp'), _purge
 
     def _get_pass3_file_prefix():
@@ -169,10 +184,11 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         if args['keep_intermediates']:
             return join(odir, 'rewrite_intermediates'), _nop
         else:
-            dr = temp_man.get_dir('rewrite_intermediates', 'rewrite_intermediates')
+            dr = temp_man.get_dir('rewrite_intermediates')
+            assert os.path.isdir(dr)
 
             def _purge():
-                dr.remove_group('rewrite_intermediates')
+                temp_man.remove_group('rewrite_intermediates')
             return join(dr, 'tmp'), _purge
 
     parse_input_exe = "%s/qsim-parse" % bin_dir
@@ -185,10 +201,25 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             dr = temp_man.get_dir('input_alignments')
 
             def _purge():
-                dr.remove_group('input_alignments')
+                temp_man.remove_group('input_alignments')
             return join(dr, 'tmp'), _purge
 
+    def _get_predictions_fn():
+        if args['keep_intermediates']:
+            return join(odir, 'predictions.csv'), _nop
+        else:
+            dr = temp_man.get_dir('predictions')
+
+            def _purge():
+                temp_man.remove_group('predictions')
+            return join(dr, 'predictions.csv'), _purge
+
     def _get_final_prefix():
+        if args['vanilla_output'] is not None:
+            _ret = args['vanilla_output']
+            if _ret.endswith('.sam'):
+                _ret = _ret[:-4]
+            return _ret
         return join(odir, 'final')
 
     def _get_tandem_sam_fns():
@@ -198,7 +229,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             dr = temp_man.get_dir('tandem_alignments')
 
             def _purge():
-                dr.remove_group('tandem_alignments')
+                temp_man.remove_group('tandem_alignments')
             return join(dr, 'unp.sam'), join(dr, 'paired.sam'), join(dr, 'both.sam'), _purge
 
     def _get_passthrough_args(exe):
@@ -255,8 +286,6 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             ls2.append(bfn2)
         return zip(ls1, ls2)
 
-    predictions_fn = join(odir, 'predictions.csv')
-    
     # ##################################################
     # 1. Align input reads
     # ##################################################
@@ -292,7 +321,6 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     ret = os.system(cmd)
     if ret != 0:
         raise RuntimeError("qsim-parse returned %d" % ret)
-    pass1_cleanup()
     logging.debug('  parsing finished; results in "%s.*"' % pass1_prefix)
     tim.end_timer('Parsing input alignments')
 
@@ -301,6 +329,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     # ##################################################
 
     tim.start_timer('Aligning tandem reads')
+    assert _have_unpaired_tandem_reads(pass1_prefix) or _have_paired_tandem_reads(pass1_prefix)
     tandem_sam_u_fn, tandem_sam_p_fn, tandem_sam_b_fn, tandem_purge = _get_tandem_sam_fns()
     if _have_unpaired_tandem_reads(pass1_prefix) and _have_paired_tandem_reads(pass1_prefix) and aligner.supports_mix():
         logging.info('Aligning tandem reads (mix)')
@@ -362,7 +391,6 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     ret = os.system(cmd)
     if ret != 0:
         raise RuntimeError("qsim-parse returned %d" % ret)
-    pass2_cleanup()
     logging.debug('  parsing finished; results in "%s.*"' % pass2_prefix)
     tandem_purge()  # delete tandem-alignment intermediates
     tim.end_timer('Parsing tandem alignments')
@@ -372,6 +400,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     # ##################################################
 
     tim.start_timer('Make MAPQ predictions')
+    predictions_fn, purge_predictions = _get_predictions_fn()
     logging.info('Making MAPQ predictions')
     logging.info('  instantiating model family')
     fam = model_family(args)
@@ -379,12 +408,15 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     tab_ts, tab_tr = FeatureTableReader(pass1_prefix), FeatureTableReader(pass2_prefix)
     logging.info('  creating fit')
     fit = MapqFit(tab_tr, fam, random_seed=args['seed'])
-    fit.write_feature_importances(join(odir, ''))
-    fit.write_out_of_bag_scores(join(odir, ''))
-    fit.write_parameters(join(odir, ''))
+    if args['vanilla_output'] is None:
+        fit.write_feature_importances(join(odir, ''))
+        fit.write_out_of_bag_scores(join(odir, ''))
+        fit.write_parameters(join(odir, ''))
     logging.info('  making predictions')
     pred = fit.predict(tab_ts)
     pred.write_predictions(predictions_fn)
+    pass1_cleanup()
+    pass2_cleanup()
     tim.end_timer('Make MAPQ predictions')
 
     # ##################################################
@@ -403,13 +435,21 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     pass3_cleanup()
     logging.debug('  rewriting finished; results in "%s.*"' % pass3_prefix)
     input_sam_purge()
+    purge_predictions()
     tim.end_timer('Rewrite SAM file')
 
+    logging.info('Purging temporaries')
     temp_man.purge()
-    logging.info('Peak temporary file size: %0.2fMB' % (temp_man.peak_size / (1024.0 * 1024)))
-    logging.info('Total size of output directory: %0.2fMB' % (recursive_size(odir) / (1024.0 * 1024)))
 
-    # TODO: Disk overhead?
+    out_sz = getsize(_get_final_prefix() + '.sam')
+    peak_tmp = temp_man.peak_size
+    logging.info('Output SAM size: %0.2fMB' % (out_sz / (1024.0 * 1024)))
+    logging.info('Peak temporary file size: %0.2fMB (%0.2f%% of output SAM)' % (peak_tmp / (1024.0 * 1024),
+                                                                                100.0 * peak_tmp / out_sz))
+    if args['vanilla_output'] is None:
+        tot_sz = recursive_size(odir)
+        logging.info('Total size of output directory: %0.2fMB (%0.2f%% of output SAM)' % (tot_sz / (1024.0 * 1024),
+                                                                                          100.0 * tot_sz / out_sz))
 
     tim.end_timer('Overall')
     for ln in str(tim).split('\n'):
@@ -498,9 +538,9 @@ def add_args(parser):
     parser.add_argument('--temp-directory', metavar='path', type=str, required=False,
                         help='Write temporary files to this directory; default: uses environment variables '
                              'like TMPDIR, TEMP, etc')
-    parser.add_argument('--output-directory', metavar='path', type=str, required=True,
+    parser.add_argument('--output-directory', metavar='path', type=str,
                         help='Write outputs to this directory')
-    parser.add_argument('--vanilla-output', action='store_const', const=True, default=False,
+    parser.add_argument('--vanilla-output', metavar='path', type=str,
                         help='Only write final SAM file; suppress all other output')
     parser.add_argument('--keep-intermediates', action='store_const', const=True, default=False,
                         help='Keep intermediates in output directory; if not specified, '

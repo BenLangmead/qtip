@@ -1380,11 +1380,15 @@ int main(int argc, char **argv) {
 				}
 				if(strcmp(argv[i], "fraction-even") == 0) {
 					fraction_even = atof(argv[++i]);
-					cerr << "Warning: fraction-even not currently implemented" << endl;
+					if(fraction_even < 1.0f) {
+						cerr << "Warning: fraction-even not currently implemented" << endl;
+					}
 				}
 				if(strcmp(argv[i], "low-score-bias") == 0) {
 					low_score_bias = atof(argv[++i]);
-					cerr << "Warning: low-score bias not currently implemented" << endl;
+					if(low_score_bias < 1.0f) {
+						cerr << "Warning: low-score bias not currently implemented" << endl;
+					}
 				}
 				if(strcmp(argv[i], "max-allowed-fraglen") == 0) {
 					max_allowed_fraglen = atoi(argv[++i]);

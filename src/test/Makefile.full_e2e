@@ -9,7 +9,22 @@ LAMBDA_IDX=$(BT2_EG)/index/lambda_virus
 # Need to simulate the reads and label them appropriately before we can have
 # a test that fully exercises the prediction module and its summaries.
 
-full_e2e/ts_logs.txt: .r_1.fastq .r_2.fastq
+all: full_e2e/final.sam final_full_e2e.sam
+
+final_full_e2e.sam: .r_1.fastq .r_2.fastq
+	python ../ts.py \
+		--ref $(LAMBDA) \
+		--m1 .r_1.fastq \
+		--m2 .r_2.fastq \
+		--index $(LAMBDA_IDX) \
+		--seed 34 \
+		--aligner bowtie2 \
+		--bt2-exe $(BT2_HOME)/bowtie2 \
+		--vanilla-out $@ \
+		--write-orig-mapq \
+		--write-precise-mapq
+
+full_e2e/final.sam: .r_1.fastq .r_2.fastq
 	python ../ts.py \
 		--ref $(LAMBDA) \
 		--m1 .r_1.fastq \
