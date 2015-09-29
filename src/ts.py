@@ -534,6 +534,8 @@ def add_args(parser):
                         help='Write original MAPQ as an extra field in output SAM')
     parser.add_argument('--write-precise-mapq', action='store_const', const=True, default=False,
                         help='Write a more precise MAPQ prediction as an extra field in output SAM')
+    parser.add_argument('--keep-ztz', action='store_const', const=True, default=False,
+                        help='Don\'t remove the ZT:Z flag from the final output SAM')
 
     # Prediction
     parser.add_argument('--model-family', metavar='family', type=str, required=False,

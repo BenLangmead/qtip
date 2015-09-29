@@ -26,6 +26,8 @@ const char *orig_mapq_flag = "Zm:Z";
 bool write_precise_mapq = false;
 const char *precise_mapq_flag = "Zp:Z";
 
+bool keep_ztz = false;
+
 const static size_t BUFSZ = 65536;
 
 #define FILEDEC(fn, fh, buf, typ, do_open) \
@@ -77,6 +79,20 @@ static void rewrite(FILE *fh, char *buf, float mapq) {
 	}
 	*orig_cur = '\0';
 	while(*buf != '\n' && *buf != '\r') {
+		if(!keep_ztz && *buf == '\t') {
+			if(strncmp(buf+1, "ZT:Z:", 5) == 0) { // Remove the ZT:Z
+				buf += 6;
+				while(true) {
+					if(*buf == '\t' || *buf == '\n' || *buf == '\r') {
+						break;
+					}
+					buf++;
+				}
+			}
+			if(*buf == '\n' || *buf == '\r') {
+				break;
+			}
+		}
 		fputc(*buf, fh);
 		buf++;
 	}
@@ -96,8 +112,8 @@ int main(int argc, char **argv) {
 		cout << "orig-mapq-flag "
 		     << "precise-mapq-flag "
 		     << "write-orig-mapq "
-		     << "write-precise-mapq"
-		     << endl;
+		     << "write-precise-mapq "
+		     << "keep-ztz" << endl;
 		return 0;
 	}
 
@@ -132,6 +148,9 @@ int main(int argc, char **argv) {
 				}
 				if(strcmp(argv[i], "write-precise-mapq") == 0) {
 					write_precise_mapq = strcmp(argv[++i], "True") == 0;
+				}
+				if(strcmp(argv[i], "keep-ztz") == 0) {
+					keep_ztz = strcmp(argv[++i], "True") == 0;
 				}
 			} else if(section == 1) {
 				sams.push_back(string(argv[i]));
