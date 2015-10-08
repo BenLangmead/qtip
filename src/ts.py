@@ -401,6 +401,24 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     # 5. Predict
     # ##################################################
 
+    # Types of output files:
+    # - input predictions, in input order, in csv files
+    # - out-of-bag scores
+    # - feature importances
+    # - model parameters
+
+    # When correctness info is available:
+    # - ROC table (many plots can be derived from this)
+    # - info about the highest-MAPQ incorrect alignments
+    # - summary measures?
+
+    # When --predict-for-training is specified:
+    # - all of the above but for training (tandem) rather than input data
+
+    # When --subsampling-series is specified
+    # - all of the above but for several sampling fractions
+    # - toplevel table summarizing performance
+
     tim.start_timer('Make MAPQ predictions')
     predictions_fn, purge_predictions = _get_predictions_fn()
     logging.info('Making MAPQ predictions')
@@ -408,15 +426,49 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     fam = model_family(args)
     logging.info('  instantiating feature table readers')
     tab_ts, tab_tr = FeatureTableReader(pass1_prefix), FeatureTableReader(pass2_prefix)
-    logging.info('  creating fit')
-    fit = MapqFit(tab_tr, fam, random_seed=args['seed'])
-    if args['vanilla_output'] is None:
-        fit.write_feature_importances(join(odir, ''))
-        fit.write_out_of_bag_scores(join(odir, ''))
-        fit.write_parameters(join(odir, ''))
-    logging.info('  making predictions')
-    pred = fit.predict(tab_ts)
-    pred.write_predictions(predictions_fn)
+
+    def _do_predict(fit, tab, subdir):
+        pred = fit.predict(tab)
+        if args['vanilla_output'] is None and pred.has_correctness():
+            mkdir_quiet(subdir)
+            pred.write_roc(join(subdir + ['roc.csv']))
+            pred.write_top_incorrect(join(subdir + ['top_incorrect.csv']))
+            pred.summary_measures(join(subdir + ['summary.csv']))
+            pred.write_predictions(join(subdir + ['top_incorrect.csv']))
+        pred.write_predictions(predictions_fn)
+        return pred
+
+    def _do_fit(_tab_tr, fraction, subdir):
+        fit = MapqFit(_tab_tr, fam, sample_fraction=fraction, random_seed=args['seed'])
+        if args['vanilla_output'] is None:
+            mkdir_quiet(subdir)
+            fit.write_feature_importances(join(subdir + ['featimport.csv']))
+            fit.write_out_of_bag_scores(join(subdir + ['oob_scores.csv']))
+            fit.write_parameters(join(subdir + ['params.csv']))
+        return fit
+
+    def _fits_and_predictions(fraction, subdir):
+        logging.info('  fitting to tandem alignments')
+        subdir_ts = subdir if args['predict_for_training'] else subdir + ['test']
+        fit = _do_fit(tab_tr, fraction, subdir_ts)
+        logging.info('  making predictions for input alignments')
+        pred_ts = _do_predict(fit, tab_ts, subdir_ts)
+        pred_tr = None
+        if args['predict_for_training']:
+            logging.info('  making predictions for tandem (training) alignments')
+            pred_tr = _do_predict(fit, tab_tr, subdir + ['training'])
+        return fit, pred_ts, pred_tr
+
+    def _all_fits_and_predictions():
+        fractions = map(float, args['subsampling_series'].split(','))
+        for fraction in fractions:
+            if fraction < 0.0 or fraction > 1.0:
+                raise RuntimeError('Bad subsampling fraction: %f' % fraction)
+            if len(fractions) > 0:
+                logging.info('  trying sampling fraction %0.02f%%' % (100.0 * fraction))
+            _fits_and_predictions(fraction, [odir, str(fraction)] if len(fractions) > 0 else [odir])
+
+    _all_fits_and_predictions()
     pass1_cleanup()
     pass2_cleanup()
     tim.end_timer('Make MAPQ predictions')
@@ -537,11 +589,21 @@ def add_args(parser):
     parser.add_argument('--keep-ztz', action='store_const', const=True, default=False,
                         help='Don\'t remove the ZT:Z flag from the final output SAM')
 
-    # Prediction
+    # Prediction and plots
     parser.add_argument('--model-family', metavar='family', type=str, required=False,
                         default='ExtraTrees', help='{RandomForest | ExtraTrees}')
     parser.add_argument('--optimization-tolerance', metavar='float', type=float, default=1e-3,
                         help='Tolerance when searching for best model parameters')
+    parser.add_argument('--predict-for-training', action='store_const', const=True, default=False,
+                        help='Make predictions (and associated plots/output files) for training (tandem) data')
+    parser.add_argument('--plot-all', action='store_const', const=True, default=False,
+                        help='Like specifying all option beginning with --plot')
+    parser.add_argument('--plot-format', metavar='format', type=str, default='png',
+                        help='Extension (and image format) for plot: {pdf, png, eps, jpg, ...}')
+    parser.add_argument('--subsampling-series', metavar='floats', type=str, default='1.0',
+                        help='Comma separated list of subsampling fractions to try')
+    parser.add_argument('--subsampling-replicates', metavar='int', type=int, default=1,
+                        help='Number of times to repeat fiting/prediction for each subsampling fraction')
 
     # Output file-related arguments
     parser.add_argument('--temp-directory', metavar='path', type=str, required=False,
