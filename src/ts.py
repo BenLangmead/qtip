@@ -19,6 +19,8 @@ import time
 import logging
 import errno
 import resource
+import numpy as np
+import random
 try:
     from Queue import Queue, Empty, Full
 except ImportError:
@@ -84,6 +86,11 @@ def recursive_size(dr):
     for root, dirs, files in os.walk(dr):
         tot += sum(getsize(join(root, name)) for name in files)
     return tot
+
+
+def seed_all(seed):
+    random.seed(seed)
+    np.random.seed(seed)
 
 
 def _nop():
@@ -422,41 +429,40 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     tim.start_timer('Make MAPQ predictions')
     predictions_fn, purge_predictions = _get_predictions_fn()
     logging.info('Making MAPQ predictions')
-    logging.info('  instantiating model family')
-    fam = model_family(args)
     logging.info('  instantiating feature table readers')
     tab_ts, tab_tr = FeatureTableReader(pass1_prefix), FeatureTableReader(pass2_prefix)
 
-    def _do_predict(fit, tab, subdir):
+    def _do_predict(fit, tab, subdir, is_input):
         pred = fit.predict(tab)
         if args['vanilla_output'] is None and pred.has_correctness():
-            mkdir_quiet(subdir)
-            pred.write_roc(join(subdir + ['roc.csv']))
-            pred.write_top_incorrect(join(subdir + ['top_incorrect.csv']))
-            pred.summary_measures(join(subdir + ['summary.csv']))
-            pred.write_predictions(join(subdir + ['top_incorrect.csv']))
-        pred.write_predictions(predictions_fn)
+            mkdir_quiet(join(*subdir))
+            pred.write_roc(join(*(subdir + ['roc.csv'])))
+            pred.write_top_incorrect(join(*(subdir + ['top_incorrect.csv'])))
+            pred.write_summary_measures(join(*(subdir + ['summary.csv'])))
+            pred.write_predictions(join(*(subdir + ['predictions.csv'])))
+        if is_input:
+            pred.write_predictions(predictions_fn)
         return pred
 
-    def _do_fit(_tab_tr, fraction, subdir):
-        fit = MapqFit(_tab_tr, fam, sample_fraction=fraction, random_seed=args['seed'])
+    def _do_fit(_tab_tr, fam, fraction, subdir):
+        fit = MapqFit(_tab_tr, fam, sample_fraction=fraction)
         if args['vanilla_output'] is None:
-            mkdir_quiet(subdir)
-            fit.write_feature_importances(join(subdir + ['featimport.csv']))
-            fit.write_out_of_bag_scores(join(subdir + ['oob_scores.csv']))
-            fit.write_parameters(join(subdir + ['params.csv']))
+            mkdir_quiet(join(*subdir))
+            fit.write_feature_importances(join(*(subdir + ['featimport'])))
+            fit.write_out_of_bag_scores(join(*(subdir + ['oob_scores'])))
+            fit.write_parameters(join(*(subdir + ['params'])))
         return fit
 
-    def _fits_and_predictions(fraction, subdir):
+    def _fits_and_predictions(fraction, fam, subdir):
         logging.info('  fitting to tandem alignments')
-        subdir_ts = subdir if args['predict_for_training'] else subdir + ['test']
-        fit = _do_fit(tab_tr, fraction, subdir_ts)
+        subdir_ts = subdir + ['test'] if args['predict_for_training'] else subdir
+        fit = _do_fit(tab_tr, fam, fraction, subdir)
         logging.info('  making predictions for input alignments')
-        pred_ts = _do_predict(fit, tab_ts, subdir_ts)
+        pred_ts = _do_predict(fit, tab_ts, subdir_ts, True)
         pred_tr = None
         if args['predict_for_training']:
             logging.info('  making predictions for tandem (training) alignments')
-            pred_tr = _do_predict(fit, tab_tr, subdir + ['training'])
+            pred_tr = _do_predict(fit, tab_tr, subdir + ['training'], False)
         return fit, pred_ts, pred_tr
 
     def _all_fits_and_predictions():
@@ -464,9 +470,17 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         for fraction in fractions:
             if fraction < 0.0 or fraction > 1.0:
                 raise RuntimeError('Bad subsampling fraction: %f' % fraction)
-            if len(fractions) > 0:
+            _odir = [odir, 'sample' + str(fraction)] if len(fractions) > 1 else [odir]
+            if len(fractions) > 1:
                 logging.info('  trying sampling fraction %0.02f%%' % (100.0 * fraction))
-            _fits_and_predictions(fraction, [odir, str(fraction)] if len(fractions) > 0 else [odir])
+            for i in range(args['trials']):
+                if args['trials'] > 1:
+                    logging.info('  trial %d' % (i+1))
+                seed = args['seed'] + i
+                seed_all(seed)
+                logging.info('  pseudo-random seed %d' % seed)
+                fam = model_family(args['model_family'], seed, args['optimization_tolerance'])
+                _fits_and_predictions(fraction, fam, _odir + ['trial%d' % (i+1)] if args['trials'] > 1 else _odir)
 
     _all_fits_and_predictions()
     pass1_cleanup()
@@ -602,8 +616,8 @@ def add_args(parser):
                         help='Extension (and image format) for plot: {pdf, png, eps, jpg, ...}')
     parser.add_argument('--subsampling-series', metavar='floats', type=str, default='1.0',
                         help='Comma separated list of subsampling fractions to try')
-    parser.add_argument('--subsampling-replicates', metavar='int', type=int, default=1,
-                        help='Number of times to repeat fiting/prediction for each subsampling fraction')
+    parser.add_argument('--trials', metavar='int', type=int, default=1,
+                        help='Number of times to repeat fiting/prediction')
 
     # Output file-related arguments
     parser.add_argument('--temp-directory', metavar='path', type=str, required=False,

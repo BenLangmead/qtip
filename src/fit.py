@@ -40,18 +40,19 @@ class MapqFit:
             assert not np.isnan(data[lab]).any()
         data_mat = data[labs].values
         assert not np.isinf(data_mat).any() and not np.isnan(data_mat).any()
-        return data_mat, np.array(data['id']), data['mapq'], data['correct'], labs
+        return data_mat, np.array(data['id']), np.array(data['mapq']), np.array(data['correct']), labs
 
     @staticmethod
     def _subsample(x_train, mapq_orig_train, y_train, sample_fraction):
         """ Return a random subset of the data, MAPQs and labels.  Size of
             subset given by sample_fraction. """
         n_training_samples = x_train.shape[0]
+        assert x_train.shape[0] == y_train.shape[0]
         if sample_fraction < 1.0:
             sample_indexes = random.sample(range(n_training_samples), int(round(n_training_samples * sample_fraction)))
             x_train = x_train[sample_indexes, ]
-            mapq_orig_train = mapq_orig_train.iloc[sample_indexes]
-            y_train = np.array([y_train[i] for i in sample_indexes])
+            y_train = y_train[sample_indexes, ]
+            mapq_orig_train = mapq_orig_train[sample_indexes, ]
         return x_train, mapq_orig_train, y_train
 
     @staticmethod
@@ -112,10 +113,7 @@ class MapqFit:
                 continue  # empty
             if train['correct'].nunique() == 1:
                 raise RuntimeError('Error: All training data has correct=%d' % (train['correct'][0]))
-            log.info('Getting ready to fit %d %s training data records (seed=%d)' % (train.shape[0], ds_long, self.random_seed))
-            # seed pseudo-random generators
-            random.seed(self.random_seed)
-            np.random.seed(self.random_seed)
+            log.info('Getting ready to fit %d %s training data records' % (train.shape[0], ds_long))
             # extract features, convert to matrix
             x_train, _, mapq_orig_train, y_train, self.col_names[ds] = self._df_to_mat(train, ds, True, log=log)
             # optionally subsample
@@ -173,7 +171,7 @@ class MapqFit:
         """
         fi_colnames, fi_vals = [], []
         for ds, model in sorted(self.trained_models.items()):
-            with open(prefix + 'featimport_' + ds + '.tsv', 'w') as fh:
+            with open(prefix + '_' + ds + '.csv', 'w') as fh:
                 assert len(self.col_names[ds]) == len(model.feature_importances_)
                 ranks = np.argsort(model.feature_importances_)[::-1] + 1
                 inv_ranks = [0] * len(ranks)
@@ -183,11 +181,11 @@ class MapqFit:
                 assert min(inv_ranks) == 1
                 assert max(inv_ranks) == len(ranks)
                 i = 0
-                fh.write('feature\timportance\trank\n')
+                fh.write('feature,importance,rank\n')
                 for im, r in zip(model.feature_importances_, inv_ranks):
                     fi_colnames.append(ds + '_' + self.col_names[ds][i])
                     fi_vals.append(im)
-                    fh.write('%s\t%0.4f\t%d\n' % (self.col_names[ds][i], im, r))
+                    fh.write('%s,%0.4f,%d\n' % (self.col_names[ds][i], im, r))
                     i += 1
 
     def write_out_of_bag_scores(self, prefix):
@@ -196,7 +194,7 @@ class MapqFit:
         with given prefix.
         """
         for ds, model in self.trained_models.iteritems():
-            with open(prefix + 'oob_score_' + ds + '.tsv', 'w') as fh:
+            with open(prefix + '_' + ds + '.csv', 'w') as fh:
                 fh.write('%0.5f\n' % model.oob_score_)
 
     def write_parameters(self, prefix):
@@ -205,18 +203,15 @@ class MapqFit:
         file with given prefix.
         """
         for ds, params in self.trained_params.iteritems():
-            with open(prefix + 'params_' + ds + '.tsv', 'w') as fh:
+            with open(prefix + '_' + ds + '.csv', 'w') as fh:
                 fh.write(str(params))
 
     def __init__(self,
                  dfs,  # dictionary of data frames, one per alignment type
                  model_gen,  # function that takes vector of hyperparameters, returns new model object
-                 random_seed=628599,
                  log=logging,
                  sample_fraction=1.0):  # fraction of training data to actually use
-        assert random_seed >= 0
         self.model_gen = model_gen
-        self.random_seed = random_seed
         self.trained_models = {}
         self.crossval_avg = {}
         self.crossval_std = {}

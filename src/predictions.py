@@ -2,7 +2,7 @@ import numpy as np
 import pandas
 import logging
 from collections import Counter
-from metrics import mseor, ranking_error, auc
+from metrics import mseor, ranking_error, auc, roc_table
 
 __author__ = 'langmead'
 
@@ -69,6 +69,10 @@ class MapqPredictions:
             else:
                 self.correct = np.append(self.correct, correct)
 
+    def has_correctness(self):
+        """ Return true iff we have correctness values for the alignments """
+        return self.correct is not None
+
     def incorrect_indexes(self):
         """ Return indexes of in correct alignments in order
             from highest to lowest predicted pcor """
@@ -92,6 +96,29 @@ class MapqPredictions:
                                     [self.data[x] for x in incor_idx])
         summ_dict['correct'] = [self.correct[x] for x in incor_idx]
         return pandas.DataFrame.from_dict(summ_dict)
+
+    def write_roc(self, fn):
+        """ Write a ROC table with # correct/# incorrect stratified by
+            predicted MAPQ. """
+        assert self.correct is not None
+        assert self.ordered_by == "ids"
+        df = roc_table(self.pcor, self.correct, rounded=True, mapqize=True)
+        df.to_csv(fn, sep=',', index=False)
+
+    def write_summary_measures(self, fn):
+        """ Write a ROC table with # correct/# incorrect stratified by
+            predicted MAPQ. """
+        assert self.correct is not None
+        assert self.ordered_by == "ids"
+        with open(fn, 'w') as fh:
+            pass
+
+    def write_top_incorrect(self, fn, n=50):
+        """ Write a ROC table with # correct/# incorrect stratified by
+            predicted MAPQ. """
+        assert self.correct is not None
+        assert self.ordered_by == "ids"
+        self.summarize_incorrect(n=n).to_csv(fn, sep=',', index=False)
 
     def write_predictions(self, fn):
         """

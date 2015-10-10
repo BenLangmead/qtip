@@ -98,11 +98,11 @@ def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.002):
                                round_to, min_separation=min_separation)
 
 
-def model_family(args):
+def model_family(family, seed, optimization_tolerance):
     """ Given command-line arguments, return appropriate model family """
-    if args['model_family'] == 'RandomForest':
-        return random_forest_models(args['seed'], args['optimization_tolerance'])
-    elif args['model_family'] == 'ExtraTrees':
-        return extra_trees_models(args['seed'], args['optimization_tolerance'])
+    if family == 'RandomForest':
+        return random_forest_models(seed, optimization_tolerance)
+    elif family == 'ExtraTrees':
+        return extra_trees_models(seed, optimization_tolerance)
     else:
-        raise RuntimeError('Bad value for --model-family: "%s"' % args['model_family'])
+        raise RuntimeError('Bad value for --model-family: "%s"' % family)

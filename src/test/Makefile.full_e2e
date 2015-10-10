@@ -9,7 +9,7 @@ LAMBDA_IDX=$(BT2_EG)/index/lambda_virus
 # Need to simulate the reads and label them appropriately before we can have
 # a test that fully exercises the prediction module and its summaries.
 
-all: full_e2e/final.sam final_full_e2e.sam
+all: full_e2e/final.sam extra_e2e/final.sam final_full_e2e.sam
 
 final_full_e2e.sam: .r_1.fastq .r_2.fastq
 	python ../ts.py \
@@ -38,6 +38,23 @@ full_e2e/final.sam: .r_1.fastq .r_2.fastq
 		--write-orig-mapq \
 		--write-precise-mapq
 
+extra_e2e/final.sam: .r_1.fastq .r_2.fastq
+	python ../ts.py \
+		--ref $(LAMBDA) \
+		--m1 .r_1.fastq \
+		--m2 .r_2.fastq \
+		--index $(LAMBDA_IDX) \
+		--seed 34 \
+		--aligner bowtie2 \
+		--bt2-exe $(BT2_HOME)/bowtie2 \
+		--output-directory extra_e2e \
+		--keep-intermediates \
+		--predict-for-training \
+		--subsampling-series 0.1,0.5,1.0 \
+		--trials 2 \
+		--write-orig-mapq \
+		--write-precise-mapq
+
 .r_1.fastq: .rtmp_1.fastq
 	$(MASON_CONVERT) --in1 $< --in2 $(<:_1.fastq=_2.fastq) --out1 $@ --out2 $(@:_1.fastq=_2.fastq)
 
@@ -58,5 +75,5 @@ full_e2e/final.sam: .r_1.fastq .r_2.fastq
 
 .PHONY: clean
 clean:
-	rm -rf full_e2e
+	rm -rf full_e2e extra_e2e
 	rm -f .r*.fastq
