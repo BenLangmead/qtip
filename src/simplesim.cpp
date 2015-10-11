@@ -215,7 +215,7 @@ void StreamingSimulator::simulate_batch(
 		
 		size_t nu_chances = retsz - model_u_.avg_len() + 1;
 		nu_chances_tot += nu_chances;
-		size_t nu_samp = draw_binomial(nu, float(nu_chances) / tot_fasta_len_);
+		size_t nu_samp = draw_binomial(nu, ((float)nu_chances) / tot_fasta_len_);
 		for(size_t i = 0; i < nu_samp; i++) {
 			int attempts = 0;
 			do {
@@ -253,7 +253,7 @@ void StreamingSimulator::simulate_batch(
 
 		size_t nb_chances = retsz - model_b_.avg_len() + 1;
 		nb_chances_tot += nb_chances;
-		size_t nb_samp = draw_binomial(nb, float(nb_chances) / tot_fasta_len_);
+		size_t nb_samp = draw_binomial(nb, ((float)nb_chances) / tot_fasta_len_);
 		for(size_t i = 0; i < nb_samp; i++) {
 			int attempts = 0;
 			do {
@@ -318,8 +318,8 @@ void StreamingSimulator::simulate_batch(
 		size_t nd_chances = retsz - model_d_.avg_len() + 1;
 		nc_chances_tot += nc_chances;
 		nd_chances_tot += nd_chances;
-		size_t nc_samp = draw_binomial(nc, float(nc_chances) / tot_fasta_len_);
-		size_t nd_samp = draw_binomial(nd, float(nd_chances) / tot_fasta_len_);
+		size_t nc_samp = draw_binomial(nc, ((float)nc_chances) / tot_fasta_len_);
+		size_t nd_samp = draw_binomial(nd, ((float)nd_chances) / tot_fasta_len_);
 		for(size_t i = 0; i < nc_samp + nd_samp; i++) {
 			bool conc = i < nc_samp;
 			int attempts = 0;
