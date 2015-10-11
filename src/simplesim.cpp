@@ -187,7 +187,7 @@ void StreamingSimulator::simulate_batch(
 	assert(nu + nb + nc + nd > 0);
 	
 	std::string refid, refid_full;
-	size_t refoff = 0, retsz = 0;
+	size_t refoff = 0, retsz = 0, retsz_tot = 0, retsz_noolap_tot = 0;
 	SimulatedRead rd1, rd2;
 	int hist[256];
 	const int max_attempts = 10;
@@ -199,6 +199,8 @@ void StreamingSimulator::simulate_batch(
 		if(retsz < olap_) {
 			continue;
 		}
+		retsz_tot += retsz;
+		retsz_noolap_tot += (retsz - olap_);
 		memset(hist, 0, sizeof(int) * 256);
 		for(size_t i = 0; i < retsz; i++) {
 			hist[(int)buf[i]]++;
@@ -377,6 +379,8 @@ void StreamingSimulator::simulate_batch(
 			} while(false);
 		}
 	}
+	cerr << "    Total bytes in all FASTA buffers=" << retsz_tot << endl;
+	cerr << "    Excluding overlap=" << retsz_noolap_tot << endl;
 	cerr << "    Wrote " << n_wrote_u << " unpaired tandem reads "
 	     << "(target=" << nu << ", chances=" << nu_chances_tot << ")" << endl;
 	cerr << "    Wrote " << n_wrote_b << " bad-end tandem reads "
