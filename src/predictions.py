@@ -77,15 +77,18 @@ class MapqPredictions:
         """ Return indexes of in correct alignments in order
             from highest to lowest predicted pcor """
         assert self.correct is not None
+        assert self.ordered_by == "pcor"
         return [x for x in range(len(self.correct)-1, -1, -1) if not self.correct[x]]
 
     def top_incorrect(self, n=50):
         """ Get incorrect alignments with highest predicted MAPQ """
         assert self.data is not None
+        assert self.ordered_by == "pcor"
         return [self.data[x] for x in self.incorrect_indexes()[:n]]
 
     def summarize_incorrect(self, n=50):
         assert self.correct is not None
+        assert self.ordered_by == "pcor"
         incor_idx = self.incorrect_indexes()[:n]
         summ_dict = dict()
         summ_dict['category'] = [self.category[x] for x in incor_idx]
@@ -97,27 +100,31 @@ class MapqPredictions:
         summ_dict['correct'] = [self.correct[x] for x in incor_idx]
         return pandas.DataFrame.from_dict(summ_dict)
 
-    def write_roc(self, fn):
+    def write_rocs(self, fn, fn_orig):
         """ Write a ROC table with # correct/# incorrect stratified by
             predicted MAPQ. """
         assert self.correct is not None
-        assert self.ordered_by == "ids"
-        df = roc_table(self.pcor, self.correct, rounded=True, mapqize=True)
-        df.to_csv(fn, sep=',', index=False)
+        roc_table(self.pcor, self.correct, rounded=True, mapqize=True).to_csv(fn, sep=',', index=False)
+        roc_table(self.pcor_orig, self.correct, rounded=True, mapqize=True).to_csv(fn_orig, sep=',', index=False)
 
     def write_summary_measures(self, fn):
         """ Write a ROC table with # correct/# incorrect stratified by
             predicted MAPQ. """
         assert self.correct is not None
-        assert self.ordered_by == "ids"
+        rank_err_stats = [self.rank_err_diff_pct, self.rank_err_diff_round_pct]
+        auc_stats = [self.auc_diff_pct, self.auc_diff_round_pct]
+        mse_stats = [self.mse_diff_pct, self.mse_diff_round_pct]
         with open(fn, 'w') as fh:
-            pass
+            fh.write(','.join(['rank_err', 'rank_err_round',
+                               'auc', 'auc_round',
+                               'mse_err', 'mse_err_round']) + '\n')
+            fh.write(','.join(map(str, rank_err_stats + auc_stats + mse_stats)) + '\n')
 
     def write_top_incorrect(self, fn, n=50):
         """ Write a ROC table with # correct/# incorrect stratified by
             predicted MAPQ. """
         assert self.correct is not None
-        assert self.ordered_by == "ids"
+        assert self.ordered_by == "pcor"
         self.summarize_incorrect(n=n).to_csv(fn, sep=',', index=False)
 
     def write_predictions(self, fn):
@@ -133,11 +140,23 @@ class MapqPredictions:
     def _reorder_by(self, ls):
         ordr = np.argsort(ls)
         self.pcor = self.pcor[ordr]
+        self.mapq = self.mapq[ordr]
         self.ids = self.ids[ordr]
+        self.pcor_orig = self.pcor_orig[ordr]
         self.mapq_orig = self.mapq_orig[ordr]
         self.category = [self.category[x] for x in ordr]
         if self.correct is not None:
             self.correct = [self.correct[x] for x in ordr]
+
+    def order_by_ids(self, log=logging):
+        log.info('  Reordering by read id')
+        self._reorder_by(self.ids)
+        self.ordered_by = "ids"
+
+    def order_by_pcor(self, log=logging):
+        log.info('  Reordering by pcor')
+        self._reorder_by(self.pcor)
+        self.ordered_by = "pcor"
 
     def finalize(self, log=logging):
         self.pcor_hist = Counter(self.pcor)
@@ -145,15 +164,11 @@ class MapqPredictions:
         pcor, mapq_orig = self.pcor, self.mapq_orig
         self.mapq = mapq = np.abs(-10.0 * np.log10(1.0 - pcor))
         self.pcor_orig = pcor_orig = 1.0 - 10.0 ** (-0.1 * mapq_orig)
-        # now pcor, pcor_orig, mapq, mapq_orig are all populated
 
         # calculate error measures and other measures
         if max(self.correct) > -1:
             log.info('  Correctness information is present; compiling error measures')
-
-            log.info('  Reordering by mapq')
-            self._reorder_by(self.pcor)
-            self.ordered_by = "pcor"
+            self.order_by_pcor(log=log)
             correct = self.correct
 
             # calculate # of highest pcors and max # pcors in a row that
@@ -213,10 +228,6 @@ class MapqPredictions:
             self.mse = self.mse_raw / self.mse_orig
             self.mse_round = mseor(pcor, correct, rounded=True) / self.mse_orig
             log.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.mse_diff_pct, self.mse_diff_round_pct))
-
-        log.info('  Reordering by read id')
-        self._reorder_by(self.ids)
-        self.ordered_by = "ids"
 
         log.info('  Calculating MAPQ summaries')
         self.mapq_avg, self.mapq_orig_avg = float(np.mean(mapq)), float(np.mean(mapq_orig))

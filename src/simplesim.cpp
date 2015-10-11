@@ -170,8 +170,6 @@ void StreamingSimulator::simulate_batch(
 {
 	size_t nc = 0, nd = 0, nu = 0, nb = 0;
 	size_t n_wrote_c = 0, n_wrote_d = 0, n_wrote_u = 0, n_wrote_b = 0;
-	size_t nu_chances_tot = 0, nb_chances_tot = 0;
-	size_t nc_chances_tot = 0, nd_chances_tot = 0;
 	if(!model_u_.empty()) {
 		nu = std::max((size_t)(fraction * model_u_.num_added()), min_u);
 	}
@@ -187,7 +185,7 @@ void StreamingSimulator::simulate_batch(
 	assert(nu + nb + nc + nd > 0);
 	
 	std::string refid, refid_full;
-	size_t refoff = 0, retsz = 0, retsz_tot = 0, retsz_noolap_tot = 0;
+	size_t refoff = 0, retsz = 0;
 	SimulatedRead rd1, rd2;
 	int hist[256];
 	const int max_attempts = 10;
@@ -199,8 +197,8 @@ void StreamingSimulator::simulate_batch(
 		if(retsz < olap_) {
 			continue;
 		}
-		retsz_tot += retsz;
-		retsz_noolap_tot += (retsz - olap_);
+		const size_t nchances = retsz - olap_ + 1;
+		const float binom_p = ((float)nchances) * 1.1f / tot_fasta_len_;
 		memset(hist, 0, sizeof(int) * 256);
 		for(size_t i = 0; i < retsz; i++) {
 			hist[(int)buf[i]]++;
@@ -215,9 +213,7 @@ void StreamingSimulator::simulate_batch(
 		// Unpaired
 		//
 		
-		size_t nu_chances = retsz - olap_ + 1;
-		nu_chances_tot += nu_chances;
-		size_t nu_samp = draw_binomial(nu, ((float)nu_chances) / tot_fasta_len_);
+		size_t nu_samp = draw_binomial(nu, binom_p);
 		for(size_t i = 0; i < nu_samp; i++) {
 			int attempts = 0;
 			do {
@@ -253,9 +249,7 @@ void StreamingSimulator::simulate_batch(
 		// Bad-end
 		//
 
-		size_t nb_chances = retsz - olap_ + 1;
-		nb_chances_tot += nb_chances;
-		size_t nb_samp = draw_binomial(nb, ((float)nb_chances) / tot_fasta_len_);
+		size_t nb_samp = draw_binomial(nb, binom_p);
 		for(size_t i = 0; i < nb_samp; i++) {
 			int attempts = 0;
 			do {
@@ -316,12 +310,8 @@ void StreamingSimulator::simulate_batch(
 		// Concordant & discordant
 		//
 		
-		size_t nc_chances = retsz - olap_ + 1;
-		size_t nd_chances = retsz - olap_ + 1;
-		nc_chances_tot += nc_chances;
-		nd_chances_tot += nd_chances;
-		size_t nc_samp = draw_binomial(nc, ((float)nc_chances) / tot_fasta_len_);
-		size_t nd_samp = draw_binomial(nd, ((float)nd_chances) / tot_fasta_len_);
+		size_t nc_samp = draw_binomial(nc, binom_p);
+		size_t nd_samp = draw_binomial(nd, binom_p);
 		for(size_t i = 0; i < nc_samp + nd_samp; i++) {
 			bool conc = i < nc_samp;
 			int attempts = 0;
@@ -379,16 +369,14 @@ void StreamingSimulator::simulate_batch(
 			} while(false);
 		}
 	}
-	cerr << "    Total bytes in all FASTA buffers=" << retsz_tot << endl;
-	cerr << "    Excluding overlap=" << retsz_noolap_tot << endl;
 	cerr << "    Wrote " << n_wrote_u << " unpaired tandem reads "
-	     << "(target=" << nu << ", chances=" << nu_chances_tot << ")" << endl;
+	     << "(target=" << nu << ")" << endl;
 	cerr << "    Wrote " << n_wrote_b << " bad-end tandem reads "
-	     << "(target=" << nb << ", chances=" << nb_chances_tot << ")" << endl;
+	     << "(target=" << nb << ")" << endl;
 	cerr << "    Wrote " << n_wrote_c << " concordant tandem pairs "
-	     << "(target=" << nc << ", chances=" << nc_chances_tot << ")" << endl;
+	     << "(target=" << nc << ")" << endl;
 	cerr << "    Wrote " << n_wrote_d << " discordant tandem pairs "
-	     << "(target=" << nd << ", chances=" << nd_chances_tot << ")" << endl;
+	     << "(target=" << nd << ")" << endl;
 }
 
 #ifdef SIMPLESIM_MAIN

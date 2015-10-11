@@ -34,7 +34,7 @@ def auc(pcor, cor, rounded=False):
 
 
 def roc_table(pcor, cor, rounded=False, mapqize=False):
-    """ Return the ranking error given a list of pcors and a parallel list of
+    """ Return the ROC table given a list of pcors and a parallel list of
         correct/incorrect booleans.  Round off to nearest MAPQ first if
         rounded=True.  """
     import pandas

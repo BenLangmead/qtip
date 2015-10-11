@@ -436,9 +436,10 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         pred = fit.predict(tab)
         if args['vanilla_output'] is None and pred.has_correctness():
             mkdir_quiet(join(*subdir))
-            pred.write_roc(join(*(subdir + ['roc.csv'])))
+            pred.write_rocs(join(*(subdir + ['roc.csv'])), join(*(subdir + ['roc_orig.csv'])))
             pred.write_top_incorrect(join(*(subdir + ['top_incorrect.csv'])))
             pred.write_summary_measures(join(*(subdir + ['summary.csv'])))
+            pred.order_by_ids()
             pred.write_predictions(join(*(subdir + ['predictions.csv'])))
         if is_input:
             pred.write_predictions(predictions_fn)
@@ -603,17 +604,13 @@ def add_args(parser):
     parser.add_argument('--keep-ztz', action='store_const', const=True, default=False,
                         help='Don\'t remove the ZT:Z flag from the final output SAM')
 
-    # Prediction and plots
+    # Prediction
     parser.add_argument('--model-family', metavar='family', type=str, required=False,
                         default='ExtraTrees', help='{RandomForest | ExtraTrees}')
     parser.add_argument('--optimization-tolerance', metavar='float', type=float, default=1e-3,
                         help='Tolerance when searching for best model parameters')
     parser.add_argument('--predict-for-training', action='store_const', const=True, default=False,
                         help='Make predictions (and associated plots/output files) for training (tandem) data')
-    parser.add_argument('--plot-all', action='store_const', const=True, default=False,
-                        help='Like specifying all option beginning with --plot')
-    parser.add_argument('--plot-format', metavar='format', type=str, default='png',
-                        help='Extension (and image format) for plot: {pdf, png, eps, jpg, ...}')
     parser.add_argument('--subsampling-series', metavar='floats', type=str, default='1.0',
                         help='Comma separated list of subsampling fractions to try')
     parser.add_argument('--trials', metavar='int', type=int, default=1,
