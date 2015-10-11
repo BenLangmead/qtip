@@ -229,6 +229,9 @@ class MapqPredictions:
             self.mse_round = mseor(pcor, correct, rounded=True) / self.mse_orig
             log.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.mse_diff_pct, self.mse_diff_round_pct))
 
+        else:
+            self.correct = None
+
         log.info('  Calculating MAPQ summaries')
         self.mapq_avg, self.mapq_orig_avg = float(np.mean(mapq)), float(np.mean(mapq_orig))
         self.mapq_std, self.mapq_orig_std = float(np.std(mapq)), float(np.std(mapq_orig))
