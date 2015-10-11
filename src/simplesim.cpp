@@ -194,6 +194,9 @@ void StreamingSimulator::simulate_batch(
 		if(buf == NULL && fa_.done()) {
 			break;
 		}
+		if(retsz < olap_) {
+			continue;
+		}
 		memset(hist, 0, sizeof(int) * 256);
 		for(size_t i = 0; i < retsz; i++) {
 			hist[(int)buf[i]]++;
