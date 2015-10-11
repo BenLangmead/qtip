@@ -436,12 +436,15 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         pred = fit.predict(tab)
         if args['vanilla_output'] is None and pred.has_correctness():
             mkdir_quiet(join(*subdir))
+            assert pred.ordered_by == 'pcor', pred.ordered_by
             pred.write_rocs(join(*(subdir + ['roc.csv'])), join(*(subdir + ['roc_orig.csv'])))
             pred.write_top_incorrect(join(*(subdir + ['top_incorrect.csv'])))
             pred.write_summary_measures(join(*(subdir + ['summary.csv'])))
             pred.order_by_ids()
+            assert pred.ordered_by == 'id', pred.ordered_by
             pred.write_predictions(join(*(subdir + ['predictions.csv'])))
         if is_input:
+            assert pred.ordered_by == 'id', pred.ordered_by
             pred.write_predictions(predictions_fn)
         return pred
 

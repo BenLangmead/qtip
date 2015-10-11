@@ -124,7 +124,7 @@ class MapqPredictions:
         """ Write a ROC table with # correct/# incorrect stratified by
             predicted MAPQ. """
         assert self.correct is not None
-        assert self.ordered_by == "pcor"
+        assert self.ordered_by == "pcor", self.ordered_by
         self.summarize_incorrect(n=n).to_csv(fn, sep=',', index=False)
 
     def write_predictions(self, fn):
@@ -132,7 +132,7 @@ class MapqPredictions:
         Write all predictions, in order by the line number of the original
         alignment in the input SAM, to the provided filename.
         """
-        assert self.ordered_by == "ids"
+        assert self.ordered_by == "id"
         with open(fn, 'w') as fh:
             for i in range(len(self.mapq)):
                 fh.write('%d,%0.3f\n' % (self.ids[i], self.mapq[i]))
@@ -151,7 +151,7 @@ class MapqPredictions:
     def order_by_ids(self, log=logging):
         log.info('  Reordering by read id')
         self._reorder_by(self.ids)
-        self.ordered_by = "ids"
+        self.ordered_by = "id"
 
     def order_by_pcor(self, log=logging):
         log.info('  Reordering by pcor')
