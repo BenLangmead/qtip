@@ -634,7 +634,7 @@ struct Alignment {
 					ncolon++;
 				}
 			}
-			if(nund >= 9 && ncolon == 4) {
+			if(nund >= 8 && ncolon == 4) {
 				char *qname_cur = qname;
 				correct = 0;
 				if(strncmp(qname_cur, rname, rname_len) != 0) {
