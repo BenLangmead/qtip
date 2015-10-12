@@ -25,7 +25,7 @@ diff -rupN -x Xcode -x .git bwa/bwamem.c bwa-mod/bwamem.c
 +		kputw(p->pair_score, str);
 +		kputc(',', str);
 +		if(p->pair_sub >= 0) {
-+			assert(p->pair_score >= p->pair_sub);
++			//assert(p->pair_score >= p->pair_sub);
 +			kputw(p->pair_score - p->pair_sub, str);
 +		} else {
 +			kputsn("NA", 2, str);
