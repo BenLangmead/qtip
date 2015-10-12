@@ -21,10 +21,12 @@ import errno
 import resource
 import numpy as np
 import random
+import shutil
 try:
     from Queue import Queue, Empty, Full
 except ImportError:
     from queue import Queue, Empty, Full  # python 3.x
+from operator import itemgetter
 
 # Modules that are part of the tandem simulator
 from bowtie2 import Bowtie2
@@ -103,6 +105,13 @@ def _at_least_one_read_aligned(sam_fn):
             if ln[0] != '@':
                 return True
     return False
+
+
+def _cat(fns, dst_fn):
+    with open(dst_fn, 'wb') as ofh:
+        for fn in fns:
+            with open(fn, 'rb') as fh:
+                shutil.copyfileobj(fh, ofh)
 
 
 def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
@@ -278,30 +287,26 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         return _exists_and_nonempty(cfn) or _exists_and_nonempty(dfn) or _exists_and_nonempty(bfn)
 
     def _unpaired_tandem_reads(prefix):
-        ls = []
         ufn = prefix + '_reads_u.fastq'
-        if _exists_and_nonempty(ufn):
-            ls.append(ufn)
-        return ls
+        return [ufn] if _exists_and_nonempty(ufn) else []
 
-    def _paired_tandem_reads(prefix):
-        ls1, ls2 = [], []
-        cfn1 = prefix + '_reads_c_1.fastq'
-        cfn2 = prefix + '_reads_c_2.fastq'
+    def _paired_tandem_reads(prefix, single_file=False):
+        ls = []
+        cfn1, cfn2 = prefix + '_reads_c_1.fastq', prefix + '_reads_c_2.fastq'
         if _exists_and_nonempty(cfn1):
-            ls1.append(cfn1)
-            ls2.append(cfn2)
-        dfn1 = prefix + '_reads_d_1.fastq'
-        dfn2 = prefix + '_reads_d_2.fastq'
+            ls.append((cfn1, cfn2))
+        dfn1, dfn2 = prefix + '_reads_d_1.fastq', prefix + '_reads_d_2.fastq'
         if _exists_and_nonempty(dfn1):
-            ls1.append(dfn1)
-            ls2.append(dfn2)
-        bfn1 = prefix + '_reads_b_1.fastq'
-        bfn2 = prefix + '_reads_b_2.fastq'
+            ls.append((dfn1, dfn2))
+        bfn1, bfn2 = prefix + '_reads_b_1.fastq', prefix + '_reads_b_2.fastq'
         if _exists_and_nonempty(bfn1):
-            ls1.append(bfn1)
-            ls2.append(bfn2)
-        return zip(ls1, ls2)
+            ls.append((bfn1, bfn2))
+        if len(ls) > 1 and single_file:
+            fn1, fn2 = prefix + '_reads_combined_1.fastq', prefix + '_reads_combined_2.fastq'
+            _cat(map(itemgetter(0), ls), fn1)
+            _cat(map(itemgetter(1), ls), fn2)
+            ls = [(fn1, fn2)]
+        return ls
 
     # ##################################################
     # 1. Align input reads
@@ -361,7 +366,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             aligner_paired_args,
             args['index'],
             unpaired=_unpaired_tandem_reads(pass1_prefix),
-            paired=_paired_tandem_reads(pass1_prefix),
+            paired=_paired_tandem_reads(pass1_prefix, single_file=True),
             sam=tandem_sam_b_fn,
             input_format='fastq')
         _wait_for_aligner(aligner)
@@ -388,7 +393,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 aligner_unpaired_args,
                 aligner_paired_args,
                 args['index'],
-                paired=_paired_tandem_reads(pass1_prefix),
+                paired=_paired_tandem_reads(pass1_prefix, single_file=True),
                 sam=tandem_sam_p_fn,
                 input_format='fastq')
             _wait_for_aligner(aligner)
