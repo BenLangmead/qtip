@@ -161,10 +161,8 @@ class MapqPredictions:
 
     def finalize(self, log=logging):
         self.pcor_hist = Counter(self.pcor)
-
-        pcor, mapq_orig = self.pcor, self.mapq_orig
-        self.mapq = mapq = np.abs(-10.0 * np.log10(1.0 - pcor))
-        self.pcor_orig = pcor_orig = 1.0 - 10.0 ** (-0.1 * mapq_orig)
+        self.mapq = np.abs(-10.0 * np.log10(1.0 - self.pcor))
+        self.pcor_orig = 1.0 - 10.0 ** (-0.1 * self.mapq_orig)
 
         # calculate error measures and other measures
         if max(self.correct) > -1:
@@ -186,9 +184,9 @@ class MapqPredictions:
             # ranking error; +1 is to avoid division-by-zero when a dataset
             # is perfectly ranked
             log.info('  Calculating rank error')
-            self.rank_err_orig = ranking_error(pcor_orig, correct) + 1
-            self.rank_err_raw = ranking_error(pcor, correct) + 1
-            self.rank_err_raw_round = ranking_error(pcor, correct, rounded=True) + 1
+            self.rank_err_orig = ranking_error(self.pcor_orig, correct) + 1
+            self.rank_err_raw = ranking_error(self.pcor, correct) + 1
+            self.rank_err_raw_round = ranking_error(self.pcor, correct, rounded=True) + 1
             self.rank_err_diff = self.rank_err_raw - self.rank_err_orig
             self.rank_err_diff_pct = 100.0 * self.rank_err_diff / self.rank_err_orig
             self.rank_err_diff_round = self.rank_err_raw_round - self.rank_err_orig
@@ -199,9 +197,9 @@ class MapqPredictions:
                                                                self.rank_err_diff_round_pct))
 
             log.info('  Calculating AUC')
-            self.auc_orig = auc(pcor_orig, correct)
-            self.auc_raw = auc(pcor, correct)
-            self.auc_raw_round = auc(pcor, correct, rounded=True)
+            self.auc_orig = auc(self.pcor_orig, correct)
+            self.auc_raw = auc(self.pcor, correct)
+            self.auc_raw_round = auc(self.pcor, correct, rounded=True)
             self.auc_diff = self.auc_raw - self.auc_orig
             self.auc_diff_round = self.auc_raw_round - self.auc_orig
             if self.auc_orig == 0.:
@@ -219,20 +217,20 @@ class MapqPredictions:
             log.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.auc_diff_pct, self.auc_diff_round_pct))
 
             log.info('  Calculating MSE')
-            self.mse_orig = mseor(pcor_orig, correct)
-            self.mse_raw = mseor(pcor, correct)
-            self.mse_raw_round = mseor(pcor, correct, rounded=True)
+            self.mse_orig = mseor(self.pcor_orig, correct)
+            self.mse_raw = mseor(self.pcor, correct)
+            self.mse_raw_round = mseor(self.pcor, correct, rounded=True)
             self.mse_diff = self.mse_raw - self.mse_orig
             self.mse_diff_pct = 100.0 * self.mse_diff / self.mse_orig
             self.mse_diff_round = self.mse_raw_round - self.mse_orig
             self.mse_diff_round_pct = 100.0 * self.mse_diff_round / self.mse_orig
             self.mse = self.mse_raw / self.mse_orig
-            self.mse_round = mseor(pcor, correct, rounded=True) / self.mse_orig
+            self.mse_round = mseor(self.pcor, correct, rounded=True) / self.mse_orig
             log.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.mse_diff_pct, self.mse_diff_round_pct))
 
         else:
             self.correct = None
 
         log.info('  Calculating MAPQ summaries')
-        self.mapq_avg, self.mapq_orig_avg = float(np.mean(mapq)), float(np.mean(mapq_orig))
-        self.mapq_std, self.mapq_orig_std = float(np.std(mapq)), float(np.std(mapq_orig))
+        self.mapq_avg, self.mapq_orig_avg = float(np.mean(self.mapq)), float(np.mean(self.mapq_orig))
+        self.mapq_std, self.mapq_orig_std = float(np.std(self.mapq)), float(np.std(self.mapq_orig))

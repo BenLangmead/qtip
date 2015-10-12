@@ -20,7 +20,7 @@ def auc(pcor, cor, rounded=False):
         pcor = round_pcor_np(pcor)
     area, tot_cor, tot_incor = 0, 0, 0
     last_tot_cor, last_tot_incor = 0, 0
-    for pcor, ci in sorted(tally_cor_per(pcor, cor).iteritems(), reverse=True):
+    for pcor, ci in sorted(tally_cor_per(pcor, cor).items(), reverse=True):
         tot_cor += ci[0]
         tot_incor += ci[1]
         cor_diff = tot_cor - last_tot_cor
@@ -43,7 +43,7 @@ def roc_table(pcor, cor, rounded=False, mapqize=False):
     tally = tally_cor_per(pcor, cor)
     cum_cor, cum_incor = 0, 0
     mapqs, cors, incors, cum_cors, cum_incors = [], [], [], [], []
-    for p in sorted(tally.iterkeys(), reverse=True):
+    for p in sorted(tally.keys(), reverse=True):
         ncor, nincor = tally[p]
         cum_cor += ncor
         cum_incor += nincor
@@ -107,7 +107,7 @@ def drop_rate_cum_sum(pcor, cor):
         how equal p-values are ordered. """
     tally = tally_cor_per(pcor, cor)
     cumsum, cumsums = 0, []
-    for p, tup in sorted(tally.iteritems(), reverse=True):
+    for p, tup in sorted(tally.items(), reverse=True):
         ncor, nincor = tup
         for i in range(ncor + nincor):
             cumsum += (float(nincor) / (ncor + nincor))
