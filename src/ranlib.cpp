@@ -1230,7 +1230,7 @@ int ignbin ( int n, float pp )
     }
   }
   ffm = xnp + p;
-  m = ffm;
+  m = (int)ffm;
   fm = m;
   xnpq = xnp * q;
   p1 = ( int ) ( 2.195 * sqrt ( xnpq ) - 4.6 * q ) + 0.5;
@@ -1257,7 +1257,7 @@ int ignbin ( int n, float pp )
 //
     if ( u < p1 )
     {
-      ix = xm - p1 * v + u;
+      ix = (int)(xm - p1 * v + u);
       if ( 0.5 < pp ) 
       {
         ix = n - ix;
@@ -1277,11 +1277,11 @@ int ignbin ( int n, float pp )
       {
         continue;
       }
-      ix = x;
+      ix = (int)x;
     }
     else if ( u <= p3 )
     {
-      ix = xl + log ( v ) / xll;
+      ix = (int)(xl + log ( v ) / xll);
       if ( ix < 0 )
       {
         continue;
@@ -1290,7 +1290,7 @@ int ignbin ( int n, float pp )
     }
     else
     {
-      ix = xr - log ( v ) / xlr;
+      ix = (int)(xr - log ( v ) / xlr);
       if ( n < ix )
       {
         continue;
