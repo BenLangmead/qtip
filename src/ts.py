@@ -97,6 +97,14 @@ def _nop():
     pass
 
 
+def _at_least_one_read_aligned(sam_fn):
+    with open(sam_fn) as fh:
+        for ln in fh:
+            if ln[0] != '@':
+                return True
+    return False
+
+
 def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
 
     tim = Timing()
@@ -316,6 +324,10 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     _wait_for_aligner(aligner)
     logging.debug('  aligner finished; results in "%s"' % input_sam_fn)
     tim.end_timer('Aligning input reads')
+
+    if not _at_least_one_read_aligned(input_sam_fn):
+        logging.warning("None of the input reads aligned; exiting")
+        sys.exit(0)
 
     # ##################################################
     # 2. Parse input SAM
