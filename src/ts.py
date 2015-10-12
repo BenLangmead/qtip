@@ -444,7 +444,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             assert pred.ordered_by == 'id', pred.ordered_by
             pred.write_predictions(join(*(subdir + ['predictions.csv'])))
         if is_input:
-            assert pred.ordered_by == 'id', pred.ordered_by
+            pred.order_by_ids()
             pred.write_predictions(predictions_fn)
         return pred
 

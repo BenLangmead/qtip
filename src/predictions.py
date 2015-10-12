@@ -111,14 +111,15 @@ class MapqPredictions:
         """ Write a ROC table with # correct/# incorrect stratified by
             predicted MAPQ. """
         assert self.correct is not None
-        rank_err_stats = [self.rank_err_diff_pct, self.rank_err_diff_round_pct]
+        rank_err_stats = [self.rank_err_diff_pct, self.rank_err_diff_round_pct, self.rank_err_raw, self.rank_err_orig]
         auc_stats = [self.auc_diff_pct, self.auc_diff_round_pct]
         mse_stats = [self.mse_diff_pct, self.mse_diff_round_pct]
         with open(fn, 'w') as fh:
-            fh.write(','.join(['rank_err', 'rank_err_round',
-                               'auc', 'auc_round',
-                               'mse_err', 'mse_err_round']) + '\n')
-            fh.write(','.join(map(str, rank_err_stats + auc_stats + mse_stats)) + '\n')
+            fh.write(','.join(['rank_err_diff_pct', 'rank_err_diff_pct_round', 'rank_err', 'rank_err_orig',
+                               'auc_diff_pct', 'auc_diff_pct_round',
+                               'mse_diff_pct', 'mse_diff_pct_round',
+                               'correct_run']) + '\n')
+            fh.write(','.join(map(str, rank_err_stats + auc_stats + mse_stats + [self.correct_run])) + '\n')
 
     def write_top_incorrect(self, fn, n=50):
         """ Write a ROC table with # correct/# incorrect stratified by

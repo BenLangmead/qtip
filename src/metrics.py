@@ -9,8 +9,7 @@ def tally_cor_per(level, cor):
         predictions. """
     tally = defaultdict(lambda: [0, 0])
     for p, c in zip(level, cor):
-        c = 0 if c else 1
-        tally[p][c] += 1
+        tally[p][0 if c else 1] += 1
     return tally
 
 
@@ -64,11 +63,10 @@ def ranking_error(pcor, cor, rounded=False):
     assert len(pcor) == len(cor)
     if rounded:
         pcor = round_pcor_np(pcor)
-    tally = tally_cor_per(pcor, cor)
     err, sofar = 0, 0
     # from low-confidence to high confidence
-    for p in sorted(tally.iterkeys()):
-        ncor, nincor = tally[p]
+    for p, tup in sorted(tally_cor_per(pcor, cor).items()):
+        ncor, nincor = tup
         ntot = ncor + nincor
         assert ntot > 0
         if nincor > 0:
