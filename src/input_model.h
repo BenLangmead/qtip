@@ -149,7 +149,7 @@ public:
 	/**
 	 * Return maximum length of any unpaired template.
 	 */
-	float max_len() const {
+	size_t max_len() const {
 		return fraglen_max_;
 	}
 
