@@ -12,8 +12,8 @@ diff -rupN -x Xcode -x .git bwa/bwamem.c bwa-mod/bwamem.c
  	}
 +	if ((p->flag & 4) == 0) {
 +		kputsn("\tZT:Z:", 6, str);
-+		kputs((char*)(p->cigar + p->n_cigar), str);
-+		kputc(',', str);
++		//kputs((char*)(p->cigar + p->n_cigar), str);
++		//kputc(',', str);
 +		kputw(p->score, str); // same as AS:i
 +		kputc(',', str);
 +		if(p->sub >= 0) {
