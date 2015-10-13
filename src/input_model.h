@@ -25,9 +25,11 @@ public:
 	
 	InputModelUnpaired(
 		const EList<TemplateUnpaired>& ts,
+		size_t n,
 		float fraction_even,
 		float low_score_bias) :
 		ts_(ts),
+		n_(n),
 		fraction_even_(fraction_even),
 		low_score_bias_(low_score_bias)
 	{
@@ -64,7 +66,7 @@ public:
 	 * function.
 	 */
 	size_t num_added() const {
-		return ts_.size();
+		return n_;
 	}
 
 	/**
@@ -97,9 +99,11 @@ public:
 	
 	InputModelPaired(
 		const EList<TemplatePaired>& ts,
+		size_t n,
 		float fraction_even,
 		float low_score_bias) :
 		ts_(ts),
+		n_(n),
 		fraction_even_(fraction_even),
 		low_score_bias_(low_score_bias)
 	{
@@ -136,7 +140,7 @@ public:
 	 * function.
 	 */
 	size_t num_added() const {
-		return ts_.size();
+		return n_;
 	}
 	
 	/**

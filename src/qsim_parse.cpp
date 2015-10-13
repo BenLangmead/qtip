@@ -1532,10 +1532,10 @@ int main(int argc, char **argv) {
 	}
 
 	if(do_simulation) {
-		InputModelUnpaired u_model(u_templates.list(), fraction_even, low_score_bias);
-		InputModelUnpaired b_model(b_templates.list(), fraction_even, low_score_bias);
-		InputModelPaired c_model(c_templates.list(), fraction_even, low_score_bias);
-		InputModelPaired d_model(d_templates.list(), fraction_even, low_score_bias);
+		InputModelUnpaired u_model(u_templates.list(), u_templates.size(), fraction_even, low_score_bias);
+		InputModelUnpaired b_model(b_templates.list(), b_templates.size(), fraction_even, low_score_bias);
+		InputModelPaired c_model(c_templates.list(), c_templates.size(), fraction_even, low_score_bias);
+		InputModelPaired d_model(d_templates.list(), d_templates.size(), fraction_even, low_score_bias);
 		
 		FILEDEC(oread_u_fn, oread_u_fh, oread_u_buf, "FASTQ", true);
 		FILEDEC(oread1_b_fn, oread1_b_fh, oread1_b_buf, "FASTQ", true);
