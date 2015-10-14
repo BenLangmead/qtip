@@ -9,6 +9,12 @@ from sklearn import cross_validation
 __author__ = 'langmead'
 
 
+def _np_deduping_indexes(m):
+    b = np.ascontiguousarray(m).view(np.dtype((np.void, m.dtype.itemsize * m.shape[1])))
+    _, idx, inv = np.unique(b, return_index=True, return_inverse=True)
+    return idx, inv
+
+
 class MapqFit:
     """ Encapsulates an object that fits models and makes predictions """
 
@@ -129,7 +135,7 @@ class MapqFit:
             # fit training data with the model
             self.trained_models[ds].fit(x_train, y_train)
 
-    def predict(self, dfs, keep_data=False, keep_per_category=False, log=logging):
+    def predict(self, dfs, keep_data=False, keep_per_category=False, log=logging, dedup=False):
 
         pred_overall = MapqPredictions()
         pred_per_category = {}
@@ -145,7 +151,13 @@ class MapqFit:
                 log.info('  Getting ready to make predictions for %s chunk %d, %d rows' % (ds_long, nchunk, test_chunk.shape[0]))
                 x_test, ids, mapq_orig_test, y_test, col_names = self._df_to_mat(test_chunk, ds, False, log=log)
                 log.info('  Making predictions')
-                pcor = self.trained_models[ds].predict(x_test)  # make predictions
+                if dedup:
+                    idxs, invs = _np_deduping_indexes(x_test)
+                    log.info('    Collapsed %d rows to %d distinct rows (%0.2f%%)' %
+                             (len(invs), len(idxs), 100.0 * len(idxs) / len(invs)))
+                    pcor = self.trained_models[ds].predict(x_test[idxs])[invs]  # make predictions
+                else:
+                    pcor = self.trained_models[ds].predict(x_test)  # make predictions
                 pcor = np.array(self.postprocess_predictions(pcor, ds_long))
                 data = x_test.tolist() if keep_data else None
                 for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:

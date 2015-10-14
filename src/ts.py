@@ -425,32 +425,15 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     # 5. Predict
     # ##################################################
 
-    # Types of output files:
-    # - input predictions, in input order, in csv files
-    # - out-of-bag scores
-    # - feature importances
-    # - model parameters
-
-    # When correctness info is available:
-    # - ROC table (many plots can be derived from this)
-    # - info about the highest-MAPQ incorrect alignments
-    # - summary measures?
-
-    # When --predict-for-training is specified:
-    # - all of the above but for training (tandem) rather than input data
-
-    # When --subsampling-series is specified
-    # - all of the above but for several sampling fractions
-    # - toplevel table summarizing performance
-
     tim.start_timer('Make MAPQ predictions')
     predictions_fn, purge_predictions = _get_predictions_fn()
     logging.info('Making MAPQ predictions')
     logging.info('  instantiating feature table readers')
-    tab_ts, tab_tr = FeatureTableReader(pass1_prefix), FeatureTableReader(pass2_prefix)
+    tab_ts, tab_tr = FeatureTableReader(pass1_prefix, chunksize=args['max_rows']),\
+                     FeatureTableReader(pass2_prefix, chunksize=args['max_rows'])
 
     def _do_predict(fit, tab, subdir, is_input):
-        pred = fit.predict(tab)
+        pred = fit.predict(tab, dedup=not args['no_collapse'])
         if args['vanilla_output'] is None and pred.has_correctness():
             mkdir_quiet(join(*subdir))
             assert pred.ordered_by == 'pcor', pred.ordered_by
@@ -631,10 +614,14 @@ def add_args(parser):
                         help='Tolerance when searching for best model parameters')
     parser.add_argument('--predict-for-training', action='store_const', const=True, default=False,
                         help='Make predictions (and associated plots/output files) for training (tandem) data')
+    parser.add_argument('--no-collapse', action='store_const', const=True, default=False,
+                        help='Don\'t remove redundant rows just before prediction')
     parser.add_argument('--subsampling-series', metavar='floats', type=str, default='1.0',
                         help='Comma separated list of subsampling fractions to try')
     parser.add_argument('--trials', metavar='int', type=int, default=1,
                         help='Number of times to repeat fiting/prediction')
+    parser.add_argument('--max-rows', metavar='int', type=int, default=500000,
+                        help='Maximum number of rows (alignments) to feed at once to the prediction function')
 
     # Output file-related arguments
     parser.add_argument('--temp-directory', metavar='path', type=str, required=False,
