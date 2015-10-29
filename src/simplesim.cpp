@@ -198,7 +198,7 @@ void StreamingSimulator::simulate_batch(
 			continue;
 		}
 		const size_t nchances = retsz - olap_ + 1;
-		const float binom_p = ((float)nchances) * 1.1f / tot_fasta_len_;
+		const float binom_p = min(((float)nchances) * 1.1f / tot_fasta_len_, 0.999f);
 		memset(hist, 0, sizeof(int) * 256);
 		for(size_t i = 0; i < retsz; i++) {
 			hist[(int)buf[i]]++;
