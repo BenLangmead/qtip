@@ -21,7 +21,7 @@ using namespace std;
  */
 
 bool write_orig_mapq = false;
-const char *orig_mapq_flag = "Zm:Z";
+const char *orig_mapq_flag = "Zm:i";
 
 bool write_precise_mapq = false;
 const char *precise_mapq_flag = "Zp:Z";
