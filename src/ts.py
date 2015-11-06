@@ -166,6 +166,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         if args['snap_exe'] is not None:
             align_cmd = args['snap_exe'] + ' '
         aligner_class = SnapAligner
+        aligner_args.extend(['-='])
     elif args['aligner'] is not None:
         raise RuntimeError('Aligner not supported: "%s"' % args['aligner'])
 
@@ -622,6 +623,8 @@ def add_args(parser):
                         help='Number of times to repeat fiting/prediction')
     parser.add_argument('--max-rows', metavar='int', type=int, default=500000,
                         help='Maximum number of rows (alignments) to feed at once to the prediction function')
+    parser.add_argument('--profile-prediction', action='store_const', const=True, default=False,
+                        help='Run a profiler for the duration of the prediction portion')
 
     # Output file-related arguments
     parser.add_argument('--temp-directory', metavar='path', type=str, required=False,
