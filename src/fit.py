@@ -37,6 +37,8 @@ class MapqFit:
             for lab in to_remove:
                 labs.remove(lab)
             self.training_labs[shortname] = labs
+            if len(labs) == 0:
+                raise RuntimeError('Error: all training records were identical')
         else:
             assert shortname in self.training_labs, (shortname, str(self.training_labs.keys()))
             labs = self.training_labs[shortname]
@@ -81,6 +83,7 @@ class MapqFit:
         scores = []
 
         def _oob_score(pred_):
+            assert x_train.shape[0] == y_train.shape[0]
             pred_.fit(x_train, y_train)
             return pred_.oob_score_
 
@@ -118,18 +121,24 @@ class MapqFit:
             if train.shape[0] == 0:
                 continue  # empty
             if train['correct'].nunique() == 1:
-                raise RuntimeError('Error: All training data has correct=%d' % (train['correct'][0]))
-            log.info('Getting ready to fit %d %s training data records' % (train.shape[0], ds_long))
+                logging.warning('Warning: All training data has correct=%d.  This might mean '
+                                'the qsim software is making a mistake.  It could also '
+                                'mean that, because of your data and reference genome, the aligner '
+                                'can correctly resolve point of origin for all reads.  Treat '
+                                'results circumspectly.' % train['correct'][0])
             # extract features, convert to matrix
             x_train, _, mapq_orig_train, y_train, self.col_names[ds] = self._df_to_mat(train, ds, True, log=log)
+            assert x_train.shape[0] == y_train.shape[0]
+            assert x_train.shape[1] > 0
             # optionally subsample
             if frac < 1.0:
-                log.info('  Sampling %0.2f%% of %d rows of %s training data' % (100.0 * frac, train.shape[0], ds_long))
+                log.info('  Sampling %0.2f%% of %d rows of %s records' % (100.0 * frac, train.shape[0], ds_long))
                 x_train, mapq_orig_train, y_train = \
                     self._subsample(x_train, mapq_orig_train, y_train, frac)
                 log.info('  Now has %d rows' % x_train.shape[0])
             # use cross-validation to pick a model
-            log.info('  Fitting')
+            log.info('Fitting %d %s training records; %d features each' % (x_train.shape[0], ds_long, x_train.shape[1]))
+            assert x_train.shape[0] == y_train.shape[0]
             self.trained_models[ds], self.trained_params[ds], self.crossval_avg[ds] = \
                 self._crossval_fit(self.model_gen, x_train, y_train, ds)
             # fit training data with the model
