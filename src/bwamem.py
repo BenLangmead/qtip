@@ -85,7 +85,7 @@ class BwaMem(Aligner):
         if pairs_only:
             options.append('-p')
         # Put all the arguments together
-        input_args.extend(aligner_args)
+        options.extend(aligner_args)
         cmd += ' '
         cmd += ' '.join(options + [index] + input_args + output_args)
         logging.info('bwa mem command: ' + cmd)
