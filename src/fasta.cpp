@@ -13,6 +13,28 @@
 using namespace std;
 
 /**
+ * Mapping from ASCII characters for ambiguous nucleotides into masks:
+ */
+int dna_upper[] = {
+	/*   0 */ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+	/*  16 */ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+	/*  32 */ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+	/*  48 */ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+	/*  64 */ 'N', 'A', 'N', 'C', 'N', 'N', 'N', 'G', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+	/*  80 */ 'N', 'N', 'N', 'N', 'T', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+	/*  96 */ 'N', 'A', 'N', 'C', 'N', 'N', 'N', 'G', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+	/* 112 */ 'N', 'N', 'N', 'N', 'T', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+	/* 128 */ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+	/* 144 */ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+	/* 160 */ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+	/* 176 */ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+	/* 192 */ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+	/* 208 */ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+	/* 224 */ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
+	/* 240 */ 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N'
+};
+
+/**
  * Returns pointer to sequence.  Return value can be NULL.  If
  * done() is also true, then we're done.  Otherwise, caller can
  * call again.
@@ -49,7 +71,7 @@ const char *FastaChunkwiseParser::next(
 	
 	bool first = true;
 	while(true) {
-		assert(fh_ != NULL);
+		//assert(fh_ != NULL);
 		int c = get(fh_);
 		if(c == EOF) {
 			if(!first) {
@@ -78,19 +100,19 @@ const char *FastaChunkwiseParser::next(
 			refoff_ = 0;
 			refid.clear();
 			refid_full.clear();
-			c = fgetc(fh_);
+			c = getc_unlocked(fh_);
 			while(!isspace(c)) {
 				refid.push_back(c);
 				refid_full.push_back(c);
-				c = fgetc(fh_);
+				c = getc_unlocked(fh_);
 			}
 			while(c != '\n' && c != '\r') {
 				refid_full.push_back(c);
-				c = fgetc(fh_);
+				c = getc_unlocked(fh_);
 			}
 		} else if(!isspace(c)) {
 			first = false;
-			*buf++ = toupper(c);
+			*buf++ = (char)dna_upper[c];
 			refoff_++;
 			foff_++;
 			if(buf - buf_ == chunksz_) {

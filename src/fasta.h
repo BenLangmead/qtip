@@ -86,7 +86,7 @@ protected:
 			pushback_ = std::numeric_limits<int>::min();
 			return ret;
 		}
-		return fgetc(fh);
+		return getc_unlocked(fh);
 	}
 	
 	const static size_t FASTA_BUFSZ = 65536;
