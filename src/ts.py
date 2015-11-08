@@ -434,7 +434,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                      FeatureTableReader(pass2_prefix, chunksize=args['max_rows'])
 
     def _do_predict(fit, tab, subdir, is_input):
-        pred = fit.predict(tab, dedup=not args['no_collapse'])
+        pred = fit.predict(tab, dedup=not args['no_collapse'], training=not is_input)
         if args['vanilla_output'] is None and pred.has_correctness():
             mkdir_quiet(join(*subdir))
             assert pred.ordered_by == 'pcor', pred.ordered_by

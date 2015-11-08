@@ -144,7 +144,7 @@ class MapqFit:
             # fit training data with the model
             self.trained_models[ds].fit(x_train, y_train)
 
-    def predict(self, dfs, keep_data=False, keep_per_category=False, log=logging, dedup=False):
+    def predict(self, dfs, keep_data=False, keep_per_category=False, log=logging, dedup=False, training=False):
 
         pred_overall = MapqPredictions()
         pred_per_category = {}
@@ -157,7 +157,8 @@ class MapqFit:
             nchunk = 0
             for test_chunk in dfs.dataset_iter(ds):
                 nchunk += 1
-                log.info('  Getting ready to make predictions for %s chunk %d, %d rows' % (ds_long, nchunk, test_chunk.shape[0]))
+                log.info('  Getting ready to make predictions for %s %s chunk %d, %d rows' %
+                         ('training' if training else 'test', ds_long, nchunk, test_chunk.shape[0]))
                 x_test, ids, mapq_orig_test, y_test, col_names = self._df_to_mat(test_chunk, ds, False, log=log)
                 log.info('  Making predictions')
                 if dedup:
@@ -172,11 +173,13 @@ class MapqFit:
                 for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
                     prd.add_pcors(pcor, ids, mapq_orig_test, ds, data=data, correct=y_test)
 
-        log.info('Finalizing results for overall test data (%d alignments)' % len(pred_overall.pcor))
+        log.info('Finalizing results for overall %s data (%d alignments)' %
+                 ('training' if training else 'test', len(pred_overall.pcor)))
         pred_overall.finalize()
         if len(pred_per_category) > 1:
             for ds, pred in pred_per_category.iteritems():
-                log.info('Finalizing results for "%s" test data (%d alignments)' % (ds, len(pred.pcor)))
+                log.info('Finalizing results for "%s" %s data (%d alignments)' %
+                         (ds, 'training' if training else 'test', len(pred.pcor)))
                 pred.finalize()
         log.info('Done')
 
