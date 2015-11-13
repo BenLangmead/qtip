@@ -1,7 +1,9 @@
 import numpy as np
 import pandas
+import os
 import logging
-from collections import Counter
+from itertools import repeat
+from mapq import pcor_to_mapq, mapq_to_pcor
 from metrics import mseor, ranking_error, auc, roc_table
 
 __author__ = 'langmead'
@@ -12,21 +14,25 @@ class MapqPredictions:
         associated correctness information, in which case this class also
         encapsulates performance results. """
 
-    def __init__(self):
-        # all these lists are parallel
-        self.pcor = np.array([])  # predicted pcors
-        self.ids = np.array([])  # line ids for original alignment records
-        self.mapq_orig = np.array([])  # original mapping qualities
-        self.category = []  # categories of alignments
-        self.data = None  # data that gave rise to predictions
-        self.correct = None  # whether or not alignment is correct
-        self.pcor_hist = None
-        self.ordered_by = "?"
-        self.mapq = None
-        self.correct_end, self.correct_run = 0, 0
+    def __init__(self, temp_man, name, calc_summaries=True, prediction_mem_limit=10000000):
+        self.temp_man = temp_man
+        self.temp_group_name = 'MAPQ predictions %s' % name
+        self.pred_fn = temp_man.get_file('predictions_' + name, group=self.temp_group_name)
+        self.pred_fh = open(self.pred_fn, 'wb')
+        self.pcor = []
+        self.mapq = []
+        self.category = []
         self.pcor_orig = None
-        self.mapq_avg, self.mapq_orig_avg = 0., 0.
-        self.mapq_std, self.mapq_orig_std = 0., 0.
+        self.mapq_orig = None
+        self.correct = None
+        self.predictions_loaded = False
+
+        self.ordered_by = "?"
+        self.calc_summaries = calc_summaries
+        self.prediction_mem_limit = prediction_mem_limit
+        self.npredictions = 0
+        self.correct_end, self.correct_run = 0, 0
+        self.has_correct = None
         self.rank_err_orig = None
         self.rank_err = None
         self.rank_err_round = None
@@ -53,25 +59,62 @@ class MapqPredictions:
         self.mse = None
         self.mse_round = None
 
-    def add_pcors(self, pcor, ids, mapq_orig, category, data=None, correct=None):
+    def add(self, pcor, ids, category, mapq_orig=None, data=None, correct=None):
         """ Add a new batch of predictions """
-        self.pcor = np.append(self.pcor, pcor)
-        self.ids = np.append(self.ids, ids)
-        self.mapq_orig = np.append(self.mapq_orig, mapq_orig)
-        self.category.extend([category] * len(pcor))
-        if data is not None:
-            if self.data is None:
-                self.data = []
-            self.data.extend(data)
-        if correct is not None:
-            if self.correct is None:
-                self.correct = correct
-            else:
-                self.correct = np.append(self.correct, correct)
+        mapq_orig_iter = iter(mapq_orig) if mapq_orig is not None else repeat([None])
+        data_iter = iter(data) if data is not None else repeat([None])
+        correct_iter = iter(correct) if correct is not None else repeat([None])
+        self.has_correct = correct is not None
+        for rec in zip(pcor, ids, category, mapq_orig_iter, data_iter, correct_iter):
+            self.pred_fh.write(','.join(map(str, rec)) + '\n')
+            self.npredictions += 1
 
-    def has_correctness(self):
-        """ Return true iff we have correctness values for the alignments """
-        return self.correct is not None
+    def _reset_mem_predictions(self):
+        """ Erase in-memory copies of predictions """
+        self.pcor = []
+        self.mapq = []
+        self.category = []
+        self.pcor_orig = None
+        self.mapq_orig = None
+        self.correct = None
+
+    def _load_predictions(self):
+        """ Load all the predictions added with the 'add' member function into
+            the appropriate fields of this object.  This should be called only
+            with a reasonable number of predictions. """
+        if self.npredictions > self.prediction_mem_limit:
+            raise RuntimeError('Request to load %d predictions into memory exceeds limit (%d)' %
+                               (self.npredictions, self.prediction_mem_limit))
+        self._reset_mem_predictions()
+        with open(self.pred_fn, 'rb') as ifh:
+            for rec_ln in ifh:
+                pc, _, ct, mq_orig, data, correct = rec_ln.rstrip().split(',')
+                mq_orig = int(mq_orig)
+                correct = int(correct)
+                pc = float(pc)
+                self.pcor.append(pc)
+                self.mapq.append(pcor_to_mapq(pc))
+                self.category.append(ct)
+                if mq_orig != 'None':
+                    if self.mapq_orig is None:
+                        self.mapq_orig = []
+                    mq_orig = int(mq_orig)
+                    self.mapq_orig.append(mq_orig)
+                    self.pcor_orig.append(mapq_to_pcor(mq_orig))
+                if data != 'None':
+                    if self.data is None:
+                        self.data = []
+                    self.data.append(data)
+                if correct != 'None':
+                    if self.correct is None:
+                        self.correct = []
+                    self.correct.append(correct)
+        self.predictions_loaded = True
+
+    def can_assess(self):
+        """ Return true iff we have the data and the flags needed to do an
+            accuracy assessment. """
+        return self.calc_summaries and self.correct is not None and max(self.correct) > -1
 
     def incorrect_indexes(self):
         """ Return indexes of in correct alignments in order
@@ -80,13 +123,8 @@ class MapqPredictions:
         assert self.ordered_by == "pcor"
         return [x for x in range(len(self.correct)-1, -1, -1) if not self.correct[x]]
 
-    def top_incorrect(self, n=50):
-        """ Get incorrect alignments with highest predicted MAPQ """
-        assert self.data is not None
-        assert self.ordered_by == "pcor"
-        return [self.data[x] for x in self.incorrect_indexes()[:n]]
-
     def summarize_incorrect(self, n=50):
+        """ Return a DataFrame summarizing information about """
         assert self.correct is not None
         assert self.ordered_by == "pcor"
         incor_idx = self.incorrect_indexes()[:n]
@@ -124,21 +162,22 @@ class MapqPredictions:
     def write_top_incorrect(self, fn, n=50):
         """ Write a ROC table with # correct/# incorrect stratified by
             predicted MAPQ. """
-        assert self.correct is not None
-        assert self.ordered_by == "pcor", self.ordered_by
         self.summarize_incorrect(n=n).to_csv(fn, sep=',', index=False)
 
     def write_predictions(self, fn):
-        """
-        Write all predictions, in order by the line number of the original
-        alignment in the input SAM, to the provided filename.
-        """
-        assert self.ordered_by == "id"
-        with open(fn, 'w') as fh:
-            for i in range(len(self.mapq)):
-                fh.write('%d,%0.3f\n' % (self.ids[i], self.mapq[i]))
+        """ Write all predictions, in order by the line number of the original
+            alignment in the input SAM, to the provided filename. """
+        assert os.path.exists(self.pred_fn)
+        with open(self.pred_fn, 'rb') as ifh:
+            with open(fn, 'w') as ofh:
+                for rec_ln in ifh:
+                    pcor, ident, _, _, _, _ = rec_ln.rstrip().split(',')
+                    ofh.write('%s,%0.3f\n' % (ident, pcor_to_mapq(float(pcor))))
 
     def _reorder_by(self, ls):
+        """ Reordering helper function """
+        if not self.predictions_loaded:
+            raise RuntimeError('_reorder_by called without predictions loaded into memory')
         ordr = np.argsort(ls)
         self.pcor = self.pcor[ordr]
         self.mapq = self.mapq[ordr]
@@ -150,25 +189,36 @@ class MapqPredictions:
             self.correct = [self.correct[x] for x in ordr]
 
     def order_by_ids(self, log=logging):
+        """ Reorder in-memory predictions by id of the alignment (low to high) """
+        if not self.predictions_loaded:
+            raise RuntimeError('order_by_ids called without predictions loaded into memory')
         log.info('  Reordering by read id')
         self._reorder_by(self.ids)
         self.ordered_by = "id"
 
     def order_by_pcor(self, log=logging):
+        """ Reorder in-memory predictions by pcor (high to low) """
+        if not self.predictions_loaded:
+            raise RuntimeError('order_by_pcor called without predictions loaded into memory')
         log.info('  Reordering by pcor')
         self._reorder_by(self.pcor)
         self.ordered_by = "pcor"
 
-    def finalize(self, log=logging):
-        self.pcor_hist = Counter(self.pcor)
-        self.mapq = np.abs(-10.0 * np.log10(1.0 - self.pcor))
-        self.pcor_orig = 1.0 - 10.0 ** (-0.1 * self.mapq_orig)
+    def purge_temporaries(self):
+        self.temp_man.remove_group(self.temp_group_name)
 
+    def finalize(self, log=logging):
         # calculate error measures and other measures
-        if max(self.correct) > -1:
-            log.info('  Correctness information is present; compiling error measures')
+        if self.can_assess():
+
+            log.info('  Correctness information is present; loading predictions into memory')
+            self._load_predictions()
+
+            log.info('  Reordering')
             self.order_by_pcor(log=log)
             correct = self.correct
+
+            log.info('  Compiling performance measures')
 
             # calculate # of highest pcors and max # pcors in a row that
             # correspond to correct alignments
@@ -227,10 +277,3 @@ class MapqPredictions:
             self.mse = self.mse_raw / self.mse_orig
             self.mse_round = mseor(self.pcor, correct, rounded=True) / self.mse_orig
             log.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.mse_diff_pct, self.mse_diff_round_pct))
-
-        else:
-            self.correct = None
-
-        log.info('  Calculating MAPQ summaries')
-        self.mapq_avg, self.mapq_orig_avg = float(np.mean(self.mapq)), float(np.mean(self.mapq_orig))
-        self.mapq_std, self.mapq_orig_std = float(np.std(self.mapq)), float(np.std(self.mapq_orig))

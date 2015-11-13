@@ -144,16 +144,22 @@ class MapqFit:
             # fit training data with the model
             self.trained_models[ds].fit(x_train, y_train)
 
-    def predict(self, dfs, keep_data=False, keep_per_category=False, log=logging, dedup=False, training=False):
+    def predict(self, dfs, temp_man,
+                keep_data=False, keep_per_category=False, log=logging,
+                dedup=False, training=False, calc_summaries=False, prediction_mem_limit=10000000):
 
-        pred_overall = MapqPredictions()
+        name = '_'.join(['overall', 'training' if training else 'test'])
+        pred_overall = MapqPredictions(temp_man, name, calc_summaries=calc_summaries,
+                                       prediction_mem_limit=prediction_mem_limit)
         pred_per_category = {}
 
         for ds, ds_long, paired in self.datasets:
             if ds not in dfs:
                 continue
             if keep_per_category:
-                pred_per_category[ds] = MapqPredictions()
+                name = '_'.join([ds_long, 'training' if training else 'test'])
+                pred_per_category[ds] = MapqPredictions(temp_man, name, calc_summaries=calc_summaries,
+                                                        prediction_mem_limit=prediction_mem_limit)
             nchunk = 0
             for test_chunk in dfs.dataset_iter(ds):
                 nchunk += 1
@@ -171,7 +177,7 @@ class MapqFit:
                 pcor = np.array(self.postprocess_predictions(pcor, ds_long))
                 data = x_test.tolist() if keep_data else None
                 for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
-                    prd.add_pcors(pcor, ids, mapq_orig_test, ds, data=data, correct=y_test)
+                    prd.add(pcor, ids, ds, mapq_orig=mapq_orig_test, data=data, correct=y_test)
 
         log.info('Finalizing results for overall %s data (%d alignments)' %
                  ('training' if training else 'test', len(pred_overall.pcor)))

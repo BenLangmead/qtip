@@ -1,4 +1,4 @@
-BT2_EG=$(BT2_HOME)/example
+BT2_EG=$(TS_HOME)/software/bowtie2/bowtie2-git/example
 MASON=$(TS_HOME)/software/mason/mason
 MASON_CONVERT=python $(TS_HOME)/bin/mason_convert.py
 LAMBDA=$(BT2_EG)/reference/lambda_virus.fa
@@ -19,10 +19,11 @@ final_full_e2e.sam: .r_1.fastq .r_2.fastq
 		--index $(LAMBDA_IDX) \
 		--seed 34 \
 		--aligner bowtie2 \
-		--bt2-exe $(BT2_HOME)/bowtie2 \
+		--bt2-exe $(TS_HOME)/software/bowtie2/bowtie2 \
 		--vanilla-out $@ \
 		--write-orig-mapq \
-		--write-precise-mapq
+		--write-precise-mapq \
+		--assess-accuracy
 
 full_e2e/final.sam: .r_1.fastq .r_2.fastq
 	python ../ts.py \
@@ -32,11 +33,12 @@ full_e2e/final.sam: .r_1.fastq .r_2.fastq
 		--index $(LAMBDA_IDX) \
 		--seed 34 \
 		--aligner bowtie2 \
-		--bt2-exe $(BT2_HOME)/bowtie2 \
+		--bt2-exe $(TS_HOME)/software/bowtie2/bowtie2 \
 		--output-directory full_e2e \
 		--keep-intermediates \
 		--write-orig-mapq \
-		--write-precise-mapq
+		--write-precise-mapq \
+		--assess-accuracy
 
 extra_e2e/final.sam: .r_1.fastq .r_2.fastq
 	python ../ts.py \
@@ -46,14 +48,15 @@ extra_e2e/final.sam: .r_1.fastq .r_2.fastq
 		--index $(LAMBDA_IDX) \
 		--seed 34 \
 		--aligner bowtie2 \
-		--bt2-exe $(BT2_HOME)/bowtie2 \
+		--bt2-exe $(TS_HOME)/software/bowtie2/bowtie2 \
 		--output-directory extra_e2e \
 		--keep-intermediates \
 		--predict-for-training \
 		--subsampling-series 0.1,0.5,1.0 \
 		--trials 2 \
 		--write-orig-mapq \
-		--write-precise-mapq
+		--write-precise-mapq \
+		--assess-accuracy
 
 .r_1.fastq: .rtmp_1.fastq
 	$(MASON_CONVERT) --in1 $< --in2 $(<:_1.fastq=_2.fastq) --out1 $@ --out2 $(@:_1.fastq=_2.fastq)

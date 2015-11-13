@@ -430,12 +430,13 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     predictions_fn, purge_predictions = _get_predictions_fn()
     logging.info('Making MAPQ predictions')
     logging.info('  instantiating feature table readers')
-    tab_ts, tab_tr = FeatureTableReader(pass1_prefix, chunksize=args['max_rows']),\
+    tab_ts, tab_tr = FeatureTableReader(pass1_prefix, chunksize=args['max_rows']), \
                      FeatureTableReader(pass2_prefix, chunksize=args['max_rows'])
 
     def _do_predict(fit, tab, subdir, is_input):
-        pred = fit.predict(tab, dedup=not args['no_collapse'], training=not is_input)
-        if args['vanilla_output'] is None and pred.has_correctness():
+        pred = fit.predict(tab, temp_man, dedup=not args['no_collapse'], training=not is_input,
+                           calc_summaries=args['assess_accuracy'], prediction_mem_limit=args['assess_limit'])
+        if args['vanilla_output'] is None and pred.can_assess():
             mkdir_quiet(join(*subdir))
             assert pred.ordered_by == 'pcor', pred.ordered_by
             pred.write_rocs(join(*(subdir + ['roc.csv'])), join(*(subdir + ['roc_orig.csv'])))
@@ -445,8 +446,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             assert pred.ordered_by == 'id', pred.ordered_by
             pred.write_predictions(join(*(subdir + ['predictions.csv'])))
         if is_input:
-            pred.order_by_ids()
             pred.write_predictions(predictions_fn)
+        pred.purge_temporaries()  # purge temporary files generated during prediction
         return pred
 
     def _do_fit(_tab_tr, fam, fraction, subdir):
@@ -463,12 +464,10 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         subdir_ts = subdir + ['test'] if args['predict_for_training'] else subdir
         fit = _do_fit(tab_tr, fam, fraction, subdir)
         logging.info('  making predictions for input alignments')
-        pred_ts = _do_predict(fit, tab_ts, subdir_ts, True)
-        pred_tr = None
+        _do_predict(fit, tab_ts, subdir_ts, True)
         if args['predict_for_training']:
             logging.info('  making predictions for tandem (training) alignments')
-            pred_tr = _do_predict(fit, tab_tr, subdir + ['training'], False)
-        return fit, pred_ts, pred_tr
+            _do_predict(fit, tab_tr, subdir + ['training'], False)
 
     def _all_fits_and_predictions():
         fractions = map(float, args['subsampling_series'].split(','))
@@ -625,6 +624,13 @@ def add_args(parser):
                         help='Maximum number of rows (alignments) to feed at once to the prediction function')
     parser.add_argument('--profile-prediction', action='store_const', const=True, default=False,
                         help='Run a profiler for the duration of the prediction portion')
+
+    # Assessment of prediction accuracy
+    parser.add_argument('--assess-accuracy', action='store_const', const=True, default=False,
+                        help='When correctness can be inferred from simulated read names, '
+                             'assess accuracy of old and new MAPQ predictions')
+    parser.add_argument('--assess-limit', metavar='int', type=int, default=100000000,
+                        help='The maximum number of alignments to assess when assessing accuracy')
 
     # Output file-related arguments
     parser.add_argument('--temp-directory', metavar='path', type=str, required=False,
