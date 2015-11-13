@@ -153,7 +153,7 @@ class MapqFit:
                                        prediction_mem_limit=prediction_mem_limit)
         pred_per_category = {}
 
-        for ds, ds_long, paired in self.datasets:
+        for ds, ds_long, paired in self.datasets:  # outer loop over ailgnment types
             if ds not in dfs:
                 continue
             if keep_per_category:
@@ -161,7 +161,7 @@ class MapqFit:
                 pred_per_category[ds] = MapqPredictions(temp_man, name, calc_summaries=calc_summaries,
                                                         prediction_mem_limit=prediction_mem_limit)
             nchunk = 0
-            for test_chunk in dfs.dataset_iter(ds):
+            for test_chunk in dfs.dataset_iter(ds):  # inner loop over chunks of rows
                 nchunk += 1
                 log.info('  Getting ready to make predictions for %s %s chunk %d, %d rows' %
                          ('training' if training else 'test', ds_long, nchunk, test_chunk.shape[0]))

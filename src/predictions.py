@@ -1,6 +1,5 @@
 import numpy as np
 import pandas
-import os
 import logging
 from itertools import repeat
 from mapq import pcor_to_mapq, mapq_to_pcor
@@ -17,8 +16,14 @@ class MapqPredictions:
     def __init__(self, temp_man, name, calc_summaries=True, prediction_mem_limit=10000000):
         self.temp_man = temp_man
         self.temp_group_name = 'MAPQ predictions %s' % name
-        self.pred_fn = temp_man.get_file('predictions_' + name, group=self.temp_group_name)
-        self.pred_fh = open(self.pred_fn, 'wb')
+
+        self.pred_fns = []
+        self.pred_fn_prefix = 'predictions_' + name
+        self.temp_next_fn = '_'.join([self.pred_fn_prefix, str(len(self.pred_fns))])
+        self.pred_fns.append(temp_man.get_file(self.temp_next_fn, group=self.temp_group_name))
+        self.pred_fh = open(self.pred_fns[-1], 'wb')
+        self.last_id = None
+
         self.pcor = []
         self.mapq = []
         self.category = []
@@ -60,12 +65,18 @@ class MapqPredictions:
         self.mse_round = None
 
     def add(self, pcor, ids, category, mapq_orig=None, data=None, correct=None):
-        """ Add a new batch of predictions """
+        """ Add a new batch of predictions. """
         mapq_orig_iter = iter(mapq_orig) if mapq_orig is not None else repeat([None])
         data_iter = iter(data) if data is not None else repeat([None])
         correct_iter = iter(correct) if correct is not None else repeat([None])
         self.has_correct = correct is not None
-        for rec in zip(pcor, ids, category, mapq_orig_iter, data_iter, correct_iter):
+        if self.last_id is not None and ids[0] < self.last_id:
+            self.pred_fh.close()
+            self.temp_next_fn = '_'.join([self.pred_fn_prefix, str(len(self.pred_fns))])
+            self.pred_fns.append(self.temp_man.get_file(self.temp_next_fn, group=self.temp_group_name))
+            self.pred_fh = open(self.pred_fns[-1], 'wb')
+        for rec in zip(pcor, ids, repeat([category]), mapq_orig_iter, data_iter, correct_iter):
+            self.last_id = int(rec[1])
             self.pred_fh.write(','.join(map(str, rec)) + '\n')
             self.npredictions += 1
 
@@ -86,29 +97,30 @@ class MapqPredictions:
             raise RuntimeError('Request to load %d predictions into memory exceeds limit (%d)' %
                                (self.npredictions, self.prediction_mem_limit))
         self._reset_mem_predictions()
-        with open(self.pred_fn, 'rb') as ifh:
-            for rec_ln in ifh:
-                pc, _, ct, mq_orig, data, correct = rec_ln.rstrip().split(',')
-                mq_orig = int(mq_orig)
-                correct = int(correct)
-                pc = float(pc)
-                self.pcor.append(pc)
-                self.mapq.append(pcor_to_mapq(pc))
-                self.category.append(ct)
-                if mq_orig != 'None':
-                    if self.mapq_orig is None:
-                        self.mapq_orig = []
+        for pred_fn in self.pred_fns:
+            with open(pred_fn, 'rb') as ifh:
+                for rec_ln in ifh:
+                    pc, _, ct, mq_orig, data, correct = rec_ln.rstrip().split(',')
                     mq_orig = int(mq_orig)
-                    self.mapq_orig.append(mq_orig)
-                    self.pcor_orig.append(mapq_to_pcor(mq_orig))
-                if data != 'None':
-                    if self.data is None:
-                        self.data = []
-                    self.data.append(data)
-                if correct != 'None':
-                    if self.correct is None:
-                        self.correct = []
-                    self.correct.append(correct)
+                    correct = int(correct)
+                    pc = float(pc)
+                    self.pcor.append(pc)
+                    self.mapq.append(pcor_to_mapq(pc))
+                    self.category.append(ct)
+                    if mq_orig != 'None':
+                        if self.mapq_orig is None:
+                            self.mapq_orig = []
+                        mq_orig = int(mq_orig)
+                        self.mapq_orig.append(mq_orig)
+                        self.pcor_orig.append(mapq_to_pcor(mq_orig))
+                    if data != 'None':
+                        if self.data is None:
+                            self.data = []
+                        self.data.append(data)
+                    if correct != 'None':
+                        if self.correct is None:
+                            self.correct = []
+                        self.correct.append(correct)
         self.predictions_loaded = True
 
     def can_assess(self):
@@ -167,12 +179,42 @@ class MapqPredictions:
     def write_predictions(self, fn):
         """ Write all predictions, in order by the line number of the original
             alignment in the input SAM, to the provided filename. """
-        assert os.path.exists(self.pred_fn)
-        with open(self.pred_fn, 'rb') as ifh:
+        if len(self.pred_fns) == 1:
+            with open(self.pred_fns[0], 'rb') as ifh:  # no merge needed
+                with open(fn, 'w') as ofh:
+                    for rec_ln in ifh:
+                        pcor, ident, _, _, _, _ = rec_ln.rstrip().split(',')
+                        ofh.write('%s,%0.3f\n' % (ident, pcor_to_mapq(float(pcor))))
+        else:
+            # have to merge!  more complex
+            pred_fhs = map(lambda x: open(x, 'rb'), self.pred_fns)
+            recs = [None] * len(pred_fhs)
+            done = [False] * len(pred_fhs)
+            nmerged = 0
             with open(fn, 'w') as ofh:
-                for rec_ln in ifh:
-                    pcor, ident, _, _, _, _ = rec_ln.rstrip().split(',')
-                    ofh.write('%s,%0.3f\n' % (ident, pcor_to_mapq(float(pcor))))
+                while True:
+                    min_rec = (None, float('inf'))
+                    min_i = -1
+                    for i, pred_fh in enumerate(pred_fhs):
+                        if recs[i] is None and not done[i]:
+                            ln = pred_fh.readline()
+                            if len(ln) == 0:
+                                recs[i] = None
+                                done[i] = True
+                            else:
+                                pcor, ident, _, _, _, _ = ln.rstrip().split(',')
+                                recs[i] = (pcor, int(ident))
+                        if recs[i] is not None and recs[i][1] < min_rec[1]:
+                            min_rec, min_i = recs[i], i
+                    if min_i == -1:
+                        assert all(done)
+                        break
+                    nmerged += 1
+                    ofh.write('%d,%0.3f\n' % (min_rec[1], pcor_to_mapq(float(min_rec[0]))))
+                    recs[min_i] = None
+            assert nmerged == self.npredictions, (nmerged, self.npredictions)
+            for fh in pred_fhs:
+                fh.close()
 
     def _reorder_by(self, ls):
         """ Reordering helper function """
@@ -208,6 +250,12 @@ class MapqPredictions:
         self.temp_man.remove_group(self.temp_group_name)
 
     def finalize(self, log=logging):
+        """ Close prediction file handle.  If we have the information and flags
+            needed for accuracy assessment, then do that too. """
+
+        self.pred_fh.close()
+        log.info('  %d records written to %d files' % (self.npredictions, len(self.pred_fns)))
+
         # calculate error measures and other measures
         if self.can_assess():
 
