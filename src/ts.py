@@ -137,12 +137,14 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         mkdir_quiet(odir)
 
     # Set up logger
-    logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', datefmt='%m/%d/%y-%H:%M:%S',
-                        level=logging.DEBUG if args['verbose'] else logging.INFO)
+    format_str = '%(asctime)s:%(levelname)s:%(message)s'
+    level = logging.DEBUG if args['verbose'] else logging.INFO
+    logging.basicConfig(format=format_str, datefmt='%m/%d/%y-%H:%M:%S', level=level)
     if args['output_directory'] is not None:
         fn = join(odir, 'ts_logs.txt')
         fh = logging.FileHandler(fn)
         fh.setLevel(logging.DEBUG)
+        fh.setFormatter(logging.Formatter(format_str))
         logging.getLogger('').addHandler(fh)
 
     if args['U'] is not None and args['m1'] is not None:
@@ -444,8 +446,10 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             pred.write_summary_measures(join(*(subdir + ['summary.csv'])))
             pred.order_by_ids()
             assert pred.ordered_by == 'id', pred.ordered_by
+            logging.info('  writing predictions')
             pred.write_predictions(join(*(subdir + ['predictions.csv'])))
         if is_input:
+            logging.info('  writing predictions')
             pred.write_predictions(predictions_fn)
         pred.purge_temporaries()  # purge temporary files generated during prediction
         return pred
