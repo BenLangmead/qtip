@@ -139,6 +139,7 @@ class MapqFit:
             # use cross-validation to pick a model
             log.info('Fitting %d %s training records; %d features each' % (x_train.shape[0], ds_long, x_train.shape[1]))
             assert x_train.shape[0] == y_train.shape[0]
+            self.trained_shape[ds] = x_train.shape
             self.trained_models[ds], self.trained_params[ds], self.crossval_avg[ds] = \
                 self._crossval_fit(self.model_gen, x_train, y_train, ds)
             # fit training data with the model
@@ -236,6 +237,25 @@ class MapqFit:
             with open(prefix + '_' + ds + '.csv', 'w') as fh:
                 fh.write(str(params))
 
+    def write_training_data_amts(self, prefix):
+        """
+        Write the amount of training data that went into each model
+        """
+        with open(prefix + '.csv', 'w') as fh:
+            colnames = []
+            for ds, _, _, in self.datasets:
+                colnames.append(ds + '_training_rows')
+                colnames.append(ds + '_training_cols')
+            fh.write(','.join(colnames) + '\n')
+            data = []
+            for ds, ds_long, paired in self.datasets:
+                if ds in self.trained_shape:
+                    data.append(str(self.trained_shape[ds][0]))
+                    data.append(str(self.trained_shape[ds][1]))
+                else:
+                    data.extend(['0', '0'])
+            fh.write(','.join(data) + '\n')
+
     def __init__(self,
                  dfs,  # dictionary of data frames, one per alignment type
                  model_gen,  # function that takes vector of hyperparameters, returns new model object
@@ -247,5 +267,6 @@ class MapqFit:
         self.crossval_std = {}
         self.col_names = {}
         self.trained_params = {}
+        self.trained_shape = {}
         self.training_labs = {}
         self._fit(dfs, log=log, frac=sample_fraction)

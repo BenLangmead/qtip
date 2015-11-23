@@ -42,7 +42,7 @@ __email__ = "langmea@cs.jhu.edu"
 
 bin_dir = os.path.dirname(os.path.realpath(__file__))
 
-VERSION = '0.2.0'
+VERSION = '0.2.1'
 
 
 class Timing(object):
@@ -461,6 +461,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             fit.write_feature_importances(join(*(subdir + ['featimport'])))
             fit.write_out_of_bag_scores(join(*(subdir + ['oob_scores'])))
             fit.write_parameters(join(*(subdir + ['params'])))
+            fit.write_training_data_amts(join(*(subdir + ['training_data_amt'])))
         return fit
 
     def _fits_and_predictions(fraction, fam, subdir):
