@@ -75,11 +75,11 @@ class MapqFit:
             pcor_test = [max_noninf_pcor_test + 1e-6 if p >= 1.0 else p for p in pcor_test]
         return np.maximum(np.minimum(pcor_test, max_pcor), 0.)
 
-    @staticmethod
-    def _crossval_fit(mf_gen, x_train, y_train, dataset_shortname, use_oob=True, log=logging):
+    def _crossval_fit(self, mf_gen, x_train, y_train, dataset_shortname, use_oob=True, log=logging):
         """ Use cross validation to pick the best model from a
             collection of possible models (model_family) """
         mf = mf_gen()
+        self.model_fam_name = type(mf).__name__
         scores = []
 
         def _oob_score(pred_):
@@ -219,41 +219,29 @@ class MapqFit:
                     fh.write('%s,%0.4f,%d\n' % (self.col_names[ds][i], im, r))
                     i += 1
 
-    def write_out_of_bag_scores(self, prefix):
-        """
-        Write out of bag scores for each model to an appropriately-named file
-        with given prefix.
-        """
-        for ds, model in self.trained_models.iteritems():
-            with open(prefix + '_' + ds + '.csv', 'w') as fh:
-                fh.write('%0.5f\n' % model.oob_score_)
-
     def write_parameters(self, prefix):
         """
         Write out the hyperparameters for each model to an appropriately-named
         file with given prefix.
         """
-        for ds, params in self.trained_params.iteritems():
-            with open(prefix + '_' + ds + '.csv', 'w') as fh:
-                fh.write(str(params))
-
-    def write_training_data_amts(self, prefix):
-        """
-        Write the amount of training data that went into each model
-        """
         with open(prefix + '.csv', 'w') as fh:
-            colnames = []
+            colnames = ['model_type', 'subsampling_fraction']
             for ds, _, _, in self.datasets:
+                colnames.append(ds + '_model_params')
                 colnames.append(ds + '_training_rows')
                 colnames.append(ds + '_training_cols')
+                colnames.append(ds + '_oob_score')
             fh.write(','.join(colnames) + '\n')
-            data = []
+            data = [self.model_fam_name, str(self.sample_fraction)]
             for ds, ds_long, paired in self.datasets:
                 if ds in self.trained_shape:
+                    data.append(str(self.trained_params))
                     data.append(str(self.trained_shape[ds][0]))
                     data.append(str(self.trained_shape[ds][1]))
+                    assert ds in self.trained_models
+                    data.append(str(self.trained_models[ds].oob_score_))
                 else:
-                    data.extend(['0', '0'])
+                    data.extend(['NA', 'NA', '0', '0', '0'])
             fh.write(','.join(data) + '\n')
 
     def __init__(self,
@@ -269,4 +257,6 @@ class MapqFit:
         self.trained_params = {}
         self.trained_shape = {}
         self.training_labs = {}
+        self.model_fam_name = None
+        self.sample_fraction = sample_fraction
         self._fit(dfs, log=log, frac=sample_fraction)

@@ -25,3 +25,7 @@ def pcor_to_mapq(p):
 def mapq_to_pcor(p):
     """ Convert mapping quality (MAPQ) to probability correct (pcor) """
     return (1.0 - (10.0 ** (-0.1 * p))) if p < float('inf') else 1.0
+
+
+def round_pcor(p):
+    return mapq_to_pcor(round(pcor_to_mapq(p)))

@@ -2,8 +2,9 @@ import numpy as np
 import pandas
 import logging
 from itertools import repeat
-from mapq import pcor_to_mapq, mapq_to_pcor
-from metrics import mseor, ranking_error, auc, roc_table
+from mapq import pcor_to_mapq, mapq_to_pcor, round_pcor
+from collections import defaultdict
+from roc import Roc
 
 __author__ = 'langmead'
 
@@ -14,6 +15,7 @@ class MapqPredictions:
         encapsulates performance results. """
 
     def __init__(self, temp_man, name, calc_summaries=True, prediction_mem_limit=10000000):
+        self.name = name
         self.temp_man = temp_man
         self.temp_group_name = 'MAPQ predictions %s' % name
 
@@ -27,6 +29,12 @@ class MapqPredictions:
         self.pcor = []
         self.mapq = []
         self.category = []
+        self.tally = defaultdict(lambda: [0, 0])
+        self.tally_orig = defaultdict(lambda: [0, 0])
+        self.tally_rounded = defaultdict(lambda: [0, 0])
+        self.roc = None
+        self.roc_orig = None
+        self.roc_rounded = None
         self.pcor_orig = None
         self.mapq_orig = None
         self.correct = None
@@ -79,6 +87,10 @@ class MapqPredictions:
             self.last_id = int(rec[1])
             self.pred_fh.write(','.join(map(str, rec)) + '\n')
             self.npredictions += 1
+            if rec[5] is not None:
+                self.tally[pcor][0 if rec[5] else 1] += 1
+                self.tally_orig[pcor][0 if rec[3] else 1] += 1
+                self.tally_rounded[round_pcor(pcor)][0 if rec[5] else 1] += 1
 
     def _reset_mem_predictions(self):
         """ Erase in-memory copies of predictions """
@@ -154,8 +166,8 @@ class MapqPredictions:
         """ Write a ROC table with # correct/# incorrect stratified by
             predicted MAPQ. """
         assert self.correct is not None
-        roc_table(self.pcor, self.correct, rounded=True, mapqize=True).to_csv(fn, sep=',', index=False)
-        roc_table(self.pcor_orig, self.correct, rounded=True, mapqize=True).to_csv(fn_orig, sep=',', index=False)
+        self.roc.tab.to_csv(fn, sep=',', index=False)
+        self.roc_orig.tab.to_csv(fn_orig, sep=',', index=False)
 
     def write_summary_measures(self, fn):
         """ Write a ROC table with # correct/# incorrect stratified by
@@ -165,10 +177,15 @@ class MapqPredictions:
         auc_stats = [self.auc_diff_pct, self.auc_diff_round_pct]
         mse_stats = [self.mse_diff_pct, self.mse_diff_round_pct]
         with open(fn, 'w') as fh:
-            fh.write(','.join(['rank_err_diff_pct', 'rank_err_diff_pct_round', 'rank_err', 'rank_err_orig',
-                               'auc_diff_pct', 'auc_diff_pct_round',
-                               'mse_diff_pct', 'mse_diff_pct_round',
-                               'correct_run']) + '\n')
+            fh.write(','.join([self.name + '_rank_err_diff_pct',
+                               self.name + '_rank_err_diff_pct_round',
+                               self.name + '_rank_err',
+                               self.name + '_rank_err_orig',
+                               self.name + '_auc_diff_pct',
+                               self.name + '_auc_diff_pct_round',
+                               self.name + '_mse_diff_pct',
+                               self.name + '_mse_diff_pct_round',
+                               self.name + '_correct_run']) + '\n')
             fh.write(','.join(map(str, rank_err_stats + auc_stats + mse_stats + [self.correct_run])) + '\n')
 
     def write_top_incorrect(self, fn, n=50):
@@ -259,6 +276,10 @@ class MapqPredictions:
         # calculate error measures and other measures
         if self.can_assess():
 
+            self.roc = Roc(self.tally, mapq_strata=False)
+            self.roc_orig = Roc(self.tally_orig, mapq_strata=False)
+            self.roc_rounded = Roc(self.tally_rounded, mapq_strata=False)
+
             log.info('  Correctness information is present; loading predictions into memory')
             self._load_predictions()
 
@@ -282,9 +303,9 @@ class MapqPredictions:
             # ranking error; +1 is to avoid division-by-zero when a dataset
             # is perfectly ranked
             log.info('  Calculating rank error')
-            self.rank_err_orig = ranking_error(self.pcor_orig, correct) + 1
-            self.rank_err_raw = ranking_error(self.pcor, correct) + 1
-            self.rank_err_raw_round = ranking_error(self.pcor, correct, rounded=True) + 1
+            self.rank_err_orig = self.roc_orig.ranking_error()
+            self.rank_err_raw = self.roc.ranking_error() + 1
+            self.rank_err_raw_round = self.roc_rounded.ranking_error() + 1
             self.rank_err_diff = self.rank_err_raw - self.rank_err_orig
             self.rank_err_diff_pct = 100.0 * self.rank_err_diff / self.rank_err_orig
             self.rank_err_diff_round = self.rank_err_raw_round - self.rank_err_orig
@@ -295,9 +316,9 @@ class MapqPredictions:
                                                                self.rank_err_diff_round_pct))
 
             log.info('  Calculating AUC')
-            self.auc_orig = auc(self.pcor_orig, correct)
-            self.auc_raw = auc(self.pcor, correct)
-            self.auc_raw_round = auc(self.pcor, correct, rounded=True)
+            self.auc_orig = self.roc_orig.area_under_cumulative_incorrect()
+            self.auc_raw = self.roc.area_under_cumulative_incorrect()
+            self.auc_raw_round = self.roc_rounded.area_under_cumulative_incorrect()
             self.auc_diff = self.auc_raw - self.auc_orig
             self.auc_diff_round = self.auc_raw_round - self.auc_orig
             if self.auc_orig == 0.:
@@ -315,13 +336,13 @@ class MapqPredictions:
             log.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.auc_diff_pct, self.auc_diff_round_pct))
 
             log.info('  Calculating MSE')
-            self.mse_orig = mseor(self.pcor_orig, correct)
-            self.mse_raw = mseor(self.pcor, correct)
-            self.mse_raw_round = mseor(self.pcor, correct, rounded=True)
+            self.mse_orig = self.roc_orig.sum_of_squared_error()
+            self.mse_raw = self.roc.sum_of_squared_error()
+            self.mse_raw_round = self.roc_orig.sum_of_squared_error()
             self.mse_diff = self.mse_raw - self.mse_orig
             self.mse_diff_pct = 100.0 * self.mse_diff / self.mse_orig
             self.mse_diff_round = self.mse_raw_round - self.mse_orig
             self.mse_diff_round_pct = 100.0 * self.mse_diff_round / self.mse_orig
             self.mse = self.mse_raw / self.mse_orig
-            self.mse_round = mseor(self.pcor, correct, rounded=True) / self.mse_orig
+            self.mse_round = self.mse_raw_round / self.mse_orig
             log.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.mse_diff_pct, self.mse_diff_round_pct))
