@@ -54,17 +54,21 @@ class Roc(object):
                 ce.append(ce[-1] + se_incr)
         return ci, ce
 
-    def ranking_error(self):
-        """
-        Return ranking error
-        """
-        rcum, err = 0, 0.0
-        for idx, row in self.tab.iterrows():
-            ic, n = int(row['incor']), int(row['n'])
-            cum = self.tot - rcum - n
-            err += ic * (cum + n/2.0)
-            rcum += n
-        return err
+    @staticmethod
+    def write_cum_incorrect_diff(roc1, roc2, fn):
+        with open(fn, 'wb') as fh:
+            ci1l, _ = roc1.cum_incorrect_and_error()
+            ci2l, _ = roc2.cum_incorrect_and_error()
+            for ci1, ci2 in zip(ci1l, ci2l):
+                fh.write(str(ci1 - ci2) + '\n')
+
+    @staticmethod
+    def write_cum_squared_error(roc1, roc2, fn):
+        with open(fn, 'wb') as fh:
+            _, csel1 = roc1.cum_incorrect_and_error()
+            _, csel2 = roc2.cum_incorrect_and_error()
+            for cse1, cse2 in zip(csel1, csel2):
+                fh.write(str(cse1 - cse2) + '\n')
 
     def area_under_cumulative_incorrect(self):
         """
@@ -128,12 +132,6 @@ if __name__ == "__main__":
             ex = [0, 2.0/3, 4.0/3, 6.0/3, 2.01, 2.02, 2.52, 3.02]
             for x, y in zip(ce, ex):
                 self.assertAlmostEqual(x, y, places=5)
-
-        def test_ranking_error_1(self):
-            roc = Roc({2: [1, 1],
-                       1: [1, 2],
-                       0: [1, 1]})
-            self.assertEqual(1.0 + 2 * 3.5 + 1 * 6.0, roc.ranking_error())
 
         def test_auc_1(self):
             roc = Roc({2: [1, 1],

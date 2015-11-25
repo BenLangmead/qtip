@@ -441,7 +441,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         if args['vanilla_output'] is None and pred.can_assess():
             mkdir_quiet(join(*subdir))
             assert pred.ordered_by == 'pcor', pred.ordered_by
-            pred.write_rocs(join(*(subdir + ['roc.csv'])), join(*(subdir + ['roc_orig.csv'])))
+            pred.write_rocs(join(*(subdir + ['roc'])), join(*(subdir + ['cid'])), join(*(subdir + ['csed'])))
             pred.write_top_incorrect(join(*(subdir + ['top_incorrect.csv'])))
             pred.write_summary_measures(join(*(subdir + ['summary.csv'])))
             pred.order_by_ids()
