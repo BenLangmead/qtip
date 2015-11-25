@@ -88,9 +88,10 @@ class MapqPredictions:
             self.pred_fh.write(','.join(map(str, rec)) + '\n')
             self.npredictions += 1
             if rec[5] is not None:
-                self.tally[pcor][0 if rec[5] else 1] += 1
-                self.tally_orig[pcor][0 if rec[3] else 1] += 1
-                self.tally_rounded[round_pcor(pcor)][0 if rec[5] else 1] += 1
+                pc = float(rec[0])
+                self.tally[pc][0 if rec[5] else 1] += 1
+                self.tally_orig[pc][0 if rec[3] else 1] += 1
+                self.tally_rounded[round_pcor(pc)][0 if rec[5] else 1] += 1
 
     def _reset_mem_predictions(self):
         """ Erase in-memory copies of predictions """
