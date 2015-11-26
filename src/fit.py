@@ -235,7 +235,7 @@ class MapqFit:
             data = [self.model_fam_name, str(self.sample_fraction)]
             for ds, ds_long, paired in self.datasets:
                 if ds in self.trained_shape:
-                    data.append(str(self.trained_params))
+                    data.append(str(self.trained_params[ds]))
                     data.append(str(self.trained_shape[ds][0]))
                     data.append(str(self.trained_shape[ds][1]))
                     assert ds in self.trained_models
