@@ -79,7 +79,7 @@ class MapqFit:
         """ Use cross validation to pick the best model from a
             collection of possible models (model_family) """
         mf = mf_gen()
-        self.model_fam_name = type(mf).__name__
+        self.model_fam_name = mf.name
         scores = []
 
         def _oob_score(pred_):

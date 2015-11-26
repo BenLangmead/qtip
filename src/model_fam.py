@@ -8,12 +8,13 @@ class ModelFamily(object):
     """ Encapsulates a model family and a simple interface for search
         hyperparameter space. """
 
-    def __init__(self, new_predictor, params, round_to, min_separation, start_in_middle=True):
+    def __init__(self, name, new_predictor, params, round_to, min_separation, start_in_middle=True):
         """
         new_predictor: function that takes set of params and returns
                        new predictor with those params
         params: list of lists
         """
+        self.name = name
         self.new_predictor = new_predictor  # returns new predictor given parameters
         self.params = params  # space of possible parameter choices
         self.last_params = None  # remember last set of params used for predictor
@@ -83,7 +84,8 @@ def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.01):
                                      random_state=random_seed,
                                      max_features=2,
                                      oob_score=True, bootstrap=True)
-    return lambda: ModelFamily(_gen, [range(5, 105, 10), range(2, 10)],
+    return lambda: ModelFamily('RandomForestRegressor',
+                               _gen, [range(5, 105, 10), range(2, 10)],
                                round_to, min_separation=min_separation)
 
 
@@ -94,7 +96,8 @@ def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.002):
                                    random_state=random_seed,
                                    max_features=0.5,
                                    oob_score=True, bootstrap=True)
-    return lambda: ModelFamily(_gen, [range(5, 85, 2), range(3, 16, 1)],
+    return lambda: ModelFamily('ExtraTreesRegressor',
+                               _gen, [range(5, 85, 2), range(3, 16, 1)],
                                round_to, min_separation=min_separation)
 
 
