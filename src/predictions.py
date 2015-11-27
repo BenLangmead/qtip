@@ -193,10 +193,14 @@ class MapqPredictions:
         """ Write all predictions, in order by the line number of the original
             alignment in the input SAM, to the provided filename. """
         if len(self.pred_fns) == 1:
+            last_id = -1
             with open(self.pred_fns[0], 'rb') as ifh:  # no merge needed
                 with open(fn, 'w') as ofh:
                     for rec_ln in ifh:
                         pcor, ident, _, _, _, _ = rec_ln.rstrip().split(',')
+                        int_ident = int(ident)
+                        assert int_ident > last_id
+                        last_id = int_ident
                         ofh.write('%s,%0.3f\n' % (ident, pcor_to_mapq(float(pcor))))
         else:
             # have to merge!  more complex
@@ -204,6 +208,7 @@ class MapqPredictions:
             recs = [None] * len(pred_fhs)
             done = [False] * len(pred_fhs)
             nmerged = 0
+            last_min_rec = -1
             with open(fn, 'w') as ofh:
                 while True:
                     min_rec = (None, float('inf'))
@@ -223,6 +228,8 @@ class MapqPredictions:
                         assert all(done)
                         break
                     nmerged += 1
+                    assert min_rec[1] > last_min_rec
+                    last_min_rec = min_rec[1]
                     ofh.write('%d,%0.3f\n' % (min_rec[1], pcor_to_mapq(float(min_rec[0]))))
                     recs[min_i] = None
             assert nmerged == self.npredictions, (nmerged, self.npredictions)
