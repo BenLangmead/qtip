@@ -199,7 +199,7 @@ class MapqPredictions:
                     for rec_ln in ifh:
                         pcor, ident, _, _, _, _ = rec_ln.rstrip().split(',')
                         int_ident = int(ident)
-                        assert int_ident > last_id
+                        assert int_ident > last_id, "%d,%d:%s" % (int_ident, last_id, str(self.pred_fns))
                         last_id = int_ident
                         ofh.write('%s,%0.3f\n' % (ident, pcor_to_mapq(float(pcor))))
         else:
