@@ -164,21 +164,26 @@ class MapqFit:
             nchunk = 0
             for test_chunk in dfs.dataset_iter(ds):  # inner loop over chunks of rows
                 nchunk += 1
-                log.info('  Getting ready to make predictions for %s %s chunk %d, %d rows' %
+                log.info('  Predictions for %s %s chunk %d, %d rows:' %
                          ('training' if training else 'test', ds_long, nchunk, test_chunk.shape[0]))
+                log.info('    Loading data')
                 x_test, ids, mapq_orig_test, y_test, col_names = self._df_to_mat(test_chunk, ds, False, log=log)
-                log.info('  Making predictions')
                 if dedup:
+                    log.info('    Done loading data; collapsing and making predictions')
                     idxs, invs = _np_deduping_indexes(x_test)
                     log.info('    Collapsed %d rows to %d distinct rows (%0.2f%%)' %
                              (len(invs), len(idxs), 100.0 * len(idxs) / len(invs)))
                     pcor = self.trained_models[ds].predict(x_test[idxs])[invs]  # make predictions
                 else:
+                    log.info('    Done loading data; making predictions')
                     pcor = self.trained_models[ds].predict(x_test)  # make predictions
+                log.info('    Done making predictions; about to postprocess')
                 pcor = np.array(self.postprocess_predictions(pcor, ds_long))
+                log.info('    Done postprocessing; adding to tally')
                 data = x_test.tolist() if keep_data else None
                 for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
                     prd.add(pcor, ids, ds, mapq_orig=mapq_orig_test, data=data, correct=y_test)
+                log.info('    Done')
 
         log.info('Finalizing results for overall %s data (%d alignments)' %
                  ('training' if training else 'test', len(pred_overall.pcor)))
