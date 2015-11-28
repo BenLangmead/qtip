@@ -853,24 +853,6 @@ EList<char *> ztz1_buf;
 EList<char *> ztz2_buf;
 
 /**
- * Call print_paired_helper with the first alignment
- * (according to appearance in the SAM) first.
- */
-static void print_paired(
-	Alignment& al1,
-	Alignment& al2,
-	FILE *fh_model,
-	FILE *fh_recs,
-	ReservoirSampledEList<TemplatePaired> *paired_model)
-{
-	print_paired_helper(al1.line < al2.line ? al1 : al2,
-						al1.line < al2.line ? al2 : al1,
-						fh_model,
-						fh_recs,
-						paired_model);
-}
-
-/**
  * No guarantee about state of strtok upon return.
  */
 static void print_paired_helper(
@@ -1012,6 +994,24 @@ static void print_paired_helper(
 				fraglen);
 		}
 	}
+}
+
+/**
+ * Call print_paired_helper with the first alignment
+ * (according to appearance in the SAM) first.
+ */
+static void print_paired(
+						 Alignment& al1,
+						 Alignment& al2,
+						 FILE *fh_model,
+						 FILE *fh_recs,
+						 ReservoirSampledEList<TemplatePaired> *paired_model)
+{
+	print_paired_helper(al1.line < al2.line ? al1 : al2,
+						al1.line < al2.line ? al2 : al1,
+						fh_model,
+						fh_recs,
+						paired_model);
 }
 
 /**
