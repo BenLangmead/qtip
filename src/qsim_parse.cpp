@@ -853,9 +853,27 @@ EList<char *> ztz1_buf;
 EList<char *> ztz2_buf;
 
 /**
- * No guarantee about state of strtok upon return.
+ * Call print_paired_helper with the first alignment
+ * (according to appearance in the SAM) first.
  */
 static void print_paired(
+	Alignment& al1,
+	Alignment& al2,
+	FILE *fh_model,
+	FILE *fh_recs,
+	ReservoirSampledEList<TemplatePaired> *paired_model)
+{
+	print_paired_helper(al1.line < al2.line ? al1 : al2,
+						al1.line < al2.line ? al2 : al1,
+						fh_model,
+						fh_recs,
+						paired_model);
+}
+
+/**
+ * No guarantee about state of strtok upon return.
+ */
+static void print_paired_helper(
 	Alignment& al1,
 	Alignment& al2,
 	FILE *fh_model,
@@ -1125,7 +1143,6 @@ static int sam_pass1(
 		/* switch which buffer "line" points to */
 		line1 = !line1;
 		
-		/* somehow switch between alignments? */
 		Alignment& al_cur  = al_cur1 ? al1 : al2;
 		assert(!al_cur.valid);
 		al_cur.clear();
@@ -1154,9 +1171,6 @@ static int sam_pass1(
 			npair++;
 		}
 		
-		// TODO: for tandem reads, you have to look in the name of the read to
-		// figure out whether it should count and what category of alignment it
-		// should count as
 		if(strncmp(al_cur.qname, sim_startswith, strlen(sim_startswith)) == 0) {
 			// skip to final !
 			char *cur = al_cur.qname;
@@ -1173,7 +1187,7 @@ static int sam_pass1(
 		if(al_cur.mate_flag() == '0') {
 			nunp++;
 			
-			// Case 1: Current read is unpaired and unlineigned, we can safely skip
+			// Case 1: Current read is unpaired and unaligned, we can safely skip
 			if(!al_cur.is_aligned()) {
 				nunp_unal++;
 				continue;
