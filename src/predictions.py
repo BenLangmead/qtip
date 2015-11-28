@@ -228,7 +228,7 @@ class MapqPredictions:
                         assert all(done)
                         break
                     nmerged += 1
-                    assert min_rec[1] > last_min_rec
+                    assert min_rec[1] > last_min_rec, "%d,%d:%s" % (min_rec[1], last_min_rec, str(self.pred_fns))
                     last_min_rec = min_rec[1]
                     ofh.write('%d,%0.3f\n' % (min_rec[1], pcor_to_mapq(float(min_rec[0]))))
                     recs[min_i] = None
