@@ -439,6 +439,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         pred = fit.predict(tab, temp_man, dedup=not args['no_collapse'], training=not is_input,
                            calc_summaries=args['assess_accuracy'], prediction_mem_limit=args['assess_limit'])
         if args['vanilla_output'] is None and pred.can_assess():
+            logging.info('  writing accuracy measures')
             mkdir_quiet(join(*subdir))
             assert pred.ordered_by == 'pcor', pred.ordered_by
             pred.write_rocs(join(*(subdir + ['roc'])), join(*(subdir + ['cid'])), join(*(subdir + ['csed'])))
