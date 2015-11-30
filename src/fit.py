@@ -246,7 +246,7 @@ class MapqFit:
                     assert ds in self.trained_models
                     data.append(str(self.trained_models[ds].oob_score_))
                 else:
-                    data.extend(['NA', 'NA', '0', '0', '0'])
+                    data.extend(['NA', '0', '0', '0'])
             fh.write(','.join(data) + '\n')
 
     def __init__(self,
