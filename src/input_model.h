@@ -89,8 +89,8 @@ protected:
 	float fraglen_avg_;
 	size_t n_;
 	size_t fraglen_max_;
-	float fraction_even_;
-	float low_score_bias_;
+	float fraction_even_; // unused
+	float low_score_bias_; // unused
 };
 
 class InputModelPaired {
@@ -163,8 +163,8 @@ protected:
 	float fraglen_avg_;
 	size_t n_;
 	size_t fraglen_max_;
-	float fraction_even_;
-	float low_score_bias_;
+	float fraction_even_; // unused
+	float low_score_bias_; // unused
 };
 
 #endif /* defined(__qsim__input_model__) */
