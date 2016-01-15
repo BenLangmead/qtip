@@ -150,7 +150,7 @@ class MapqFit:
             del x_train
             del y_train
             gc.collect()
-            log.info('    Done; peak mem usage so far = %0.1fGB' %
+            log.info('    Done; peak mem usage so far = %0.2fGB' %
                      (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)))
 
     def predict(self, dfs, temp_man,
@@ -196,7 +196,7 @@ class MapqFit:
                 log.info('    Done postprocessing; adding to tally')
                 for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
                     prd.add(pcor, ids, ds, mapq_orig=mapq_orig_test, data=data, correct=y_test)
-                log.info('    Done; peak mem usage so far = %0.1fGB' %
+                log.info('    Done; peak mem usage so far = %0.2fGB' %
                          (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)))
 
         log.info('Finalizing results for overall %s data (%d alignments)' %
