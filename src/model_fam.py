@@ -85,7 +85,7 @@ def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.01):
                                      max_features=2,
                                      oob_score=True, bootstrap=True)
     return lambda: ModelFamily('RandomForestRegressor',
-                               _gen, [range(5, 105, 10), range(2, 10)],
+                               _gen, [range(5, 105, 10), range(3, 12, 1)],
                                round_to, min_separation=min_separation)
 
 
@@ -97,7 +97,7 @@ def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.002):
                                    max_features=0.5,
                                    oob_score=True, bootstrap=True)
     return lambda: ModelFamily('ExtraTreesRegressor',
-                               _gen, [range(5, 85, 2), range(3, 16, 1)],
+                               _gen, [range(5, 85, 2), range(3, 12, 1)],
                                round_to, min_separation=min_separation)
 
 
