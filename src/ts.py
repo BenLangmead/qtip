@@ -114,6 +114,10 @@ def _cat(fns, dst_fn):
                 shutil.copyfileobj(fh, ofh)
 
 
+def _get_peak_gb():
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)
+
+
 def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
 
     tim = Timing()
@@ -461,16 +465,17 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             mkdir_quiet(join(*subdir))
             fit.write_feature_importances(join(*(subdir + ['featimport'])))
             fit.write_parameters(join(*(subdir + ['params'])))
+        logging.info('    finishing _do_fit (peak=%0.2fGB)' % _get_peak_gb())
         return fit
 
     def _fits_and_predictions(fraction, fam, subdir):
         logging.info('  fitting to tandem alignments')
         subdir_ts = subdir + ['test'] if args['predict_for_training'] else subdir
         fit = _do_fit(tab_tr, fam, fraction, subdir)
-        logging.info('  making predictions for input alignments')
+        logging.info('Making predictions for input alignments (peak=%0.2fGB)' % _get_peak_gb())
         _do_predict(fit, tab_ts, subdir_ts, True)
         if args['predict_for_training']:
-            logging.info('  making predictions for tandem (training) alignments')
+            logging.info('Making predictions for tandem (training) alignments')
             _do_predict(fit, tab_tr, subdir + ['training'], False)
 
     def _all_fits_and_predictions():
