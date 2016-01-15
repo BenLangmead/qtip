@@ -266,10 +266,10 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         ls = []
         for ar in op.strip().split(' '):
             ar_underscore = ar.replace('-', '_')
-            assert ar_underscore in args, "\"%s\"" % ar_underscore
-            logging.debug('  passing through argument "%s"="%s"' % (ar, str(args[ar_underscore])))
-            ls.append(ar)
-            ls.append(str(args[ar_underscore]))
+            if ar_underscore in args:
+                logging.debug('  passing through argument "%s"="%s"' % (ar, str(args[ar_underscore])))
+                ls.append(ar)
+                ls.append(str(args[ar_underscore]))
         return ' '.join(ls)
 
     def _wait_for_aligner(_al):
@@ -527,9 +527,9 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         logging.info('Total size of output directory: %0.2fMB (%0.2f%% of output SAM)' % (tot_sz / (1024.0 * 1024),
                                                                                           100.0 * tot_sz / out_sz))
 
-    logging.info('Peak memory usage (RSS) of Python wrapper: %0.2fMB' %
+    logging.info('Peak memory usage (RSS) of Python wrapper: %0.2fGB' %
                  (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)))
-    logging.info('Peak memory usage (RSS) of children: %0.2fMB' %
+    logging.info('Peak memory usage (RSS) of children: %0.2fGB' %
                  (resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / (1024.0 * 1024.0)))
 
     tim.end_timer('Overall')
@@ -564,6 +564,8 @@ def add_args(parser):
                              'truncated to this length')
     parser.add_argument('--input-model-size', metavar='int', type=int, default=10000, required=False,
                         help='Number of templates to keep when building input model.')
+    # unused
+    """
     parser.add_argument('--low-score-bias', metavar='float', type=float, default=1.0, required=False,
                         help='When simulating reads, we randomly select a real read\'s alignment profile'
                              'as a template.  A higher value for this parameter makes it more likely'
@@ -572,6 +574,7 @@ def add_args(parser):
     parser.add_argument('--fraction-even', metavar='float', type=float, default=1.0, required=False,
                         help='Fraction of the time to sample templates from the unstratified input '
                              'sample versus the stratified sample.')
+    """
 
     # Qsim-parse: simulator
     parser.add_argument('--sim-fraction', metavar='fraction', type=float, default=0.01, required=False,
