@@ -1,14 +1,20 @@
-__author__ = 'langmead'
-
 import os
 import pandas
 import warnings
 import math
 import numpy as np
+try:
+    import itertools.imap as map
+except ImportError:
+    pass
+
+
+__author__ = 'langmead'
 
 
 def _exists_and_nonempty(fn):
     return os.path.exists(fn) and os.stat(fn).st_size > 0
+
 
 class FeatureTableReader(object):
 
