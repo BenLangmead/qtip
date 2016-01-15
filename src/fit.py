@@ -4,6 +4,7 @@ import pandas
 import numpy as np
 import itertools
 import resource
+import gc
 from predictions import MapqPredictions
 from sklearn import cross_validation
 
@@ -145,6 +146,9 @@ class MapqFit:
                 self._crossval_fit(self.model_gen, x_train, y_train, ds)
             # fit training data with the model
             self.trained_models[ds].fit(x_train, y_train)
+            del x_train
+            del y_train
+            gc.collect()
             log.info('    Done; peak mem usage so far = %0.1fGB' %
                      (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)))
 
@@ -167,10 +171,13 @@ class MapqFit:
             nchunk = 0
             for test_chunk in dfs.dataset_iter(ds):  # inner loop over chunks of rows
                 nchunk += 1
+                gc.collect()
                 log.info('  Predictions for %s %s chunk %d, %d rows:' %
                          ('training' if training else 'test', ds_long, nchunk, test_chunk.shape[0]))
                 log.info('    Loading data')
                 x_test, ids, mapq_orig_test, y_test, col_names = self._df_to_mat(test_chunk, ds, False, log=log)
+                del test_chunk
+                gc.collect()
                 if dedup:
                     log.info('    Done loading data; collapsing and making predictions')
                     idxs, invs = _np_deduping_indexes(x_test)
@@ -180,10 +187,12 @@ class MapqFit:
                 else:
                     log.info('    Done loading data; making predictions')
                     pcor = self.trained_models[ds].predict(x_test)  # make predictions
+                data = x_test.tolist() if keep_data else None
+                del x_test
+                gc.collect()
                 log.info('    Done making predictions; about to postprocess')
                 pcor = np.array(self.postprocess_predictions(pcor, ds_long))
                 log.info('    Done postprocessing; adding to tally')
-                data = x_test.tolist() if keep_data else None
                 for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
                     prd.add(pcor, ids, ds, mapq_orig=mapq_orig_test, data=data, correct=y_test)
                 log.info('    Done; peak mem usage so far = %0.1fGB' %
