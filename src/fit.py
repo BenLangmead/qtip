@@ -145,6 +145,7 @@ class MapqFit:
             self.trained_models[ds], self.trained_params[ds], self.crossval_avg[ds] = \
                 self._crossval_fit(self.model_gen, x_train, y_train, ds)
             # fit training data with the model
+            log.info('    Chose parameters: %s' % str(self.trained_params[ds]))
             self.trained_models[ds].fit(x_train, y_train)
             del x_train
             del y_train
