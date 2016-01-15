@@ -562,7 +562,7 @@ def add_args(parser):
     parser.add_argument('--max-allowed-fraglen', metavar='int', type=int, default=100000, required=False,
                         help='When simulating fragments, observed fragments longer than this will be'
                              'truncated to this length')
-    parser.add_argument('--input-model-size', metavar='int', type=int, default=10000, required=False,
+    parser.add_argument('--input-model-size', metavar='int', type=int, default=30000, required=False,
                         help='Number of templates to keep when building input model.')
     # unused
     """
@@ -577,7 +577,7 @@ def add_args(parser):
     """
 
     # Qsim-parse: simulator
-    parser.add_argument('--sim-fraction', metavar='fraction', type=float, default=0.01, required=False,
+    parser.add_argument('--sim-fraction', metavar='fraction', type=float, default=0.03, required=False,
                         help='When determining the number of simulated reads to generate for each type of '
                              'alignment (concordant, discordant, bad-end, unpaired), let it be no less '
                              'than this fraction times the number of alignment of that type in the input '
