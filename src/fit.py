@@ -17,6 +17,10 @@ def _np_deduping_indexes(m):
     return idx, inv
 
 
+def _get_peak_gb():
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)
+
+
 class MapqFit:
     """ Encapsulates an object that fits models and makes predictions """
 
@@ -150,8 +154,7 @@ class MapqFit:
             del x_train
             del y_train
             gc.collect()
-            log.info('    Done; peak mem usage so far = %0.2fGB' %
-                     (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)))
+            log.info('    Done; peak mem usage so far = %0.2fGB' % _get_peak_gb())
 
     def predict(self, dfs, temp_man,
                 keep_data=False, keep_per_category=False, log=logging,
@@ -173,8 +176,8 @@ class MapqFit:
             for test_chunk in dfs.dataset_iter(ds):  # inner loop over chunks of rows
                 nchunk += 1
                 gc.collect()
-                log.info('  Predictions for %s %s chunk %d, %d rows:' %
-                         ('training' if training else 'test', ds_long, nchunk, test_chunk.shape[0]))
+                log.info('  Making predictions for %s %s chunk %d, %d rows (peak mem=%0.2fGB)' %
+                         ('training' if training else 'test', ds_long, nchunk, test_chunk.shape[0], _get_peak_gb()))
                 log.info('    Loading data')
                 x_test, ids, mapq_orig_test, y_test, col_names = self._df_to_mat(test_chunk, ds, False, log=log)
                 del test_chunk
@@ -191,9 +194,9 @@ class MapqFit:
                 data = x_test.tolist() if keep_data else None
                 del x_test
                 gc.collect()
-                log.info('    Done making predictions; about to postprocess')
+                log.info('    Done making predictions; about to postprocess (peak mem=%0.2fGB)' % _get_peak_gb())
                 pcor = np.array(self.postprocess_predictions(pcor, ds_long))
-                log.info('    Done postprocessing; adding to tally')
+                log.info('    Done postprocessing; adding to tally (peak mem=%0.2fGB)' % _get_peak_gb())
                 for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
                     prd.add(pcor, ids, ds, mapq_orig=mapq_orig_test, data=data, correct=y_test)
                 log.info('    Done; peak mem usage so far = %0.2fGB' %
