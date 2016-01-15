@@ -164,6 +164,7 @@ class MapqFit:
         pred_overall = MapqPredictions(temp_man, name, calc_summaries=calc_summaries,
                                        prediction_mem_limit=prediction_mem_limit)
         pred_per_category = {}
+        log.info('  Created overall MapqPredictions (peak mem=%0.2fGB)' % _get_peak_gb())
 
         for ds, ds_long, paired in self.datasets:  # outer loop over ailgnment types
             if ds not in dfs:
@@ -172,6 +173,8 @@ class MapqFit:
                 name = '_'.join([ds_long, 'training' if training else 'test'])
                 pred_per_category[ds] = MapqPredictions(temp_man, name, calc_summaries=calc_summaries,
                                                         prediction_mem_limit=prediction_mem_limit)
+                log.info('  Created %s MapqPredictions (peak mem=%0.2fGB)' % (name, _get_peak_gb()))
+
             nchunk = 0
             for test_chunk in dfs.dataset_iter(ds):  # inner loop over chunks of rows
                 nchunk += 1
