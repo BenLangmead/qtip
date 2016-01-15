@@ -3,6 +3,7 @@ import logging
 import pandas
 import numpy as np
 import itertools
+import resource
 from predictions import MapqPredictions
 from sklearn import cross_validation
 
@@ -144,6 +145,8 @@ class MapqFit:
                 self._crossval_fit(self.model_gen, x_train, y_train, ds)
             # fit training data with the model
             self.trained_models[ds].fit(x_train, y_train)
+            log.info('    Done; peak mem usage so far = %0.1fGB' %
+                     (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)))
 
     def predict(self, dfs, temp_man,
                 keep_data=False, keep_per_category=False, log=logging,
@@ -183,7 +186,8 @@ class MapqFit:
                 data = x_test.tolist() if keep_data else None
                 for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
                     prd.add(pcor, ids, ds, mapq_orig=mapq_orig_test, data=data, correct=y_test)
-                log.info('    Done')
+                log.info('    Done; peak mem usage so far = %0.1fGB' %
+                         (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)))
 
         log.info('Finalizing results for overall %s data (%d alignments)' %
                  ('training' if training else 'test', len(pred_overall.pcor)))
