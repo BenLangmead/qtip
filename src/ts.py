@@ -269,7 +269,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         op = Popen(exe, stdout=PIPE).communicate()[0]
         ls = []
         for ar in op.strip().split(b' '):
-            ar_underscore = ar.replace('-', '_')
+            ar_underscore = ar.replace(b'-', b'_')
             if ar_underscore in args:
                 logging.debug('  passing through argument "%s"="%s"' % (ar, str(args[ar_underscore])))
                 ls.append(ar)
