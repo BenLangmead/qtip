@@ -4,9 +4,9 @@ import warnings
 import math
 import numpy as np
 try:
-    import itertools.imap as map
+    from itertools import imap
 except ImportError:
-    pass
+    imap = map
 
 
 __author__ = 'langmead'
@@ -105,7 +105,7 @@ class FeatureTableReader(object):
     def dataset_iter(self, sn):
         """ Return an iterator over chunks of rows from the data frame. """
         assert sn in self.readers
-        return map(lambda x: self._postprocess_data_frame(x), self.readers[sn]())
+        return imap(lambda x: self._postprocess_data_frame(x), self.readers[sn]())
 
     def __contains__(self, o):
         return o in self.readers
