@@ -155,7 +155,7 @@ class MapqPredictions:
         summ_dict['mapq'] = [self.mapq[x] for x in incor_idx]
         summ_dict['mapq_orig'] = [self.mapq_orig[x] for x in incor_idx]
         if self.data is not None:
-            summ_dict['data'] = map(str, [self.data[x] for x in incor_idx])
+            summ_dict['data'] = list(map(str, [self.data[x] for x in incor_idx]))
         summ_dict['correct'] = [self.correct[x] for x in incor_idx]
         return pandas.DataFrame.from_dict(summ_dict)
 
@@ -204,7 +204,7 @@ class MapqPredictions:
                         ofh.write('%s,%0.3f\n' % (ident, pcor_to_mapq(float(pcor))))
         else:
             # have to merge!  more complex
-            pred_fhs = map(lambda x: open(x, 'rb'), self.pred_fns)
+            pred_fhs = list(map(lambda x: open(x, 'rb'), self.pred_fns))
             recs = [None] * len(pred_fhs)
             done = [False] * len(pred_fhs)
             nmerged = 0
