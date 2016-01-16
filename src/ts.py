@@ -405,7 +405,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 input_format='fastq')
             _wait_for_aligner(aligner)
             logging.debug('Finished aligning paired tandem reads')
-    tandem_sams = filter(_exists_and_nonempty, [tandem_sam_u_fn, tandem_sam_p_fn, tandem_sam_b_fn])
+    tandem_sams = list(filter(_exists_and_nonempty, [tandem_sam_u_fn, tandem_sam_p_fn, tandem_sam_b_fn]))
     if len(tandem_sams) == 0:
         raise RuntimeError('No tandem reads written')
     tim.end_timer('Aligning tandem reads')
