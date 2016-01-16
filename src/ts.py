@@ -268,7 +268,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     def _get_passthrough_args(exe):
         op = Popen(exe, stdout=PIPE).communicate()[0]
         ls = []
-        for ar in op.strip().split(' '):
+        for ar in op.strip().split(b' '):
             ar_underscore = ar.replace('-', '_')
             if ar_underscore in args:
                 logging.debug('  passing through argument "%s"="%s"' % (ar, str(args[ar_underscore])))
