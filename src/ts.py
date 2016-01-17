@@ -310,8 +310,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             ls.append((bfn1, bfn2))
         if len(ls) > 1 and single_file:
             fn1, fn2 = prefix + '_reads_combined_1.fastq', prefix + '_reads_combined_2.fastq'
-            _cat(list(map(itemgetter(0), ls), fn1))
-            _cat(list(map(itemgetter(1), ls), fn2))
+            _cat(map(itemgetter(0), ls), fn1)
+            _cat(map(itemgetter(1), ls), fn2)
             ls = [(fn1, fn2)]
         return ls
 
