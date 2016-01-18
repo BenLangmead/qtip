@@ -1,7 +1,7 @@
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/AlignmentResult.h
---- tmp/snap/SNAPLib/AlignmentResult.h	2015-07-28 15:15:02.000000000 -0400
-+++ snap/SNAPLib/AlignmentResult.h	2015-08-05 14:10:01.000000000 -0400
-@@ -46,6 +46,52 @@ inline const char *AlignmentResultToStri
+--- tmp/snap/SNAPLib/AlignmentResult.h	2016-01-18 14:51:10.000000000 -0500
++++ snap/SNAPLib/AlignmentResult.h	2016-01-18 14:45:43.000000000 -0500
+@@ -46,6 +46,56 @@ inline const char *AlignmentResultToStri
      }
  }
  
@@ -9,6 +9,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
 +struct TS_MapqEstimationFeatures {
 +	
 +	TS_MapqEstimationFeatures() :
++	bestPossible(0),
 +	bestScore(0),
 +	secondBestScore(0),
 +	probabilityOfAllCandidates(0.0),
@@ -19,7 +20,8 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
 +	hitsPerLookup(0.0f),
 +	hitsPerLookupPair(0.0f) { }
 +	
-+	void init(unsigned _bestScore,
++	void init(unsigned _bestPossible,
++			  unsigned _bestScore,
 +			  unsigned _secondBestScore,
 +			  double _probabilityOfAllCandidates,
 +			  double _probabilityOfBestCandidate,
@@ -29,6 +31,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
 +			  float _hitsPerLookup,
 +			  float _hitsPerLookupPair)
 +	{
++		bestPossible = _bestPossible;
 +		bestScore = _bestScore;
 +		secondBestScore = _secondBestScore;
 +		probabilityOfAllCandidates = _probabilityOfAllCandidates;
@@ -40,6 +43,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
 +		hitsPerLookupPair = _hitsPerLookupPair;
 +	}
 +
++	unsigned bestPossible;
 +	unsigned bestScore;
 +	unsigned secondBestScore;
 +	double probabilityOfAllCandidates;
@@ -54,7 +58,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
  struct SingleAlignmentResult {
  	AlignmentResult status;
  
-@@ -54,6 +100,7 @@ struct SingleAlignmentResult {
+@@ -54,6 +104,7 @@ struct SingleAlignmentResult {
      int             score;		// score of each end if matched
  
      int             mapq;		// mapping quality, encoded like a Phred score (but as an integer, not ASCII Phred + 33).
@@ -62,7 +66,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
  
      static int compareByContigAndScore(const void *first, const void *second);      // qsort()-style compare routine
      static int compareByScore(const void *first, const void *second);               // qsort()-style compare routine
-@@ -81,6 +128,8 @@ struct PairedAlignmentResult {
+@@ -81,6 +132,8 @@ struct PairedAlignmentResult {
  	int score[NUM_READS_PER_PAIR];              // score of each end if matched
  
  	int mapq[NUM_READS_PER_PAIR];               // mapping quality of each end, encoded like a Phred score (but as an integer, not ASCII Phred + 33).
@@ -71,8 +75,15 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
  
  	bool fromAlignTogether;                     // Was this alignment created by aligning both reads together, rather than from some combination of single-end aligners?
  	bool alignedAsPair;                         // Were the reads aligned as a pair, or separately?
+@@ -90,4 +143,4 @@ struct PairedAlignmentResult {
+ 
+     static int compareByContigAndScore(const void *first, const void *second);      // qsort()-style compare routine
+     static int compareByScore(const void *first, const void *second);               // qsort()-style compare routine
+-};
+\ No newline at end of file
++};
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/Bam.cpp snap/SNAPLib/Bam.cpp
---- tmp/snap/SNAPLib/Bam.cpp	2015-07-28 15:15:02.000000000 -0400
+--- tmp/snap/SNAPLib/Bam.cpp	2016-01-18 14:51:10.000000000 -0500
 +++ snap/SNAPLib/Bam.cpp	2015-07-28 15:04:32.000000000 -0400
 @@ -682,7 +682,9 @@ public:
      virtual bool writeRead(
@@ -102,8 +113,8 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/Bam.cpp snap/SNAPLib/Bam.cpp
      if (NULL != spaceUsed) {
          *spaceUsed = bamSize;
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/BaseAligner.cpp snap/SNAPLib/BaseAligner.cpp
---- tmp/snap/SNAPLib/BaseAligner.cpp	2015-07-28 15:15:02.000000000 -0400
-+++ snap/SNAPLib/BaseAligner.cpp	2015-08-05 14:07:42.000000000 -0400
+--- tmp/snap/SNAPLib/BaseAligner.cpp	2016-01-18 14:51:10.000000000 -0500
++++ snap/SNAPLib/BaseAligner.cpp	2016-01-18 14:54:04.000000000 -0500
 @@ -289,7 +289,7 @@ Return Value:
      primaryResult->score = UnusedScoreValue;
      primaryResult->status = NotFound;
@@ -121,12 +132,15 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/BaseAligner.cpp snap/SNAPLib/BaseAl
  
  
  #ifdef  _DEBUG
-@@ -764,6 +765,16 @@ Return Value:
+@@ -764,6 +765,19 @@ Return Value:
                  primaryResult->score = bestScore;
                  if (bestScore <= maxK) {
                      primaryResult->location = bestScoreGenomeLocation;
 +					float hitsPerLookup = (float)hitsThisRun / lookupsThisRun;
-+					primaryResult->features.init(bestScore,
++					primaryResult->features.init(bestScore == 0 &&
++												   secondBestScore == UnusedScoreValue &&
++												   popularSeedsSkipped == 0,
++												 bestScore,
 +												 secondBestScore,
 +												 probabilityOfAllCandidates,
 +												 probabilityOfBestCandidate,
@@ -139,7 +153,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/BaseAligner.cpp snap/SNAPLib/BaseAl
                      if (primaryResult->mapq >= MAPQ_LIMIT_FOR_SINGLE_HIT) {
                          primaryResult->status = SingleHit;
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/BaseAligner.h snap/SNAPLib/BaseAligner.h
---- tmp/snap/SNAPLib/BaseAligner.h	2015-07-28 15:15:02.000000000 -0400
+--- tmp/snap/SNAPLib/BaseAligner.h	2016-01-18 14:51:10.000000000 -0500
 +++ snap/SNAPLib/BaseAligner.h	2015-08-05 11:12:27.000000000 -0400
 @@ -136,6 +136,9 @@ private:
      _int64 nReadsIgnoredBecauseOfTooManyNs;
@@ -152,7 +166,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/BaseAligner.h snap/SNAPLib/BaseAlig
      // A bitvector indexed by offset in the read indicating whether this seed is used.
      // This is here to avoid doing a memory allocation in the aligner.
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/ChimericPairedEndAligner.cpp snap/SNAPLib/ChimericPairedEndAligner.cpp
---- tmp/snap/SNAPLib/ChimericPairedEndAligner.cpp	2015-07-28 15:15:02.000000000 -0400
+--- tmp/snap/SNAPLib/ChimericPairedEndAligner.cpp	2016-01-18 14:51:10.000000000 -0500
 +++ snap/SNAPLib/ChimericPairedEndAligner.cpp	2015-08-05 09:03:57.000000000 -0400
 @@ -188,6 +188,7 @@ void ChimericPairedEndAligner::align(
  			*(resultCount[r]) = singleEndSecondaryResultsThisTime;
@@ -163,7 +177,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/ChimericPairedEndAligner.cpp snap/S
  			result->direction[r] = singleResult.direction;
  			result->location[r] = singleResult.location;
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/CommandProcessor.cpp snap/SNAPLib/CommandProcessor.cpp
---- tmp/snap/SNAPLib/CommandProcessor.cpp	2015-07-28 15:15:02.000000000 -0400
+--- tmp/snap/SNAPLib/CommandProcessor.cpp	2016-01-18 14:55:36.000000000 -0500
 +++ snap/SNAPLib/CommandProcessor.cpp	2015-08-04 10:54:20.000000000 -0400
 @@ -162,7 +162,8 @@ void RunDaemonMode(int argc, const char 
  
@@ -175,8 +189,18 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/CommandProcessor.cpp snap/SNAPLib/C
  
  	InitializeSeedSequencers();
  
+diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/Error.h snap/SNAPLib/Error.h
+--- tmp/snap/SNAPLib/Error.h	2016-01-18 14:51:10.000000000 -0500
++++ snap/SNAPLib/Error.h	2015-10-12 16:54:55.000000000 -0400
+@@ -31,4 +31,4 @@ WriteErrorMessage(const char *message, .
+ WriteStatusMessage(const char *message, ...);
+ 
+     void
+-WriteProgressCounter(const char *counterName, _int64 increment);
+\ No newline at end of file
++WriteProgressCounter(const char *counterName, _int64 increment);
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/FileFormat.h snap/SNAPLib/FileFormat.h
---- tmp/snap/SNAPLib/FileFormat.h	2015-07-28 15:15:02.000000000 -0400
+--- tmp/snap/SNAPLib/FileFormat.h	2016-01-18 14:51:10.000000000 -0500
 +++ snap/SNAPLib/FileFormat.h	2015-07-28 15:03:35.000000000 -0400
 @@ -92,7 +92,9 @@ public:
      virtual bool writeRead(
@@ -190,9 +214,9 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/FileFormat.h snap/SNAPLib/FileForma
          AlignmentResult mateResult = NotFound, GenomeLocation mateLocation = 0, Direction mateDirection = FORWARD,
          bool alignedAsPair = false) const = 0; 
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/IntersectingPairedEndAligner.cpp snap/SNAPLib/IntersectingPairedEndAligner.cpp
---- tmp/snap/SNAPLib/IntersectingPairedEndAligner.cpp	2015-07-28 15:15:02.000000000 -0400
-+++ snap/SNAPLib/IntersectingPairedEndAligner.cpp	2015-08-05 14:07:33.000000000 -0400
-@@ -852,9 +852,22 @@ doneScoring:
+--- tmp/snap/SNAPLib/IntersectingPairedEndAligner.cpp	2016-01-18 14:55:36.000000000 -0500
++++ snap/SNAPLib/IntersectingPairedEndAligner.cpp	2016-01-18 14:48:53.000000000 -0500
+@@ -852,9 +852,26 @@ doneScoring:
  #endif  // DEBUG
          }
      } else {
@@ -203,7 +227,11 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/IntersectingPairedEndAligner.cpp sn
              result->location[whichRead] = bestResultGenomeLocation[whichRead];
              result->direction[whichRead] = bestResultDirection[whichRead];
 +			float hits_per_lookup = (float)(totalHashTableHits[whichRead][FORWARD] + totalHashTableHits[whichRead][RC]) / countOfHashTableLookups[whichRead];
-+			result->features[whichRead].init(bestResultScore[whichRead],
++			result->features[whichRead].init(bestResultScore[whichRead] == 0 &&
++											   bestResultScore[whichRead ^ 1] == 0 &&
++											   probabilityOfAllPairs <= probabilityOfBestPair &&
++											   popularSeedsSkipped[0] + popularSeedsSkipped[1] == 0,
++											 bestResultScore[whichRead],
 +											 0xffff,
 +											 probabilityOfAllPairs,
 +											 probabilityOfBestPair,
@@ -216,7 +244,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/IntersectingPairedEndAligner.cpp sn
              result->status[whichRead] = result->mapq[whichRead] > MAPQ_LIMIT_FOR_SINGLE_HIT ? SingleHit : MultipleHits;
              result->score[whichRead] = bestResultScore[whichRead];
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/ReadWriter.cpp snap/SNAPLib/ReadWriter.cpp
---- tmp/snap/SNAPLib/ReadWriter.cpp	2015-07-28 15:15:02.000000000 -0400
+--- tmp/snap/SNAPLib/ReadWriter.cpp	2016-01-18 14:55:36.000000000 -0500
 +++ snap/SNAPLib/ReadWriter.cpp	2015-07-28 15:36:56.000000000 -0400
 @@ -174,7 +174,9 @@ SimpleReadWriter::writeReads(
              finalLocations[whichResult] = results[whichResult].location;
@@ -252,8 +280,8 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/ReadWriter.cpp snap/SNAPLib/ReadWri
  
                      if (0 == addFrontClipping) {
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
---- tmp/snap/SNAPLib/SAM.cpp	2015-07-28 15:15:02.000000000 -0400
-+++ snap/SNAPLib/SAM.cpp	2015-08-16 20:31:16.000000000 -0400
+--- tmp/snap/SNAPLib/SAM.cpp	2016-01-18 14:55:36.000000000 -0500
++++ snap/SNAPLib/SAM.cpp	2016-01-18 15:15:58.000000000 -0500
 @@ -1123,6 +1123,7 @@ SAMFormat::writeRead(
      Read * read,
      AlignmentResult result, 
@@ -262,7 +290,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
      GenomeLocation genomeLocation,
      Direction direction,
      bool secondaryAlignment,
-@@ -1249,7 +1250,36 @@ SAMFormat::writeRead(
+@@ -1249,7 +1250,37 @@ SAMFormat::writeRead(
              readGroupString = read->getReadGroup();
          }
      }
@@ -283,7 +311,8 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
 +			diffbuf[2] = '\0';
 +		}
 +		ztzSeparator = "\tZT:Z:";
-+		snprintf(ztzbuf, 1024, "%d,%s,%.8e,%d,%d,%lld,%d,%d",
++		snprintf(ztzbuf, 1024, "%u,%d,%s,%.8e,%d,%d,%lld,%d,%d",
++				 features.bestPossible,
 +				 -features.bestScore,
 +				 diffbuf,
 +				 features.probabilityOfBestCandidate /
@@ -300,7 +329,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
          qnameLen, read->getId(),
          flags,
          contigName,
-@@ -1263,7 +1293,8 @@ SAMFormat::writeRead(
+@@ -1263,7 +1294,8 @@ SAMFormat::writeRead(
          fullLength, quality,
          aux != NULL ? "\t" : "", auxLen, aux != NULL ? aux : "",
          readGroupSeparator, readGroupString,
@@ -311,7 +340,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
      if (charsInString > bufferSpace) {
          //
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.h snap/SNAPLib/SAM.h
---- tmp/snap/SNAPLib/SAM.h	2015-07-28 15:15:02.000000000 -0400
+--- tmp/snap/SNAPLib/SAM.h	2016-01-18 14:55:36.000000000 -0500
 +++ snap/SNAPLib/SAM.h	2015-07-28 15:03:56.000000000 -0400
 @@ -164,7 +164,9 @@ public:
      virtual bool writeRead(
@@ -324,3 +353,25 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.h snap/SNAPLib/SAM.h
          bool hasMate = false, bool firstInPair = false, Read * mate = NULL, 
          AlignmentResult mateResult = NotFound, GenomeLocation mateLocation = 0, Direction mateDirection = FORWARD,
          bool alignedAsPair = false) const; 
+diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SortedDataWriter.cpp snap/SNAPLib/SortedDataWriter.cpp
+--- tmp/snap/SNAPLib/SortedDataWriter.cpp	2016-01-18 14:51:10.000000000 -0500
++++ snap/SNAPLib/SortedDataWriter.cpp	2016-01-18 14:44:34.000000000 -0500
+@@ -335,7 +335,7 @@ SortedDataFilterSupplier::mergeSort()
+     }
+     for (SortBlockVector::iterator i = blocks.begin(); i != blocks.end(); i++) {
+         i->reader = readerSupplier->getDataReader(1, MAX_READ_LENGTH * 8, 0.0,
+-            min(1UL << 23, max(1UL << 17, bufferSpace / blocks.size()))); // 128kB to 8MB buffer space per block
++            min(1ULL << 23, max(1ULL << 17, bufferSpace / blocks.size()))); // 128kB to 8MB buffer space per block
+         i->reader->init(tempFileName);
+         i->reader->reinit(i->start, i->bytes);
+     }
+diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/directions.h snap/SNAPLib/directions.h
+--- tmp/snap/SNAPLib/directions.h	2016-01-18 14:51:10.000000000 -0500
++++ snap/SNAPLib/directions.h	2015-10-12 16:54:59.000000000 -0400
+@@ -33,4 +33,4 @@ const int RC = 1;
+ inline Direction OppositeDirection(Direction direction) {
+     _ASSERT(FORWARD == direction || RC == direction);
+     return 1-direction;
+-}
+\ No newline at end of file
++}
