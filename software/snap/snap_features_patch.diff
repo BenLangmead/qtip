@@ -355,13 +355,13 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.h snap/SNAPLib/SAM.h
          bool alignedAsPair = false) const; 
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SortedDataWriter.cpp snap/SNAPLib/SortedDataWriter.cpp
 --- tmp/snap/SNAPLib/SortedDataWriter.cpp	2016-01-18 14:51:10.000000000 -0500
-+++ snap/SNAPLib/SortedDataWriter.cpp	2016-01-18 14:44:34.000000000 -0500
++++ snap/SNAPLib/SortedDataWriter.cpp	2016-01-18 15:23:23.000000000 -0500
 @@ -335,7 +335,7 @@ SortedDataFilterSupplier::mergeSort()
      }
      for (SortBlockVector::iterator i = blocks.begin(); i != blocks.end(); i++) {
          i->reader = readerSupplier->getDataReader(1, MAX_READ_LENGTH * 8, 0.0,
 -            min(1UL << 23, max(1UL << 17, bufferSpace / blocks.size()))); // 128kB to 8MB buffer space per block
-+            min(1ULL << 23, max(1ULL << 17, bufferSpace / blocks.size()))); // 128kB to 8MB buffer space per block
++            min(1ULL << 23, max(1ULL << 17, (long long unsigned)(bufferSpace / blocks.size())))); // 128kB to 8MB buffer space per block
          i->reader->init(tempFileName);
          i->reader->reinit(i->start, i->bytes);
      }
