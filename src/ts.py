@@ -532,10 +532,11 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         logging.info('Total size of output directory: %0.2fMB (%0.2f%% of output SAM)' % (tot_sz / (1024.0 * 1024),
                                                                                           100.0 * tot_sz / out_sz))
 
-    logging.info('Peak memory usage (RSS) of Python wrapper: %0.2fGB' %
-                 (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)))
-    logging.info('Peak memory usage (RSS) of children: %0.2fGB' %
-                 (resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / (1024.0 * 1024.0)))
+    self_peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    child_peak = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+    logging.info('Peak memory usage (RSS) of Python wrapper: %0.5fGB' % (self_peak / (1024.0 * 1024.0)))
+    logging.info('Peak memory usage (RSS) of children: %0.5fGB' % (child_peak / (1024.0 * 1024.0)))
+    logging.info('Memory overhead: %0.3f%%' % (0 if child_peak == 0 else 100.0 * self_peak/child_peak))
 
     tim.end_timer('Overall')
     for ln in str(tim).split('\n'):
@@ -546,7 +547,6 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             fh.write(str(tim))
     logging.info('Time overhead: %0.01f%%' % (100.0 * (tim.timers['Overall'] - tim.timers['Aligning input reads']) /
                                               tim.timers['Aligning input reads']))
-    # TODO: Memory overhead?
 
 
 def add_args(parser):
