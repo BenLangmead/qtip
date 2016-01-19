@@ -47,22 +47,10 @@ class MapqPredictions:
         self.prediction_mem_limit = prediction_mem_limit
         self.npredictions = 0
         self.has_correct = False
-        self.auc_orig = None
-        self.auc_raw = None
-        self.auc_raw_round = None
-        self.auc_diff = None
         self.auc_diff_pct = None
-        self.auc_diff_round = None
         self.auc_diff_round_pct = None
-        self.mse_orig = None
-        self.mse_raw = None
-        self.mse_raw_round = None
-        self.mse_diff = None
         self.mse_diff_pct = None
-        self.mse_diff_round = None
         self.mse_diff_round_pct = None
-        self.mse = None
-        self.mse_round = None
 
     def add(self, pcor, ids, category, mapq_orig=None, data=None, correct=None):
         """ Add a new batch of predictions. """
@@ -290,34 +278,28 @@ class MapqPredictions:
             self.order_by_pcor(log=log)
 
             log.info('  Calculating AUC')
-            self.auc_orig = self.roc_orig.area_under_cumulative_incorrect()
-            self.auc_raw = self.roc.area_under_cumulative_incorrect()
-            self.auc_raw_round = self.roc_rounded.area_under_cumulative_incorrect()
-            self.auc_diff = self.auc_raw - self.auc_orig
-            self.auc_diff_round = self.auc_raw_round - self.auc_orig
-            if self.auc_orig == 0.:
-                if self.auc_diff > 0.:
+            auc_orig = self.roc_orig.area_under_cumulative_incorrect()
+            auc_raw = self.roc.area_under_cumulative_incorrect()
+            auc_raw_round = self.roc_rounded.area_under_cumulative_incorrect()
+            if auc_orig == 0.:
+                if auc_raw > auc_orig:
                     self.auc_diff_pct = float('inf')
                 else:
                     self.auc_diff_pct = 0.0
-                if self.auc_diff_round > 0.:
+                if auc_raw_round > auc_orig > 0.:
                     self.auc_diff_round_pct = float('inf')
                 else:
                     self.auc_diff_round_pct = 0
             else:
-                self.auc_diff_pct = 100.0 * self.auc_diff / self.auc_orig
-                self.auc_diff_round_pct = 100.0 * self.auc_diff_round / self.auc_orig
+                self.auc_diff_pct = 100.0 * (auc_raw - auc_orig) / auc_orig
+                self.auc_diff_round_pct = 100.0 * (auc_raw_round - auc_orig) / auc_orig
             log.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.auc_diff_pct,
                                                                self.auc_diff_round_pct))
 
             log.info('  Calculating MSE')
-            self.mse_orig = self.roc_orig.sum_of_squared_error()
-            self.mse_raw = self.roc.sum_of_squared_error()
-            self.mse_raw_round = self.roc_rounded.sum_of_squared_error()
-            self.mse_diff = self.mse_raw - self.mse_orig
-            self.mse_diff_pct = 100.0 * self.mse_diff / self.mse_orig
-            self.mse_diff_round = self.mse_raw_round - self.mse_orig
-            self.mse_diff_round_pct = 100.0 * self.mse_diff_round / self.mse_orig
-            self.mse = self.mse_raw / self.mse_orig
-            self.mse_round = self.mse_raw_round / self.mse_orig
+            mse_orig = self.roc_orig.sum_of_squared_error()
+            mse_raw = self.roc.sum_of_squared_error()
+            mse_raw_round = self.roc_rounded.sum_of_squared_error()
+            self.mse_diff_pct = 100.0 * (mse_raw - mse_orig) / mse_orig
+            self.mse_diff_round_pct = 100.0 * (mse_raw_round - mse_orig) / mse_orig
             log.info('    Done: %+0.4f%%, %+0.4f%% rounded' % (self.mse_diff_pct, self.mse_diff_round_pct))
