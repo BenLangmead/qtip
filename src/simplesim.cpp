@@ -61,8 +61,9 @@ void SimulatedRead::mutate(const char *seq) {
 	assert(rdoff == newsz);
 	seq_buf_[rdoff] = '\0';
 	if(newsz != strlen(seq_buf_)) {
-		fprintf(stderr, "rdoff=%u, newsz=%u, strlen(qual_)=%u, strlen(seq_buf_)=%u\n",
-		        (unsigned)rdoff, (unsigned)newsz, (unsigned)strlen(qual_), (unsigned)strlen(seq_buf_));
+		fprintf(stderr, "rdoff=%u, newsz=%u, strlen(qual_)=%u, strlen(seq_buf_)=%u, edit_xscript_=%s\n",
+		        (unsigned)rdoff, (unsigned)newsz, (unsigned)strlen(qual_),
+		        (unsigned)strlen(seq_buf_), edit_xscript_);
 	}
 	assert(newsz == strlen(seq_buf_));
 }
