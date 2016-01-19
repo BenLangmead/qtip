@@ -2,7 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <cassert>
-#include <ctype.h>
+#include <cctype>
 #include <iostream>
 #include <algorithm>
 #include <string>

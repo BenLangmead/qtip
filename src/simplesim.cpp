@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <vector>
 #include <iostream>
+#include <cctype>
 #include "simplesim.h"
 #include "fasta.h"
 #include "rnglib.hpp"
@@ -35,8 +36,12 @@ void SimulatedRead::mutate(const char *seq) {
 	const size_t edlen = strlen(edit_xscript_);
 	for(size_t i = 0; i < edlen; i++) {
 		if(edit_xscript_[i] == '=') {
+			assert(seq[rfoff] != '\0');
+			assert(isalpha(seq[rfoff]));
 			seq_buf_[rdoff++] = seq[rfoff++];
 		} else if(edit_xscript_[i] == 'X') {
+			assert(seq[rfoff] != '\0');
+			assert(isalpha(seq[rfoff]));
 			do {
 				seq_buf_[rdoff] = "ACGT"[(int)(r4_uni_01() * 4)];
 			} while(seq_buf_[rdoff] == seq[rfoff]);
@@ -55,6 +60,10 @@ void SimulatedRead::mutate(const char *seq) {
 	}
 	assert(rdoff == newsz);
 	seq_buf_[rdoff] = '\0';
+	if(newsz != strlen(seq_buf_)) {
+		fprintf(stderr, "rdoff=%u, newsz=%u, strlen(qual_)=%u, strlen(seq_buf_)=%u\n",
+		        (unsigned)rdoff, (unsigned)newsz, (unsigned)strlen(qual_), (unsigned)strlen(seq_buf_));
+	}
 	assert(newsz == strlen(seq_buf_));
 }
 
