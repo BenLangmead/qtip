@@ -422,7 +422,7 @@ public:
 		if(list_.size() < k_) {
 			list_.push_back(t);
 		} else {
-			size_t j = (size_t)(r4_uni_01() * n_);
+			size_t j = std::min((size_t)(r4_uni_01() * n_), n_-1);
 			assert(j < n_);
 			if(j < list_.size()) {
 				list_[j] = t;
@@ -440,7 +440,7 @@ public:
 			list_.expand();
 			return list_.size()-1;
 		} else {
-			return (size_t)(r4_uni_01() * n_);
+			return std::min((size_t)(r4_uni_01() * n_), n_-1);
 		}
 	}
 

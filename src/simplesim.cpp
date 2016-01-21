@@ -43,16 +43,16 @@ void SimulatedRead::mutate(const char *seq) {
 			assert(seq[rfoff] != '\0');
 			assert(isalpha(seq[rfoff]));
 			do {
-				seq_buf_[rdoff] = "ACGT"[(int)(r4_uni_01() * 4)];
+				seq_buf_[rdoff] = draw_base();
 			} while(seq_buf_[rdoff] == seq[rfoff]);
 			rdoff++;
 			rfoff++;
 		} else if(edit_xscript_[i] == 'I') {
-			seq_buf_[rdoff++] = "ACGT"[(int)(r4_uni_01() * 4)];
+			seq_buf_[rdoff++] = draw_base();
 		} else if(edit_xscript_[i] == 'D') {
 			rfoff++;
 		} else if(edit_xscript_[i] == 'S') {
-			seq_buf_[rdoff++] = "ACGT"[(int)(r4_uni_01() * 4)];
+			seq_buf_[rdoff++] = draw_base();
 			rfoff++;
 		} else {
 			throw 1;
@@ -61,7 +61,7 @@ void SimulatedRead::mutate(const char *seq) {
 	assert(rdoff == newsz);
 	seq_buf_[rdoff] = '\0';
 	if(newsz != strlen(seq_buf_)) {
-		fprintf(stderr, "rdoff=%u, newsz=%u, strlen(qual_)=%u, strlen(seq_buf_)=%u, edit_xscript_=%s\n",
+		fprintf(stderr, "rdoff:%u, newsz:%u, strlen(qual_):%u, strlen(seq_buf_):%u, edit_xscript_:%s\n",
 		        (unsigned)rdoff, (unsigned)newsz, (unsigned)strlen(qual_),
 		        (unsigned)strlen(seq_buf_), edit_xscript_);
 	}
@@ -233,7 +233,8 @@ void StreamingSimulator::simulate_batch(
 				attempts++;
 				const TemplateUnpaired &t = model_u_.draw();
 				size_t nslots = retsz - olap_;
-				size_t off = (size_t)(r4_uni_01() * nslots);
+				assert(nslots > 0);
+				size_t off = std::min((size_t)(r4_uni_01() * nslots), nslots-1);
 				assert(off < nslots);
 				const size_t rflen = t.reflen();
 				for(size_t j = off; j < off + rflen; j++) {
@@ -270,7 +271,7 @@ void StreamingSimulator::simulate_batch(
 				const TemplateUnpaired &t = model_b_.draw();
 				bool mate1 = t.mate_flag_ == '1';
 				size_t nslots = retsz - olap_;
-				size_t off = (size_t)(r4_uni_01() * nslots);
+				size_t off = std::min((size_t)(r4_uni_01() * nslots), nslots-1);
 				assert(off < nslots);
 				const size_t rflen = t.reflen();
 				for(size_t j = off; j < off + rflen; j++) {
@@ -332,7 +333,7 @@ void StreamingSimulator::simulate_batch(
 				attempts++;
 				const TemplatePaired &t = conc ? model_c_.draw() : model_d_.draw();
 				size_t nslots = retsz - olap_;
-				size_t off = (size_t)(r4_uni_01() * nslots);
+				size_t off = std::min((size_t)(r4_uni_01() * nslots), nslots-1);
 				assert(off < nslots);
 				size_t off_1, off_2;
 				const size_t rflen_1 = edit_xscript_to_rflen(t.edit_xscript_1_);

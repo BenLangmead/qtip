@@ -48,7 +48,7 @@ public:
 	 */
 	const TemplateUnpaired& draw() const {
 		assert(!empty());
-		size_t rn = (size_t)(r4_uni_01() * ts_.size());
+		size_t rn = std::min((size_t)(r4_uni_01() * ts_.size()), ts_.size()-1);
 		assert(rn < ts_.size());
 		return ts_[rn];
 	}

@@ -22,6 +22,10 @@
 static const char * sim_startswith = SIM_STARTSWITH_LITERAL;
 static const char * sim_sep = SIM_SEPERATOR_LITERAL;
 
+static inline char draw_base() {
+    return "ACGT"[std::min((int)(r4_uni_01() * 4), 3)];
+}
+
 /**
  * The thing is really built in two stages.  First we get seq (but it's pointer
  * into the reference buffer), fw, qual (but it's a pointer into the template
@@ -102,7 +106,7 @@ public:
 		char *seq_cur = seq_buf_;
 		char *qual_cur = qual_buf_;
 		for(size_t i = 0; i < len; i++) {
-			int c = "ACGT"[(int)(r4_uni_01() * 4.0f)];
+			int c = draw_base();
 			int q = 'I';
 			*seq_cur++ = c;
 			*qual_cur++ = q;
