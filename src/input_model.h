@@ -122,8 +122,7 @@ public:
 	 */
 	const TemplatePaired& draw() const {
 		assert(!empty());
-		size_t rn = (size_t)(r4_uni_01() * ts_.size());
-		assert(rn < ts_.size());
+		size_t rn = std::min((size_t)(r4_uni_01() * ts_.size()), ts_.size()-1);
 		return ts_[rn];
 	}
 
