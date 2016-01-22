@@ -5,6 +5,10 @@ from itertools import repeat
 from mapq import pcor_to_mapq, mapq_to_pcor, round_pcor
 from collections import defaultdict
 from roc import Roc
+try:
+    from itertools import izip
+except ImportError:
+    izip = zip
 
 __author__ = 'langmead'
 
@@ -63,7 +67,7 @@ class MapqPredictions:
             self.temp_next_fn = '_'.join([self.pred_fn_prefix, str(len(self.pred_fns))])
             self.pred_fns.append(self.temp_man.get_file(self.temp_next_fn, group=self.temp_group_name))
             self.pred_fh = open(self.pred_fns[-1], 'wb')
-        for rec in zip(pcor, ids, repeat([category]), mapq_orig_iter, data_iter, correct_iter):
+        for rec in izip(pcor, ids, repeat([category]), mapq_orig_iter, data_iter, correct_iter):
             self.last_id = int(rec[1])
             self.pred_fh.write(','.join(map(str, rec)) + '\n')
             self.npredictions += 1
