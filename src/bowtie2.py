@@ -75,6 +75,7 @@ class Bowtie2(Aligner):
             input_args.extend(aligner_unpaired_args)
         if paired is not None:
             assert input_format not in ['tab5', 'tab6', '12']
+            paired = list(paired)  # because we traverse it multiple times
             input_args.extend(['-1', ','.join(map(itemgetter(0), paired))])
             input_args.extend(['-2', ','.join(map(itemgetter(1), paired))])
             input_args.extend(aligner_paired_args)

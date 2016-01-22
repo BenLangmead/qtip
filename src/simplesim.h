@@ -193,6 +193,11 @@ protected:
 	char *qual_buf_;
 };
 
+enum {
+    FUNC_LINEAR = 1,
+    FUNC_SQRT = 2
+};
+
 /**
  * What do we need from the dists?
  * 1. Average read/fragment lengths for all 4 classes
@@ -242,6 +247,7 @@ public:
 	 */
 	void simulate_batch(
 		float fraction,
+		int function,
 		size_t min_u,
 		size_t min_c,
 		size_t min_d,

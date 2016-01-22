@@ -4,7 +4,7 @@ from __future__ import print_function
 from subprocess import Popen, PIPE
 
 """
-ts.py
+qsim
 
 A "tandem simulator," which wraps an alignment tool as it runs, eavesdrops on
 input and output, simulates a new dataset similar to the input data, aligns
@@ -282,8 +282,11 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         return ' '.join(ls)
 
     def _wait_for_aligner(_al):
-        while _al.pipe.poll() is None:
+        ret = _al.pipe.poll()
+        while ret is None:
             time.sleep(0.5)
+            ret = _al.pipe.poll()
+        return ret
 
     def _exists_and_nonempty(_fn):
         return os.path.exists(_fn) and os.stat(_fn).st_size > 0
@@ -338,7 +341,9 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         sam=input_sam_fn)
 
     logging.debug('  waiting for aligner to finish...')
-    _wait_for_aligner(aligner)
+    if _wait_for_aligner(aligner) != 0:
+        logging.error("Non-zero exitlevel from aligner")
+        raise RuntimeError('Non-zero exitlevel from aligner')
     logging.debug('  aligner finished; results in "%s"' % input_sam_fn)
     tim.end_timer('Aligning input reads')
 
@@ -611,11 +616,6 @@ def add_args(parser):
     """
 
     # Qsim-parse: simulator
-    parser.add_argument('--sim-fraction', metavar='fraction', type=float, default=0.03, required=False,
-                        help='When determining the number of simulated reads to generate for each type of '
-                             'alignment (concordant, discordant, bad-end, unpaired), let it be no less '
-                             'than this fraction times the number of alignment of that type in the input '
-                             'data.')
     parser.add_argument('--sim-unp-min', metavar='int', type=int, default=30000, required=False,
                         help='Number of simulated unpaired reads will be no less than this number.')
     parser.add_argument('--sim-conc-min', metavar='int', type=int, default=30000, required=False,
@@ -624,6 +624,14 @@ def add_args(parser):
                         help='Number of simulated discordant pairs will be no less than this number.')
     parser.add_argument('--sim-bad-end-min', metavar='int', type=int, default=10000, required=False,
                         help='Number of simulated pairs with-one-bad-end will be no less than this number.')
+    parser.add_argument('--sim-function', metavar='linear|sqrt', type=str, required=False, default='sqrt',
+                        help='Function to apply to number of input reads when determining number of '
+                             'tandem reads to simulate in a given category.  See also: --sim-factor.')
+    parser.add_argument('--sim-factor', metavar='fraction', type=float, default=30.0, required=False,
+                        help='This is multiplied with X (if --sim-scaling=linear) or sqrt(X) '
+                             '(if --sim-scaling=sqrt) to calculate number of tandem reads to '
+                             'simulate in a given category, where X is number of input reads '
+                             'in that category.')
 
     # Qsim-parse: correctness
     parser.add_argument('--wiggle', metavar='int', type=int, default=30, required=False,

@@ -771,7 +771,8 @@ int input_model_size = std::numeric_limits<int>::max();
 float fraction_even = 1.0f;
 float low_score_bias = 1.0f;
 int max_allowed_fraglen = 50000;
-float sim_fraction = 0.01f;
+float sim_factor = 30.0f;
+int sim_function = FUNC_SQRT;
 int sim_unp_min = 30000;
 int sim_conc_min = 30000;
 int sim_disc_min = 10000;
@@ -1340,7 +1341,8 @@ int main(int argc, char **argv) {
 		     << "fraction-even "
 		     << "low-score-bias "
 		     << "max-allowed-fraglen "
-		     << "sim-fraction "
+		     << "sim-factor "
+		     << "sim-function "
 		     << "sim-unp-min "
 		     << "sim-conc-min "
 		     << "sim-disc-min "
@@ -1414,8 +1416,19 @@ int main(int argc, char **argv) {
 				if(strcmp(argv[i], "max-allowed-fraglen") == 0) {
 					max_allowed_fraglen = atoi(argv[++i]);
 				}
-				if(strcmp(argv[i], "sim-fraction") == 0) {
-					sim_fraction = atof(argv[++i]);
+				if(strcmp(argv[i], "sim-factor") == 0) {
+					sim_factor = atof(argv[++i]);
+				}
+				if(strcmp(argv[i], "sim-function") == 0) {
+				    i++;
+					if(strcmp(argv[i], "sqrt") == 0) {
+					    sim_function = FUNC_SQRT;
+					} else if(strcmp(argv[i], "linear") == 0) {
+					    sim_function = FUNC_LINEAR;
+					} else {
+						cerr << "Error: could not parse --sim-function argument: " << argv[i] << endl;
+						return -1;
+					}
 				}
 				if(strcmp(argv[i], "sim-unp-min") == 0) {
 					sim_unp_min = atoi(argv[++i]);
@@ -1573,7 +1586,8 @@ int main(int argc, char **argv) {
 		
 		cerr << "  Simulating reads..." << endl;
 		ss.simulate_batch(
-			sim_fraction,
+			sim_factor,
+			sim_function,
 			sim_unp_min,
 			sim_conc_min,
 			sim_disc_min,

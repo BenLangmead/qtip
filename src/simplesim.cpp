@@ -10,6 +10,7 @@
 #include <vector>
 #include <iostream>
 #include <cctype>
+#include <math.h>
 #include "simplesim.h"
 #include "fasta.h"
 #include "rnglib.hpp"
@@ -169,10 +170,26 @@ void SimulatedRead::write_pair(
 }
 
 /**
+ * Apply the specified function: max(minimum, factor * f(x)), where f might be
+ * x or sqrt(x).
+ */
+size_t apply_function(float fraction, int function, size_t mn, size_t n) {
+    if(n == 0) {
+        return 0;
+    }
+    double nn = (double)n;
+    if(function == FUNC_SQRT) {
+        nn = sqrt(nn);
+    }
+    return std::max((size_t)(fraction * nn), mn);
+}
+
+/**
  * Simulate a batch of reads
  */
 void StreamingSimulator::simulate_batch(
 	float fraction,
+	int function,
 	size_t min_u,
 	size_t min_c,
 	size_t min_d,
@@ -180,18 +197,10 @@ void StreamingSimulator::simulate_batch(
 {
 	size_t nc = 0, nd = 0, nu = 0, nb = 0;
 	size_t n_wrote_c = 0, n_wrote_d = 0, n_wrote_u = 0, n_wrote_b = 0;
-	if(!model_u_.empty()) {
-		nu = std::max((size_t)(fraction * model_u_.num_added()), min_u);
-	}
-	if(!model_b_.empty()) {
-		nb = std::max((size_t)(fraction * model_b_.num_added()), min_b);
-	}
-	if(!model_c_.empty()) {
-		nc = std::max((size_t)(fraction * model_c_.num_added()), min_c);
-	}
-	if(!model_d_.empty()) {
-		nd = std::max((size_t)(fraction * model_d_.num_added()), min_d);
-	}
+	nu = apply_function(fraction, function, min_u, model_u_.num_added());
+	nb = apply_function(fraction, function, min_b, model_b_.num_added());
+	nc = apply_function(fraction, function, min_c, model_c_.num_added());
+	nd = apply_function(fraction, function, min_d, model_d_.num_added());
 	assert(nu + nb + nc + nd > 0);
 	
 	std::string refid, refid_full;
