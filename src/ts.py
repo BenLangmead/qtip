@@ -118,6 +118,7 @@ def _get_peak_gb():
 
 def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
 
+    print('Qsim ' + open(os.path.join(bin_dir, 'VERSION')).read().rstrip(), file=sys.stderr)
     tim = Timing()
     tim.start_timer('Overall')
 
