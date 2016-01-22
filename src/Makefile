@@ -1,7 +1,7 @@
 #!gmake
 
 .PHONY: all
-all: qsim-parse qsim-rewrite
+all: qsim-parse qsim-rewrite VERSION
 
 .PHONY: allall
 allall: all qsim-parse-debug qsim-rewrite-debug
@@ -9,6 +9,9 @@ allall: all qsim-parse-debug qsim-rewrite-debug
 PARSE_DEPS = qsim_parse.cpp simplesim.cpp input_model.cpp ranlib.cpp rnglib.cpp fasta.cpp
 
 REWRITE_DEPS = qsim_rewrite.cpp
+
+VERSION:
+	git describe --tags --long > $@
 
 qsim-parse: $(PARSE_DEPS)
 	g++ -O3 -o $@ $^

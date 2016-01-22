@@ -42,8 +42,6 @@ __email__ = "langmea@cs.jhu.edu"
 
 bin_dir = os.path.dirname(os.path.realpath(__file__))
 
-VERSION = '0.2.1'
-
 
 class Timing(object):
 
@@ -723,7 +721,7 @@ if __name__ == "__main__":
                     'the tandem read alignments.')
 
     if '--version' in sys.argv:
-        print('Tandem simulator, version ' + VERSION)
+        print('Qsim ' + open(os.path.join(bin_dir, 'VERSION')).read().rstrip())
         sys.exit(0)
 
     add_args(_parser)
