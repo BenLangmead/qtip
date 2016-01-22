@@ -151,6 +151,12 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         fh.setFormatter(logging.Formatter(format_str))
         logging.getLogger('').addHandler(fh)
 
+    # Set up memory profilier
+    hp = None
+    if args['profile_memory']:
+        from guppy import hpy
+        hp = hpy()
+
     if args['U'] is not None and args['m1'] is not None:
         raise RuntimeError('Input must consist of only unpaired or only paired-end reads')
     
@@ -341,6 +347,9 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         logging.warning("None of the input reads aligned; exiting")
         sys.exit(0)
 
+    if args['profile_memory']:
+        print(hp.heap(), file=sys.stderr)
+
     # ##################################################
     # 2. Parse input SAM
     # ##################################################
@@ -356,6 +365,9 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         raise RuntimeError("qsim-parse returned %d" % ret)
     logging.debug('  parsing finished; results in "%s.*"' % pass1_prefix)
     tim.end_timer('Parsing input alignments')
+
+    if args['profile_memory']:
+        print(hp.heap(), file=sys.stderr)
 
     # ##################################################
     # 3. Align tandem reads
@@ -410,6 +422,9 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         raise RuntimeError('No tandem reads written')
     tim.end_timer('Aligning tandem reads')
 
+    if args['profile_memory']:
+        print(hp.heap(), file=sys.stderr)
+
     # ##################################################
     # 4. Parse tandem alignments
     # ##################################################
@@ -428,6 +443,9 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     tandem_purge()  # delete tandem-alignment intermediates
     tim.end_timer('Parsing tandem alignments')
 
+    if args['profile_memory']:
+        print(hp.heap(), file=sys.stderr)
+
     # ##################################################
     # 5. Predict
     # ##################################################
@@ -441,7 +459,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
 
     def _do_predict(fit, tab, subdir, is_input):
         pred = fit.predict(tab, temp_man, dedup=not args['no_collapse'], training=not is_input,
-                           calc_summaries=args['assess_accuracy'], prediction_mem_limit=args['assess_limit'])
+                           calc_summaries=args['assess_accuracy'], prediction_mem_limit=args['assess_limit'],
+                           heap_profiler=hp)
         if args['vanilla_output'] is None and pred.can_assess():
             logging.info('  writing accuracy measures')
             mkdir_quiet(join(*subdir))
@@ -457,15 +476,19 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             logging.info('  writing predictions')
             pred.write_predictions(predictions_fn)
         pred.purge_temporaries()  # purge temporary files generated during prediction
+        if args['profile_memory']:
+            print(hp.heap(), file=sys.stderr)
         return pred
 
     def _do_fit(_tab_tr, fam, fraction, subdir):
-        fit = MapqFit(_tab_tr, fam, sample_fraction=fraction)
+        fit = MapqFit(_tab_tr, fam, sample_fraction=fraction, heap_profiler=hp)
         if args['vanilla_output'] is None:
             mkdir_quiet(join(*subdir))
             fit.write_feature_importances(join(*(subdir + ['featimport'])))
             fit.write_parameters(join(*(subdir + ['params'])))
         logging.info('    finishing _do_fit (peak=%0.2fGB)' % _get_peak_gb())
+        if args['profile_memory']:
+            print(hp.heap(), file=sys.stderr)
         return fit
 
     def _fits_and_predictions(fraction, fam, subdir):
@@ -500,6 +523,9 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     pass2_cleanup()
     tim.end_timer('Make MAPQ predictions')
 
+    if args['profile_memory']:
+        print(hp.heap(), file=sys.stderr)
+
     # ##################################################
     # 6. Rewrite SAM
     # ##################################################
@@ -524,6 +550,10 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
 
     out_sz = getsize(_get_final_prefix() + '.sam')
     peak_tmp = temp_man.peak_size
+
+    if args['profile_memory']:
+        print(hp.heap(), file=sys.stderr)
+
     logging.info('Output SAM size: %0.2fMB' % (out_sz / (1024.0 * 1024)))
     logging.info('Peak temporary file size: %0.2fMB (%0.2f%% of output SAM)' % (peak_tmp / (1024.0 * 1024),
                                                                                 100.0 * peak_tmp / out_sz))
@@ -636,6 +666,8 @@ def add_args(parser):
                         help='Maximum number of rows (alignments) to feed at once to the prediction function')
     parser.add_argument('--profile-prediction', action='store_const', const=True, default=False,
                         help='Run a profiler for the duration of the prediction portion')
+    parser.add_argument('--profile-memory', action='store_const', const=True, default=False,
+                        help='Use guppy/heapy to profile memory and periodically print heap usage')
 
     # Assessment of prediction accuracy
     parser.add_argument('--assess-accuracy', action='store_const', const=True, default=False,

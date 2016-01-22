@@ -1,3 +1,4 @@
+from __future__ import print_function
 import random
 import logging
 import pandas
@@ -5,6 +6,7 @@ import numpy as np
 import itertools
 import resource
 import gc
+import sys
 from predictions import MapqPredictions
 from sklearn import cross_validation
 
@@ -117,7 +119,7 @@ class MapqFit:
 
     datasets = zip('dbcu', ['Discordant', 'Bad-end', 'Concordant', 'Unpaired'], [True, False, True, False])
 
-    def _fit(self, dfs, log=logging, frac=1.0):
+    def _fit(self, dfs, log=logging, frac=1.0, heap_profiler=None):
         """ Train one model per training table. Optionally subsample training
             data first. """
         for ds, ds_long, paired in self.datasets:
@@ -155,10 +157,13 @@ class MapqFit:
             del y_train
             gc.collect()
             log.info('    Done; peak mem usage so far = %0.2fGB' % _get_peak_gb())
+            if heap_profiler is not None:
+                print(heap_profiler.heap(), file=sys.stderr)
 
     def predict(self, dfs, temp_man,
                 keep_data=False, keep_per_category=False, log=logging,
-                dedup=False, training=False, calc_summaries=False, prediction_mem_limit=10000000):
+                dedup=False, training=False, calc_summaries=False, prediction_mem_limit=10000000,
+                heap_profiler=None):
 
         name = '_'.join(['overall', 'training' if training else 'test'])
         pred_overall = MapqPredictions(temp_man, name, calc_summaries=calc_summaries,
@@ -177,6 +182,9 @@ class MapqFit:
 
             nchunk = 0
             for test_chunk in dfs.dataset_iter(ds):  # inner loop over chunks of rows
+                if heap_profiler is not None:
+                    print(heap_profiler.heap(), file=sys.stderr)
+
                 nchunk += 1
                 gc.collect()
                 log.info('  Making predictions for %s %s chunk %d, %d rows (peak mem=%0.2fGB)' %
@@ -273,7 +281,8 @@ class MapqFit:
                  dfs,  # dictionary of data frames, one per alignment type
                  model_gen,  # function that takes vector of hyperparameters, returns new model object
                  log=logging,
-                 sample_fraction=1.0):  # fraction of training data to actually use
+                 sample_fraction=1.0,  # fraction of training data to actually use
+                 heap_profiler=None):
         self.model_gen = model_gen
         self.trained_models = {}
         self.crossval_avg = {}
@@ -284,4 +293,4 @@ class MapqFit:
         self.training_labs = {}
         self.model_fam_name = None
         self.sample_fraction = sample_fraction
-        self._fit(dfs, log=log, frac=sample_fraction)
+        self._fit(dfs, log=log, frac=sample_fraction, heap_profiler=heap_profiler)
