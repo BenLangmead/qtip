@@ -171,7 +171,7 @@ class MapqFit:
         pred_per_category = {}
         log.info('  Created overall MapqPredictions (peak mem=%0.2fGB)' % _get_peak_gb())
 
-        for ds, ds_long, paired in self.datasets:  # outer loop over ailgnment types
+        for ds, ds_long, paired in self.datasets:  # outer loop over alignment types
             if ds not in dfs:
                 continue
             if keep_per_category:

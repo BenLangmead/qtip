@@ -34,6 +34,7 @@ class MapqPredictions:
         self.mapq = []
         self.category = []
         self.ids = []
+        self.mapq_precision = 3
         self.tally = defaultdict(lambda: [0, 0])
         self.tally_orig = defaultdict(lambda: [0, 0])
         self.tally_rounded = defaultdict(lambda: [0, 0])
@@ -68,14 +69,16 @@ class MapqPredictions:
             self.pred_fns.append(self.temp_man.get_file(self.temp_next_fn, group=self.temp_group_name))
             self.pred_fh = open(self.pred_fns[-1], 'wb')
         for rec in izip(pcor, ids, repeat([category]), mapq_orig_iter, data_iter, correct_iter):
-            self.last_id = int(rec[1])
+            self.last_id = rec[1]
             self.pred_fh.write(','.join(map(str, rec)) + '\n')
             self.npredictions += 1
             if rec[5] is not None:
-                pc = float(rec[0])
-                self.tally[pc][0 if rec[5] else 1] += 1
-                self.tally_orig[mapq_to_pcor(float(rec[3]))][0 if rec[5] else 1] += 1
-                self.tally_rounded[round_pcor(pc)][0 if rec[5] else 1] += 1
+                mapq = pcor_to_mapq(float(rec[0]))
+                mapq = round(mapq, self.mapq_precision)
+                mapq_orig = float(rec[3])
+                self.tally[mapq][0 if rec[5] else 1] += 1
+                self.tally_orig[mapq_to_pcor(mapq_orig)][0 if rec[5] else 1] += 1
+                self.tally_rounded[round(mapq)][0 if rec[5] else 1] += 1
 
     def _reset_mem_predictions(self):
         """ Erase in-memory copies of predictions """
@@ -271,9 +274,9 @@ class MapqPredictions:
         # calculate error measures and other measures
         if self.can_assess():
 
-            self.roc = Roc(self.tally, mapq_strata=False)
-            self.roc_orig = Roc(self.tally_orig, mapq_strata=False)
-            self.roc_rounded = Roc(self.tally_rounded, mapq_strata=False)
+            self.roc = Roc(self.tally)
+            self.roc_orig = Roc(self.tally_orig)
+            self.roc_rounded = Roc(self.tally_rounded)
 
             log.info('  Correctness information is present; loading predictions into memory')
             self._load_predictions()

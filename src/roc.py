@@ -1,6 +1,5 @@
 import pandas
 import numpy
-from collections import defaultdict
 from mapq import mapq_to_pcor_np, pcor_to_mapq_np
 
 
@@ -31,14 +30,6 @@ class Roc(object):
                          self.tab['cor'] * (1.0 - self.tab['pcor']) * (1.0 - self.tab['pcor'])
         self.tab['cum_se'] = self.tab['se'].cumsum()
         self.tot = self.tab['n'].sum()
-
-    @classmethod
-    def from_vectors(cls, mapq, cor):
-        tally = defaultdict(lambda: [0, 0])
-        cor = [0 if x else 1 for x in cor]
-        for p, c in zip(mapq, cor):
-            tally[p][c] += 1
-        return cls(tally)
 
     def cum_incorrect_and_error(self):
         """
