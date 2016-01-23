@@ -11,7 +11,7 @@ PARSE_DEPS = qsim_parse.cpp simplesim.cpp input_model.cpp ranlib.cpp rnglib.cpp 
 REWRITE_DEPS = qsim_rewrite.cpp
 
 # http://programmers.stackexchange.com/questions/141973/how-do-you-achieve-a-numeric-versioning-scheme-with-git
-# git tag -a v1.0.2 -m 'Version 1.0.2'
+# git tag -a v1.0.3 -m 'Version 1.0.3'
 # git push --tags
 VERSION:
 	git describe --tags --long > $@
