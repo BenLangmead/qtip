@@ -1220,13 +1220,13 @@ static int sam_pass1(
 				continue;
 			}
 			
-			// Case 4: Current read is paired and aligned, opposite mate is unlineigned
-			// Case 5: Current read is paired and unlineigned, opposite mate is aligned
+			// Case 4: Current read is paired and aligned, opposite mate is unaligned
+			// Case 5: Current read is paired and unaligned, opposite mate is aligned
 			//         we handle both here
 			else if(mate1->is_aligned() != mate2->is_aligned()) {
 				bool m1al = mate1->is_aligned();
 				Alignment& alm = m1al ? *mate1 : *mate2;
-				if(alm.typ == NULL || (alm.typ[0] == 'b' && alm.typ[1] == mate1->mate_flag())) {
+				if(alm.typ == NULL || (alm.typ[0] == 'b' && alm.typ[1] == alm.mate_flag())) {
 					// If this is the first alignment, determine number of ZT:Z
 					// fields and write a header line to the record output file
 					if(npair_badend == 0 && orec_b_fh != NULL) {
