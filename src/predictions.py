@@ -77,7 +77,7 @@ class MapqPredictions:
                 mapq = round(mapq, self.mapq_precision)
                 mapq_orig = float(rec[3])
                 self.tally[mapq][0 if rec[5] else 1] += 1
-                self.tally_orig[mapq_to_pcor(mapq_orig)][0 if rec[5] else 1] += 1
+                self.tally_orig[mapq_orig][0 if rec[5] else 1] += 1
                 self.tally_rounded[round(mapq)][0 if rec[5] else 1] += 1
 
     def _reset_mem_predictions(self):
