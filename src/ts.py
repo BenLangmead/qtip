@@ -669,7 +669,7 @@ def add_args(parser):
                         help='Comma separated list of subsampling fractions to try')
     parser.add_argument('--trials', metavar='int', type=int, default=1,
                         help='Number of times to repeat fiting/prediction')
-    parser.add_argument('--max-rows', metavar='int', type=int, default=500000,
+    parser.add_argument('--max-rows', metavar='int', type=int, default=250000,
                         help='Maximum number of rows (alignments) to feed at once to the prediction function')
     parser.add_argument('--profile-prediction', action='store_const', const=True, default=False,
                         help='Run a profiler for the duration of the prediction portion')
