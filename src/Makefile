@@ -29,3 +29,4 @@ qsim-rewrite-debug: $(REWRITE_DEPS)
 clean:
 	rm -rf *.dSYM
 	rm -f qsim-parse* *.csv qsim-rewrite*
+	rm -f VERSION
