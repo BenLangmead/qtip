@@ -70,15 +70,15 @@ class MapqPredictions:
             self.pred_fh = open(self.pred_fns[-1], 'wb')
         for rec in izip(pcor, ids, repeat([category]), mapq_orig_iter, data_iter, correct_iter):
             self.last_id = rec[1]
-            self.pred_fh.write(','.join(map(str, rec)) + '\n')
+            self.pred_fh.write((','.join(map(str, rec)) + '\n').encode('utf-8'))
             self.npredictions += 1
             if rec[5] is not None:
                 mapq = pcor_to_mapq(float(rec[0]))
-                mapq = round(mapq, self.mapq_precision)
                 mapq_orig = float(rec[3])
-                self.tally[mapq][0 if rec[5] else 1] += 1
-                self.tally_orig[mapq_orig][0 if rec[5] else 1] += 1
-                self.tally_rounded[round(mapq)][0 if rec[5] else 1] += 1
+                cor = 0 if rec[5] else 1
+                self.tally[round(mapq, self.mapq_precision)][cor] += 1
+                self.tally_orig[mapq_orig][cor] += 1
+                self.tally_rounded[round(mapq)][cor] += 1
 
     def _reset_mem_predictions(self):
         """ Erase in-memory copies of predictions """
@@ -102,7 +102,7 @@ class MapqPredictions:
         for pred_fn in self.pred_fns:
             with open(pred_fn, 'rb') as ifh:
                 for rec_ln in ifh:
-                    pc, ident, ct, mq_orig, data, correct = rec_ln.rstrip().split(',')
+                    pc, ident, ct, mq_orig, data, correct = rec_ln.rstrip().split(','.encode('UTF-8'))
                     mq_orig = int(mq_orig)
                     correct = int(correct)
                     pc = float(pc)
@@ -173,11 +173,11 @@ class MapqPredictions:
         auc_stats = [self.auc_diff_pct, self.auc_diff_round_pct]
         mse_stats = [self.mse_diff_pct, self.mse_diff_round_pct]
         with open(fn, 'w') as fh:
-            fh.write(','.join([self.name + '_auc_diff_pct',
-                               self.name + '_auc_diff_pct_round',
-                               self.name + '_mse_diff_pct',
-                               self.name + '_mse_diff_pct_round']) + '\n')
-            fh.write(','.join(map(str, auc_stats + mse_stats)) + '\n')
+            fh.write((','.join([self.name + '_auc_diff_pct',
+                                self.name + '_auc_diff_pct_round',
+                                self.name + '_mse_diff_pct',
+                                self.name + '_mse_diff_pct_round']) + '\n').encode('utf-8'))
+            fh.write((','.join(map(str, auc_stats + mse_stats)) + '\n').encode('utf-8'))
 
     def write_top_incorrect(self, fn, n=50):
         """ Write a ROC table with # correct/# incorrect stratified by
@@ -196,7 +196,7 @@ class MapqPredictions:
                         int_ident = int(ident)
                         assert int_ident > last_id, "%d,%d:%s" % (int_ident, last_id, str(self.pred_fns))
                         last_id = int_ident
-                        ofh.write('%s,%0.3f\n' % (ident, pcor_to_mapq(float(pcor))))
+                        ofh.write(('%s,%0.3f\n' % (ident, pcor_to_mapq(float(pcor)))).encode('utf-8'))
         else:
             # have to merge!  more complex
             pred_fhs = list(map(lambda x: open(x, 'rb'), self.pred_fns))
@@ -204,7 +204,7 @@ class MapqPredictions:
             done = [False] * len(pred_fhs)
             nmerged = 0
             last_min_rec = -1
-            with open(fn, 'w') as ofh:
+            with open(fn, 'wb') as ofh:
                 while True:
                     min_rec = (None, float('inf'))
                     min_i = -1
@@ -215,7 +215,7 @@ class MapqPredictions:
                                 recs[i] = None
                                 done[i] = True
                             else:
-                                pcor, ident, _, _, _, _ = ln.rstrip().split(',')
+                                pcor, ident, _, _, _, _ = ln.rstrip().split(','.encode('utf-8'))
                                 recs[i] = (pcor, int(ident))
                         if recs[i] is not None and recs[i][1] < min_rec[1]:
                             min_rec, min_i = recs[i], i
@@ -225,7 +225,7 @@ class MapqPredictions:
                     nmerged += 1
                     assert min_rec[1] > last_min_rec, "%d,%d:%s" % (min_rec[1], last_min_rec, str(self.pred_fns))
                     last_min_rec = min_rec[1]
-                    ofh.write('%d,%0.3f\n' % (min_rec[1], pcor_to_mapq(float(min_rec[0]))))
+                    ofh.write(('%d,%0.3f\n' % (min_rec[1], pcor_to_mapq(float(min_rec[0])))).encode('utf-8'))
                     recs[min_i] = None
             assert nmerged == self.npredictions, (nmerged, self.npredictions)
             for fh in pred_fhs:

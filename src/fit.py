@@ -117,7 +117,7 @@ class MapqFit:
         assert best_pred is not None
         return best_pred, best_params, max(scores)
 
-    datasets = zip('dbcu', ['Discordant', 'Bad-end', 'Concordant', 'Unpaired'], [True, False, True, False])
+    datasets = list(zip('dbcu', ['Discordant', 'Bad-end', 'Concordant', 'Unpaired'], [True, False, True, False]))
 
     def _fit(self, dfs, log=logging, frac=1.0, heap_profiler=None):
         """ Train one model per training table. Optionally subsample training
