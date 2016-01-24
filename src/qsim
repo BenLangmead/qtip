@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
-from subprocess import Popen, PIPE
 
 """
 qsim
@@ -14,28 +13,11 @@ then re-calcualtes MAPQs for the original input using that predictor.
 
 import os
 from os.path import join, getsize
+from subprocess import Popen, PIPE
 import sys
 import time
 import logging
-import errno
 import resource
-import numpy as np
-import random
-import shutil
-try:
-    from Queue import Queue, Empty, Full
-except ImportError:
-    from queue import Queue, Empty, Full  # python 3.x
-from operator import itemgetter
-
-# Modules that are part of the tandem simulator
-from bowtie2 import Bowtie2
-from bwamem import BwaMem
-from snap import SnapAligner
-from tempman import TemporaryFileManager
-from model_fam import model_family
-from feature_table import FeatureTableReader
-from fit import MapqFit
 
 __author__ = "Ben Langmead"
 __email__ = "langmea@cs.jhu.edu"
@@ -73,6 +55,7 @@ def sanity_check_binary(exe):
 
 def mkdir_quiet(dr):
     # Create output directory if needed
+    import errno
     if not os.path.isdir(dr):
         try:
             os.makedirs(dr)
@@ -89,6 +72,8 @@ def recursive_size(dr):
 
 
 def seed_all(seed):
+    import numpy as np
+    import random
     random.seed(seed)
     np.random.seed(seed)
 
@@ -106,6 +91,7 @@ def _at_least_one_read_aligned(sam_fn):
 
 
 def _cat(fns, dst_fn):
+    import shutil
     with open(dst_fn, 'wb') as ofh:
         for fn in fns:
             with open(fn, 'rb') as fh:
@@ -160,6 +146,9 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         raise RuntimeError('Input must consist of only unpaired or only paired-end reads')
     
     # Start building alignment command; right now we support Bowtie 2, BWA-MEM and SNAP
+    from bowtie2 import Bowtie2
+    from bwamem import BwaMem
+    from snap import SnapAligner
     aligner_class = Bowtie2
     align_cmd = None
     if args['aligner'] == 'bowtie2':
@@ -182,6 +171,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         raise RuntimeError('Aligner not supported: "%s"' % args['aligner'])
 
     # for storing temp files and keep track of how big they get
+    from tempman import TemporaryFileManager
     temp_man = TemporaryFileManager(args['temp_directory'])
 
     def _get_pass1_file_prefix():
@@ -306,6 +296,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         return [ufn] if _exists_and_nonempty(ufn) else []
 
     def _paired_tandem_reads(prefix, single_file=False):
+        from operator import itemgetter
         ls = []
         cfn1, cfn2 = prefix + '_reads_c_1.fastq', prefix + '_reads_c_2.fastq'
         if _exists_and_nonempty(cfn1):
@@ -458,6 +449,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     predictions_fn, purge_predictions = _get_predictions_fn()
     logging.info('Making MAPQ predictions')
     logging.info('  instantiating feature table readers')
+    from feature_table import FeatureTableReader
     tab_ts, tab_tr = FeatureTableReader(pass1_prefix, chunksize=args['max_rows']), \
                      FeatureTableReader(pass2_prefix, chunksize=args['max_rows'])
 
@@ -485,6 +477,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         return pred
 
     def _do_fit(_tab_tr, fam, fraction, subdir):
+        from fit import MapqFit
         fit = MapqFit(_tab_tr, fam, sample_fraction=fraction, heap_profiler=hp)
         if args['vanilla_output'] is None:
             mkdir_quiet(join(*subdir))
@@ -506,6 +499,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             _do_predict(fit, tab_tr, subdir + ['training'], False)
 
     def _all_fits_and_predictions():
+        from model_fam import model_family
         fractions = list(map(float, args['subsampling_series'].split(',')))
         for fraction in fractions:
             if fraction < 0.0 or fraction > 1.0:
