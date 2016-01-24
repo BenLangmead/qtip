@@ -12,7 +12,7 @@ LAMBDA_IDX=$(BT2_EG)/index/lambda_virus
 all: full_e2e/final.sam extra_e2e/final.sam final_full_e2e.sam
 
 final_full_e2e.sam: .r_1.fastq .r_2.fastq
-	python ../ts.py \
+	python ../qsim \
 		--ref $(LAMBDA) \
 		--m1 .r_1.fastq \
 		--m2 .r_2.fastq \
@@ -26,7 +26,7 @@ final_full_e2e.sam: .r_1.fastq .r_2.fastq
 		--assess-accuracy
 
 full_e2e/final.sam: .r_1.fastq .r_2.fastq
-	python ../ts.py \
+	python ../qsim \
 		--ref $(LAMBDA) \
 		--m1 .r_1.fastq \
 		--m2 .r_2.fastq \
@@ -41,7 +41,7 @@ full_e2e/final.sam: .r_1.fastq .r_2.fastq
 		--assess-accuracy
 
 extra_e2e/final.sam: .r_1.fastq .r_2.fastq
-	python ../ts.py \
+	python ../qsim \
 		--ref $(LAMBDA) \
 		--m1 .r_1.fastq \
 		--m2 .r_2.fastq \
