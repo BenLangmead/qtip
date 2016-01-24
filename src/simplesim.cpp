@@ -349,10 +349,10 @@ void StreamingSimulator::simulate_batch(
 				const size_t rflen_2 = edit_xscript_to_rflen(t.edit_xscript_2_);
 				if(t.upstream1_) {
 					off_1 = off;
-					off_2 = off + t.fraglen_ - rflen_2;
+					off_2 = off + std::max(t.fraglen_, rflen_2) - rflen_2;
 				} else {
 					off_2 = off;
-					off_1 = off + t.fraglen_ - rflen_1;
+					off_1 = off + std::max(t.fraglen_, rflen_1) - rflen_1;
 				}
 				for(size_t j = off_1; j < off_1 + rflen_1; j++) {
 					const int b = buf[j];
