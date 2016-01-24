@@ -71,7 +71,7 @@ extra_e2e/final.sam: .r_1.fastq .r_2.fastq
 		-rn 2 \
 		-ll 300 \
 		-le 40 \
-		-n 10 \
+		-n 8 \
 		-N 25000 \
 		-o .rtmp.fastq \
 		$(LAMBDA)
