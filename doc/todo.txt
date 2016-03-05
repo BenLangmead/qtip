@@ -1,6 +1,0 @@
-- Try a range of read lengths and sensitivity settings (fix simulator)
-- Try a range of simulators (fix read length and sensitivity)
-- Try a real-world dataset (e.g. flow-sorted)
-  + Maybe just make a ROC, since we don't know enough to make a good
-    predicted/actual plot
-- Try a dataset where reads are of various lengths
