@@ -16,7 +16,7 @@ $(NM)-build: $(NM)-dir/bowtie2-build-s
 	ln -s -f $(NM)-dir/$(NM)-build $@
 
 $(NM): $(NM)-dir/bowtie2-align-s
-	ln -s -f $< $@
+	ln -s -f $(NM)-dir/$(NM) $@
 
 $(NM)-dir/bowtie2-build-s: $(NM)-dir
 	make -C $(NM)-dir bowtie2-build-s
