@@ -154,17 +154,19 @@ class MapqPredictions:
         summ_dict['correct'] = [self.correct[x] for x in incor_idx]
         return pandas.DataFrame.from_dict(summ_dict)
 
-    def write_rocs(self, roc_prefix, cid_prefix, csed_prefix):
+    def write_rocs(self, roc_prefix, cid_prefix=None, csed_prefix=None):
         """ Write a ROC table with # correct/# incorrect stratified by
             predicted MAPQ. """
         assert self.correct is not None
         self.roc.tab.to_csv(roc_prefix + '.csv', sep=',', index=False)
         self.roc_rounded.tab.to_csv(roc_prefix + '_round.csv', sep=',', index=False)
         self.roc_orig.tab.to_csv(roc_prefix + '_orig.csv', sep=',', index=False)
-        Roc.write_cum_incorrect_diff(self.roc, self.roc_orig, cid_prefix + '.csv')
-        Roc.write_cum_incorrect_diff(self.roc_rounded, self.roc_orig, cid_prefix + '_round.csv')
-        Roc.write_cum_squared_error(self.roc, self.roc_orig, csed_prefix + '.csv')
-        Roc.write_cum_squared_error(self.roc_rounded, self.roc_orig, csed_prefix + '_round.csv')
+        if cid_prefix is not None:
+            Roc.write_cum_incorrect_diff(self.roc, self.roc_orig, cid_prefix + '.csv')
+            Roc.write_cum_incorrect_diff(self.roc_rounded, self.roc_orig, cid_prefix + '_round.csv')
+        if csed_prefix is not None:
+            Roc.write_cum_squared_error(self.roc, self.roc_orig, csed_prefix + '.csv')
+            Roc.write_cum_squared_error(self.roc_rounded, self.roc_orig, csed_prefix + '_round.csv')
 
     def write_summary_measures(self, fn):
         """ Write a ROC table with # correct/# incorrect stratified by
