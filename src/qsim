@@ -517,11 +517,16 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 seed_all(seed)
                 logging.info('  pseudo-random seed %d' % seed)
                 fam = model_family(args['model_family'], seed, args['optimization_tolerance'])
-                _fits_and_predictions(fraction, fam, _odir + ['trial%d' % (i+1)] if args['trials'] > 1 else _odir, include_mapq=True)
+                _fits_and_predictions(fraction, fam,
+                                      _odir + ['trial%d' % (i+1)] if args['trials'] > 1 else _odir,
+                                      include_mapq=True)
                 if args['try_exclude_mapq']:
                     assert _odir[-1] == 'mapq_included'
                     _odir[-1] = 'mapq_excluded'
-                    _fits_and_predictions(fraction, fam, _odir + ['trial%d' % (i+1)] if args['trials'] > 1 else _odir, include_mapq=False)
+                    _fits_and_predictions(fraction, fam,
+                                          _odir + ['trial%d' % (i+1)] if args['trials'] > 1 else _odir,
+                                          include_mapq=False)
+                    _odir[-1] = 'mapq_included'
 
     _all_fits_and_predictions()
     pass1_cleanup()
