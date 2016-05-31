@@ -143,17 +143,7 @@ struct Alignment {
 	inline char mate_flag() const {
 		return ((flag & 64) != 0) ? '1' : (((flag & 128) != 0) ? '2' : '0');
 	}
-	
-	/**
-	 * Return true iff this read should be parsed as unpaired.
-	inline bool is_unpaired() const {
-		if(typ == NULL || strcmp(typ, "unp") == 0) {
-			return mate_flag() == '0';
-		}
-		return false;
-	}
-	 */
-	
+
 	/**
 	 * Return fragment length, as inferred from pos & CIGAR.  Don't rely on
 	 * tlen, where there's ambiguity about how to treat soft clipping.
