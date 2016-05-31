@@ -453,15 +453,14 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     tab_ts, tab_tr = FeatureTableReader(pass1_prefix, chunksize=args['max_rows']), \
                      FeatureTableReader(pass2_prefix, chunksize=args['max_rows'])
 
-    def _do_predict(fit, tab, subdir, is_input):
+    def _do_predict(fit, tab, subdir, is_input, include_mapq=False):
         pred = fit.predict(tab, temp_man, dedup=not args['no_collapse'], training=not is_input,
                            calc_summaries=args['assess_accuracy'], prediction_mem_limit=args['assess_limit'],
-                           heap_profiler=hp)
+                           heap_profiler=hp, include_mapq=include_mapq)
         if args['vanilla_output'] is None and pred.can_assess():
             logging.info('  writing accuracy measures')
             mkdir_quiet(join(*subdir))
             assert pred.ordered_by == 'pcor', pred.ordered_by
-            #pred.write_rocs(join(*(subdir + ['roc'])), join(*(subdir + ['cid'])), join(*(subdir + ['csed'])))
             pred.write_rocs(join(*(subdir + ['roc'])))
             pred.write_top_incorrect(join(*(subdir + ['top_incorrect.csv'])))
             pred.write_summary_measures(join(*(subdir + ['summary.csv'])))
@@ -477,9 +476,9 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             print(hp.heap(), file=sys.stderr)
         return pred
 
-    def _do_fit(_tab_tr, fam, fraction, subdir):
+    def _do_fit(_tab_tr, fam, fraction, subdir, include_mapq=False):
         from fit import MapqFit
-        fit = MapqFit(_tab_tr, fam, sample_fraction=fraction, heap_profiler=hp)
+        fit = MapqFit(_tab_tr, fam, sample_fraction=fraction, heap_profiler=hp, include_mapq=include_mapq)
         if args['vanilla_output'] is None:
             mkdir_quiet(join(*subdir))
             fit.write_feature_importances(join(*(subdir + ['featimport'])))
@@ -489,15 +488,16 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             print(hp.heap(), file=sys.stderr)
         return fit
 
-    def _fits_and_predictions(fraction, fam, subdir):
+    def _fits_and_predictions(fraction, fam, subdir, include_mapq=False):
         logging.info('  fitting to tandem alignments')
         subdir_ts = subdir + ['test'] if args['predict_for_training'] else subdir
-        fit = _do_fit(tab_tr, fam, fraction, subdir)
+        fit = _do_fit(tab_tr, fam, fraction, subdir, include_mapq=include_mapq)
         logging.info('Making predictions for input alignments (peak=%0.2fGB)' % _get_peak_gb())
-        _do_predict(fit, tab_ts, subdir_ts, True)
+        _do_predict(fit, tab_ts, subdir_ts, True, include_mapq=include_mapq)
         if args['predict_for_training']:
             logging.info('Making predictions for tandem (training) alignments')
-            _do_predict(fit, tab_tr, subdir + ['training'], False)
+            _do_predict(fit, tab_tr, subdir + ['training'], False, include_mapq=include_mapq)
+
 
     def _all_fits_and_predictions():
         from model_fam import model_family
@@ -506,6 +506,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             if fraction < 0.0 or fraction > 1.0:
                 raise RuntimeError('Bad subsampling fraction: %f' % fraction)
             _odir = [odir, 'sample' + str(fraction)] if len(fractions) > 1 else [odir]
+            if args['try_exclude_mapq']:
+                _odir.append('mapq_included')
             if len(fractions) > 1:
                 logging.info('  trying sampling fraction %0.02f%%' % (100.0 * fraction))
             for i in range(args['trials']):
@@ -515,7 +517,11 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 seed_all(seed)
                 logging.info('  pseudo-random seed %d' % seed)
                 fam = model_family(args['model_family'], seed, args['optimization_tolerance'])
-                _fits_and_predictions(fraction, fam, _odir + ['trial%d' % (i+1)] if args['trials'] > 1 else _odir)
+                _fits_and_predictions(fraction, fam, _odir + ['trial%d' % (i+1)] if args['trials'] > 1 else _odir, include_mapq=True)
+                if args['try_exclude_mapq']:
+                    assert _odir[-1] == 'mapq_included'
+                    _odir[-1] = 'mapq_excluded'
+                    _fits_and_predictions(fraction, fam, _odir + ['trial%d' % (i+1)] if args['trials'] > 1 else _odir, include_mapq=False)
 
     _all_fits_and_predictions()
     pass1_cleanup()
@@ -598,17 +604,6 @@ def add_args(parser):
                              'truncated to this length')
     parser.add_argument('--input-model-size', metavar='int', type=int, default=30000, required=False,
                         help='Number of templates to keep when building input model.')
-    # unused
-    """
-    parser.add_argument('--low-score-bias', metavar='float', type=float, default=1.0, required=False,
-                        help='When simulating reads, we randomly select a real read\'s alignment profile'
-                             'as a template.  A higher value for this parameter makes it more likely'
-                             'we\'ll choose a low-scoring alignment.  If set to 1, all templates are'
-                             'equally likely.')
-    parser.add_argument('--fraction-even', metavar='float', type=float, default=1.0, required=False,
-                        help='Fraction of the time to sample templates from the unstratified input '
-                             'sample versus the stratified sample.')
-    """
 
     # Qsim-parse: simulator
     parser.add_argument('--sim-unp-min', metavar='int', type=int, default=30000, required=False,
@@ -660,6 +655,8 @@ def add_args(parser):
                         help='Make predictions (and associated plots/output files) for training (tandem) data')
     parser.add_argument('--no-collapse', action='store_const', const=True, default=False,
                         help='Don\'t remove redundant rows just before prediction')
+    parser.add_argument('--try-exclude-mapq', action='store_const', const=True, default=False,
+                        help='Try both with and without including the tool-predicted MAPQ as a feature')
     parser.add_argument('--subsampling-series', metavar='floats', type=str, default='1.0',
                         help='Comma separated list of subsampling fractions to try')
     parser.add_argument('--trials', metavar='int', type=int, default=1,

@@ -26,17 +26,20 @@ def _get_peak_gb():
 class MapqFit:
     """ Encapsulates an object that fits models and makes predictions """
 
-    def _df_to_mat(self, data, shortname, training, log=logging):
+    def _df_to_mat(self, data, shortname, training, log=logging, include_mapq=False):
         """ Convert a data frame read with read_dataset into a matrix suitable
             for use with scikit-learn, and parallel vectors giving the
             original MAPQ predictions, the ids for the alignments (i.e. their
             line of origin) and whether or not the alignments are correct. """
         labs = []
+        exclude_cols = ['id', 'correct']
+        if not include_mapq:
+            exclude_cols.append('mapq')
         if training:
             assert shortname not in self.training_labs
             log.info('  Removing duplicate columns')
             for col in data:
-                if col not in ['id', 'mapq', 'correct'] and data[col].nunique() > 1:
+                if col not in exclude_cols and data[col].nunique() > 1:
                     labs.append(col)
             to_remove = set()
             for x, y in itertools.combinations(labs, 2):
@@ -119,7 +122,7 @@ class MapqFit:
 
     datasets = list(zip('dbcu', ['Discordant', 'Bad-end', 'Concordant', 'Unpaired'], [True, False, True, False]))
 
-    def _fit(self, dfs, log=logging, frac=1.0, heap_profiler=None):
+    def _fit(self, dfs, log=logging, frac=1.0, heap_profiler=None, include_mapq=False):
         """ Train one model per training table. Optionally subsample training
             data first. """
         for ds, ds_long, paired in self.datasets:
@@ -135,7 +138,7 @@ class MapqFit:
                                 'can correctly resolve point of origin for all reads.  Treat '
                                 'results circumspectly.' % train['correct'][0])
             # extract features, convert to matrix
-            x_train, _, mapq_orig_train, y_train, self.col_names[ds] = self._df_to_mat(train, ds, True, log=log)
+            x_train, _, mapq_orig_train, y_train, self.col_names[ds] = self._df_to_mat(train, ds, True, log=log, include_mapq=include_mapq)
             assert x_train.shape[0] == y_train.shape[0]
             assert x_train.shape[1] > 0
             # optionally subsample
@@ -163,7 +166,7 @@ class MapqFit:
     def predict(self, dfs, temp_man,
                 keep_data=False, keep_per_category=False, log=logging,
                 dedup=False, training=False, calc_summaries=False, prediction_mem_limit=10000000,
-                heap_profiler=None):
+                heap_profiler=None, include_mapq=False):
 
         name = '_'.join(['overall', 'training' if training else 'test'])
         pred_overall = MapqPredictions(temp_man, name, calc_summaries=calc_summaries,
@@ -190,7 +193,7 @@ class MapqFit:
                 log.info('  Making predictions for %s %s chunk %d, %d rows (peak mem=%0.2fGB)' %
                          ('training' if training else 'test', ds_long, nchunk, test_chunk.shape[0], _get_peak_gb()))
                 log.info('    Loading data')
-                x_test, ids, mapq_orig_test, y_test, col_names = self._df_to_mat(test_chunk, ds, False, log=log)
+                x_test, ids, mapq_orig_test, y_test, col_names = self._df_to_mat(test_chunk, ds, False, log=log, include_mapq=include_mapq)
                 del test_chunk
                 gc.collect()
                 if dedup:
@@ -282,7 +285,8 @@ class MapqFit:
                  model_gen,  # function that takes vector of hyperparameters, returns new model object
                  log=logging,
                  sample_fraction=1.0,  # fraction of training data to actually use
-                 heap_profiler=None):
+                 heap_profiler=None,
+                 include_mapq=False):
         self.model_gen = model_gen
         self.trained_models = {}
         self.crossval_avg = {}
@@ -293,4 +297,4 @@ class MapqFit:
         self.training_labs = {}
         self.model_fam_name = None
         self.sample_fraction = sample_fraction
-        self._fit(dfs, log=log, frac=sample_fraction, heap_profiler=heap_profiler)
+        self._fit(dfs, log=log, frac=sample_fraction, heap_profiler=heap_profiler, include_mapq=include_mapq)
