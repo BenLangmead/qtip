@@ -5,14 +5,17 @@ __author__ = 'langmead'
 
 
 class ModelFamily(object):
-    """ Encapsulates a model family and a simple interface for search
-        hyperparameter space. """
+    """ Model family and simple hill-climbing hyperparameter search. """
 
     def __init__(self, name, new_predictor, params, round_to, min_separation, start_in_middle=True):
         """
-        new_predictor: function that takes set of params and returns
-                       new predictor with those params
-        params: list of lists
+        name: name indicating the type of model, e.g. "RandomForestRegressor"
+        new_predictor: function taking hyperparameters and returning new predictor with those params
+        params: hyperparameters
+        round_to: round scores off to this granularity when hill climbing
+        min_separation: require an improvement of at least this much when optimizing
+        start_in_middle: if true, hyperparameter search starts in middle of hyperparameter ranges.
+                         if false, starts at index 0
         """
         self.name = name
         self.new_predictor = new_predictor  # returns new predictor given parameters
@@ -49,6 +52,9 @@ class ModelFamily(object):
 
     def _idxs_to_params(self, idxs):
         return [self.params[i][j] for i, j in enumerate(idxs)]
+
+    def predictor_from_params(self, params):
+        return self.new_predictor(params)
 
     def next_predictor(self):
         if len(self.workset) > 0:
