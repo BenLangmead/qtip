@@ -118,11 +118,11 @@ class MapqFit:
         best_params, best_pred = mf.best_predictor()
         log.debug("BEST: %s, avg=%0.3f, %s" % (dataset_shortname, max(scores), str(best_params)))
         assert best_pred is not None
-        return best_pred, best_params, max(scores)
+        return best_pred, best_params
 
     datasets = list(zip('dbcu', ['Discordant', 'Bad-end', 'Concordant', 'Unpaired'], [True, False, True, False]))
 
-    def _fit(self, dfs, log=logging, frac=1.0, heap_profiler=None, include_mapq=False):
+    def _fit(self, dfs, log=logging, frac=1.0, heap_profiler=None, include_mapq=False, model_params=None):
         """ Train one model per training table. Optionally subsample training
             data first. """
         for ds, ds_long, paired in self.datasets:
@@ -138,7 +138,8 @@ class MapqFit:
                                 'can correctly resolve point of origin for all reads.  Treat '
                                 'results circumspectly.' % train['correct'][0])
             # extract features, convert to matrix
-            x_train, _, mapq_orig_train, y_train, self.col_names[ds] = self._df_to_mat(train, ds, True, log=log, include_mapq=include_mapq)
+            x_train, _, mapq_orig_train, y_train, self.col_names[ds] =\
+                self._df_to_mat(train, ds, True, log=log, include_mapq=include_mapq)
             assert x_train.shape[0] == y_train.shape[0]
             assert x_train.shape[1] > 0
             # optionally subsample
@@ -151,10 +152,15 @@ class MapqFit:
             log.info('Fitting %d %s training records; %d features each' % (x_train.shape[0], ds_long, x_train.shape[1]))
             assert x_train.shape[0] == y_train.shape[0]
             self.trained_shape[ds] = x_train.shape
-            self.trained_models[ds], self.trained_params[ds], self.crossval_avg[ds] = \
-                self._crossval_fit(self.model_gen, x_train, y_train, ds)
-            # fit training data with the model
-            log.info('    Chose parameters: %s' % str(self.trained_params[ds]))
+            if model_params is None:
+                self.trained_models[ds], self.trained_params[ds] = \
+                    self._crossval_fit(self.model_gen, x_train, y_train, ds)
+                log.info('    Chose parameters: %s' % str(self.trained_params[ds]))
+            else:
+                self.trained_models[ds] = self.model_gen.predictor_from_params(model_params)
+                self.trained_models[ds].fit(x_train, y_train)
+                self.trained_params[ds] = ':'.join(map(str, model_params))
+                log.info('    Using user-specified parameters: %s' % str(self.trained_params[ds]))
             self.trained_models[ds].fit(x_train, y_train)
             del x_train
             del y_train
@@ -286,10 +292,10 @@ class MapqFit:
                  log=logging,
                  sample_fraction=1.0,  # fraction of training data to actually use
                  heap_profiler=None,
-                 include_mapq=False):
+                 include_mapq=False,
+                 model_params=None):
         self.model_gen = model_gen
         self.trained_models = {}
-        self.crossval_avg = {}
         self.crossval_std = {}
         self.col_names = {}
         self.trained_params = {}
@@ -297,4 +303,5 @@ class MapqFit:
         self.training_labs = {}
         self.model_fam_name = None
         self.sample_fraction = sample_fraction
-        self._fit(dfs, log=log, frac=sample_fraction, heap_profiler=heap_profiler, include_mapq=include_mapq)
+        self._fit(dfs, log=log, frac=sample_fraction, heap_profiler=heap_profiler, include_mapq=include_mapq,
+                  model_params=model_params)
