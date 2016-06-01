@@ -456,7 +456,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     def _do_predict(fit, tab, subdir, is_input, include_mapq=False):
         pred = fit.predict(tab, temp_man, dedup=not args['no_collapse'], training=not is_input,
                            calc_summaries=args['assess_accuracy'], prediction_mem_limit=args['assess_limit'],
-                           heap_profiler=hp, include_mapq=include_mapq)
+                           heap_profiler=hp, include_mapq=include_mapq, keep_data=args['assess_accuracy'])
         if args['vanilla_output'] is None and pred.can_assess():
             logging.info('  writing accuracy measures')
             mkdir_quiet(join(*subdir))
@@ -478,7 +478,11 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
 
     def _do_fit(_tab_tr, fam, fraction, subdir, include_mapq=False):
         from fit import MapqFit
-        fit = MapqFit(_tab_tr, fam, sample_fraction=fraction, heap_profiler=hp, include_mapq=include_mapq)
+        model_params = None
+        if args['model_params'] is not None:
+            model_params = map(float, args['model_params'].split(':'))
+        fit = MapqFit(_tab_tr, fam, sample_fraction=fraction, heap_profiler=hp, include_mapq=include_mapq,
+                      model_params=model_params)
         if args['vanilla_output'] is None:
             mkdir_quiet(join(*subdir))
             fit.write_feature_importances(join(*(subdir + ['featimport'])))
@@ -654,6 +658,8 @@ def add_args(parser):
     # Prediction
     parser.add_argument('--model-family', metavar='family', type=str, required=False,
                         default='ExtraTrees', help='{RandomForest | ExtraTrees}')
+    parser.add_argument('--model-params', metavar='parameters', type=str, required=False,
+                        help='hyperparameters for model; for RandomForest or ExtraTrees: (#trees):(max depth)')
     parser.add_argument('--optimization-tolerance', metavar='float', type=float, default=1e-3,
                         help='Tolerance when searching for best model parameters')
     parser.add_argument('--predict-for-training', action='store_const', const=True, default=False,
