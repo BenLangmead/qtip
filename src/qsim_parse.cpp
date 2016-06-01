@@ -1475,7 +1475,7 @@ int main(int argc, char **argv) {
 			cerr << "  s: simulate reads based on input model templates" << endl;
 			cerr << "Arguments:" << endl;
 			cerr << "  wiggle <int>: if the reported alignment is within "
-			     << "this many of the true ailgnment, it's considered correct"
+			     << "this many of the true alignment, it's considered correct"
 			     << endl;
 		}
 	}
