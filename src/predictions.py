@@ -196,7 +196,7 @@ class MapqPredictions:
             with open(self.pred_fns[0], 'rb') as ifh:  # no merge needed
                 with open(fn, 'w') as ofh:
                     for rec_ln in ifh:
-                        pcor, ident, _, _, _, _ = rec_ln.rstrip().split(',')
+                        pcor, ident = rec_ln.rstrip().split(','.encode('utf-8'))[:2]
                         int_ident = int(ident)
                         assert int_ident > last_id, "%d,%d:%s" % (int_ident, last_id, str(self.pred_fns))
                         last_id = int_ident
