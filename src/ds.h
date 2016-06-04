@@ -2,6 +2,7 @@
 #define __qsim__ds__
 
 #include <cassert>
+#include <algorithm>
 #include <string.h>
 #include "rnglib.hpp"
 

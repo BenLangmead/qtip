@@ -102,7 +102,9 @@ class MapqPredictions:
         for pred_fn in self.pred_fns:
             with open(pred_fn, 'rb') as ifh:
                 for rec_ln in ifh:
-                    pc, ident, ct, mq_orig, data, correct = rec_ln.rstrip().split(','.encode('UTF-8'))
+                    toks = rec_ln.rstrip().split(','.encode('UTF-8'))
+                    pc, ident, ct, mq_orig, correct = toks[0], toks[1], toks[2], toks[3], toks[-1]
+                    data = ','.join(toks[4:-1])
                     mq_orig = int(mq_orig)
                     correct = int(correct)
                     pc = float(pc)
@@ -217,7 +219,7 @@ class MapqPredictions:
                                 recs[i] = None
                                 done[i] = True
                             else:
-                                pcor, ident, _, _, _, _ = ln.rstrip().split(','.encode('utf-8'))
+                                pcor, ident = ln.rstrip().split(','.encode('utf-8'))[:2]
                                 recs[i] = (pcor, int(ident))
                         if recs[i] is not None and recs[i][1] < min_rec[1]:
                             min_rec, min_i = recs[i], i

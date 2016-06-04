@@ -18,10 +18,10 @@
 #include "ranlib.hpp"
 
 #define SIM_STARTSWITH_LITERAL "qsim!"
-#define SIM_SEPARATOR_LITERAL ":"
+#define SIM_SEPARATOR_LITERAL ':'
 
 static const char * sim_startswith = SIM_STARTSWITH_LITERAL;
-static const char * sim_sep = SIM_SEPARATOR_LITERAL;
+static const char sim_sep = SIM_SEPARATOR_LITERAL;
 
 static inline char draw_base() {
     return "ACGT"[std::min((int)(r4_uni_01() * 4), 3)];

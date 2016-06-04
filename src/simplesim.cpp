@@ -100,7 +100,7 @@ char asc2dnacomp[] = {
  */
 void SimulatedRead::write(FILE *fh, const char *typ) {
 	size_t len = strlen(qual_);
-	fprintf(fh, "@%s%s%s%s%c%s%llu%s%d%s%s\n",
+	fprintf(fh, "@%s%c%s%c%c%c%llu%c%d%c%s\n",
 			sim_startswith, sim_sep,
 			refid_, sim_sep,
 			fw_ ? '+' : '-', sim_sep,
@@ -137,7 +137,7 @@ void SimulatedRead::write_pair(
 {
 	FILE *fhs[2] = {fh1, fh2};
 	for(size_t i = 0; i < 2; i++) {
-		fprintf(fhs[i], "@%s%s%s%s%c%s%llu%s%d%s%s%s%c%s%llu%s%d%s%s\n",
+		fprintf(fhs[i], "@%s%c%s%c%c%c%llu%c%d%c%s%c%c%c%llu%c%d%c%s\n",
 				sim_startswith, sim_sep,
 				rd1.refid_, sim_sep,
 				rd1.fw_ ? '+' : '-', sim_sep, // got different fws
