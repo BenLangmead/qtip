@@ -157,7 +157,9 @@ class MapqFit:
                     self._crossval_fit(self.model_gen, x_train, y_train, ds)
                 log.info('    Chose parameters: %s' % str(self.trained_params[ds]))
             else:
-                self.trained_models[ds] = self.model_gen.predictor_from_params(model_params)
+                mf = self.model_gen()
+                self.trained_models[ds] = mf.predictor_from_params(model_params)
+                self.model_fam_name = mf.name
                 self.trained_models[ds].fit(x_train, y_train)
                 self.trained_params[ds] = ':'.join(map(str, model_params))
                 log.info('    Using user-specified parameters: %s' % str(self.trained_params[ds]))

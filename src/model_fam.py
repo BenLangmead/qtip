@@ -86,7 +86,8 @@ class ModelFamily(object):
 def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.01):
     # These perform OK but not as well as the extremely random trees
     def _gen(params):
-        return RandomForestRegressor(n_estimators=params[0], max_depth=params[1],
+        return RandomForestRegressor(n_estimators=int(round(params[0])),
+                                     max_depth=int(round(params[1])),
                                      random_state=random_seed,
                                      max_features=2,
                                      oob_score=True, bootstrap=True)
@@ -98,7 +99,8 @@ def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.01):
 def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.002):
     # These perform quite well
     def _gen(params):
-        return ExtraTreesRegressor(n_estimators=params[0], max_depth=params[1],
+        return ExtraTreesRegressor(n_estimators=int(round(params[0])),
+                                   max_depth=int(round(params[1])),
                                    random_state=random_seed,
                                    max_features=0.5,
                                    oob_score=True, bootstrap=True)
