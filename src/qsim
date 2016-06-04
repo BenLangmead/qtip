@@ -18,6 +18,7 @@ import sys
 import time
 import logging
 import resource
+import datetime
 
 __author__ = "Ben Langmead"
 __email__ = "langmea@cs.jhu.edu"
@@ -130,7 +131,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     level = logging.DEBUG if args['verbose'] else logging.INFO
     logging.basicConfig(format=format_str, datefmt='%m/%d/%y-%H:%M:%S', level=level)
     if args['output_directory'] is not None:
-        fn = join(odir, 'ts_logs.txt')
+        fn = join(odir, 'ts_logs' + datetime.datetime.now().strftime('%Y_%m_%d_%H_%M_%S') + '.txt')
         fh = logging.FileHandler(fn)
         fh.setLevel(logging.DEBUG)
         fh.setFormatter(logging.Formatter(format_str))
@@ -318,76 +319,107 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     # 1. Align input reads
     # ##################################################
 
-    tim.start_timer('Aligning input reads')
     input_sam_fn, input_sam_purge = _get_input_sam_fn()
-    logging.info('Command for aligning input data: "%s"' % align_cmd)
-    aligner = aligner_class(
-        align_cmd,
-        aligner_args,
-        aligner_unpaired_args,
-        aligner_paired_args,
-        args['index'],
-        unpaired=args['U'],
-        paired=None if args['m1'] is None else zip(args['m1'], args['m2']),
-        sam=input_sam_fn)
 
-    logging.debug('  waiting for aligner to finish...')
-    if _wait_for_aligner(aligner) != 0:
-        logging.error("Non-zero exitlevel from aligner")
-        raise RuntimeError('Non-zero exitlevel from aligner')
-    logging.debug('  aligner finished; results in "%s"' % input_sam_fn)
-    tim.end_timer('Aligning input reads')
-
-    if not _at_least_one_read_aligned(input_sam_fn):
-        logging.warning("None of the input reads aligned; exiting")
-        sys.exit(0)
-
-    if args['profile_memory']:
-        print(hp.heap(), file=sys.stderr)
-
-    # ##################################################
-    # 2. Parse input SAM
-    # ##################################################
-
-    tim.start_timer('Parsing input alignments')
-    sanity_check_binary(parse_input_exe)
-    pass1_prefix, pass1_cleanup = _get_pass1_file_prefix()
-    cmd = "%s ifs -- %s -- %s -- %s -- %s" % \
-          (parse_input_exe, _get_passthrough_args(parse_input_exe), input_sam_fn, ' '.join(args['ref']), pass1_prefix)
-    logging.info('  running "%s"' % cmd)
-    ret = os.system(cmd)
-    if ret != 0:
-        raise RuntimeError("qsim-parse returned %d" % ret)
-    logging.debug('  parsing finished; results in "%s.*"' % pass1_prefix)
-    tim.end_timer('Parsing input alignments')
-
-    if args['profile_memory']:
-        print(hp.heap(), file=sys.stderr)
-
-    # ##################################################
-    # 3. Align tandem reads
-    # ##################################################
-
-    tim.start_timer('Aligning tandem reads')
-    assert _have_unpaired_tandem_reads(pass1_prefix) or _have_paired_tandem_reads(pass1_prefix)
-    tandem_sam_u_fn, tandem_sam_p_fn, tandem_sam_b_fn, tandem_purge = _get_tandem_sam_fns()
-    if _have_unpaired_tandem_reads(pass1_prefix) and _have_paired_tandem_reads(pass1_prefix) and aligner.supports_mix():
-        logging.info('Aligning tandem reads (mix)')
+    def _do_align_reads():
+        tim.start_timer('Aligning input reads')
+        logging.info('Command for aligning input data: "%s"' % align_cmd)
         aligner = aligner_class(
             align_cmd,
             aligner_args,
             aligner_unpaired_args,
             aligner_paired_args,
             args['index'],
-            unpaired=_unpaired_tandem_reads(pass1_prefix),
-            paired=_paired_tandem_reads(pass1_prefix, single_file=True),
-            sam=tandem_sam_b_fn,
-            input_format='fastq')
-        _wait_for_aligner(aligner)
-        logging.debug('Finished aligning unpaired and paired-end tandem reads')
+            unpaired=args['U'],
+            paired=None if args['m1'] is None else zip(args['m1'], args['m2']),
+            sam=input_sam_fn)
+
+        logging.debug('  waiting for aligner to finish...')
+        if _wait_for_aligner(aligner) != 0:
+            logging.error("Non-zero exitlevel from aligner")
+            raise RuntimeError('Non-zero exitlevel from aligner')
+        logging.debug('  aligner finished; results in "%s"' % input_sam_fn)
+        tim.end_timer('Aligning input reads')
+
+        if not _at_least_one_read_aligned(input_sam_fn):
+            logging.warning("None of the input reads aligned; exiting")
+            sys.exit(0)
+
+        if args['profile_memory']:
+            print(hp.heap(), file=sys.stderr)
+
+    def _do_align_reads_is_done():
+        return os.path.exists(input_sam_fn)
+
+    if _do_align_reads_is_done():
+        logging.info('Skipping alignment because "%s" already exists' % input_sam_fn)
     else:
-        if _have_unpaired_tandem_reads(pass1_prefix):
-            logging.info('Aligning tandem reads (unpaired)')
+        _do_align_reads()
+
+    skipped_all = True
+
+    # ##################################################
+    # 2. Parse input SAM
+    # ##################################################
+
+    pass1_prefix, pass1_cleanup = _get_pass1_file_prefix()
+
+    def _do_parse_input_sam():
+        tim.start_timer('Parsing input alignments')
+        sanity_check_binary(parse_input_exe)
+        input_parse_cmd = "%s ifs -- %s -- %s -- %s -- %s" % \
+            (parse_input_exe, _get_passthrough_args(parse_input_exe), input_sam_fn, ' '.join(args['ref']), pass1_prefix)
+        logging.info('  running "%s"' % input_parse_cmd)
+        ret = os.system(input_parse_cmd)
+        if ret != 0:
+            raise RuntimeError("qsim-parse returned %d" % ret)
+        logging.debug('  parsing finished; results in "%s.*"' % pass1_prefix)
+        tim.end_timer('Parsing input alignments')
+
+        if args['profile_memory']:
+            print(hp.heap(), file=sys.stderr)
+
+    def _do_parse_input_sam_is_done():
+        exts = ['_rec_u.csv',
+                '_rec_b.csv',
+                '_rec_c.csv',
+                '_rec_d.csv',
+                '_mod_u.csv',
+                '_mod_b.csv',
+                '_mod_c.csv',
+                '_mod_d.csv',
+                '_reads_u.fastq',
+                '_reads_b_1.fastq',
+                '_reads_c_1.fastq',
+                '_reads_d_1.fastq',
+                '_reads_b_2.fastq',
+                '_reads_c_2.fastq',
+                '_reads_d_2.fastq']
+        for ex in exts:
+            if not os.path.exists(pass1_prefix + ex):
+                return False
+        return True
+
+    if _do_parse_input_sam_is_done():
+        logging.info('Skipping parsing input sam because outputs at prefix "%s" already exist' % pass1_prefix)
+    else:
+        _do_parse_input_sam()
+        skipped_all = False
+
+    # ##################################################
+    # 3. Align tandem reads
+    # ##################################################
+
+    tandem_sam_u_fn, tandem_sam_p_fn, tandem_sam_b_fn, tandem_purge = _get_tandem_sam_fns()
+    tandem_sams = [tandem_sam_u_fn, tandem_sam_p_fn, tandem_sam_b_fn]
+
+    def _do_align_tandem_reads():
+        tim.start_timer('Aligning tandem reads')
+        assert _have_unpaired_tandem_reads(pass1_prefix) or _have_paired_tandem_reads(pass1_prefix)
+        if _have_unpaired_tandem_reads(pass1_prefix) and \
+                _have_paired_tandem_reads(pass1_prefix) and \
+                aligner_class.supports_mix():
+            logging.info('Aligning tandem reads (mix)')
             aligner = aligner_class(
                 align_cmd,
                 aligner_args,
@@ -395,178 +427,248 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 aligner_paired_args,
                 args['index'],
                 unpaired=_unpaired_tandem_reads(pass1_prefix),
-                sam=tandem_sam_u_fn,
-                input_format='fastq')
-            _wait_for_aligner(aligner)
-            logging.debug('Finished aligning unpaired tandem reads')
-        if _have_paired_tandem_reads(pass1_prefix):
-            logging.info('Aligning tandem reads (paired)')
-            aligner = aligner_class(
-                align_cmd,
-                aligner_args,
-                aligner_unpaired_args,
-                aligner_paired_args,
-                args['index'],
                 paired=_paired_tandem_reads(pass1_prefix, single_file=True),
-                sam=tandem_sam_p_fn,
+                sam=tandem_sam_b_fn,
                 input_format='fastq')
             _wait_for_aligner(aligner)
-            logging.debug('Finished aligning paired tandem reads')
-    tandem_sams = list(filter(_exists_and_nonempty, [tandem_sam_u_fn, tandem_sam_p_fn, tandem_sam_b_fn]))
-    if len(tandem_sams) == 0:
-        raise RuntimeError('No tandem reads written')
-    tim.end_timer('Aligning tandem reads')
+            logging.debug('Finished aligning unpaired and paired-end tandem reads')
+        else:
+            if _have_unpaired_tandem_reads(pass1_prefix):
+                logging.info('Aligning tandem reads (unpaired)')
+                aligner = aligner_class(
+                    align_cmd,
+                    aligner_args,
+                    aligner_unpaired_args,
+                    aligner_paired_args,
+                    args['index'],
+                    unpaired=_unpaired_tandem_reads(pass1_prefix),
+                    sam=tandem_sam_u_fn,
+                    input_format='fastq')
+                _wait_for_aligner(aligner)
+                logging.debug('Finished aligning unpaired tandem reads')
+            if _have_paired_tandem_reads(pass1_prefix):
+                logging.info('Aligning tandem reads (paired)')
+                aligner = aligner_class(
+                    align_cmd,
+                    aligner_args,
+                    aligner_unpaired_args,
+                    aligner_paired_args,
+                    args['index'],
+                    paired=_paired_tandem_reads(pass1_prefix, single_file=True),
+                    sam=tandem_sam_p_fn,
+                    input_format='fastq')
+                _wait_for_aligner(aligner)
+                logging.debug('Finished aligning paired tandem reads')
+        if len(list(filter(_exists_and_nonempty, tandem_sams))) == 0:
+            raise RuntimeError('No tandem reads written')
+        tim.end_timer('Aligning tandem reads')
 
-    if args['profile_memory']:
-        print(hp.heap(), file=sys.stderr)
+        if args['profile_memory']:
+            print(hp.heap(), file=sys.stderr)
+
+    def _do_align_tandem_reads_is_done():
+        return len(list(filter(_exists_and_nonempty, tandem_sams))) > 0
+
+    if _do_align_tandem_reads_is_done():
+        assert skipped_all  # doesn't make sense to run one step then skip a later step
+        logging.info('Skipping tandem read alignment because at least one output files exist (%s)' % str(tandem_sams))
+    else:
+        _do_align_tandem_reads()
+        skipped_all = False
 
     # ##################################################
     # 4. Parse tandem alignments
     # ##################################################
 
-    tim.start_timer('Parsing tandem alignments')
-    sanity_check_binary(parse_input_exe)
     pass2_prefix, pass2_cleanup = _get_pass2_file_prefix()
-    cmd = "%s f -- %s -- %s -- %s -- %s" % \
-          (parse_input_exe, _get_passthrough_args(parse_input_exe),
-           ' '.join(tandem_sams), ' '.join(args['ref']), pass2_prefix)
-    logging.info('  running "%s"' % cmd)
-    ret = os.system(cmd)
-    if ret != 0:
-        raise RuntimeError("qsim-parse returned %d" % ret)
-    logging.debug('  parsing finished; results in "%s.*"' % pass2_prefix)
-    tandem_purge()  # delete tandem-alignment intermediates
-    tim.end_timer('Parsing tandem alignments')
 
-    if args['profile_memory']:
-        print(hp.heap(), file=sys.stderr)
+    def _do_parse_tandem_alignments():
+        tim.start_timer('Parsing tandem alignments')
+        sanity_check_binary(parse_input_exe)
+        parse_cmd = "%s f -- %s -- %s -- %s -- %s" % \
+              (parse_input_exe, _get_passthrough_args(parse_input_exe),
+               ' '.join(filter(_exists_and_nonempty, tandem_sams)), ' '.join(args['ref']), pass2_prefix)
+        logging.info('  running "%s"' % parse_cmd)
+        ret = os.system(parse_cmd)
+        if ret != 0:
+            raise RuntimeError("qsim-parse returned %d" % ret)
+        logging.debug('  parsing finished; results in "%s.*"' % pass2_prefix)
+        tandem_purge()  # delete tandem-alignment intermediates
+        tim.end_timer('Parsing tandem alignments')
+
+        if args['profile_memory']:
+            print(hp.heap(), file=sys.stderr)
+
+    def _do_parse_tandem_alignments_is_done():
+        exts = ['_rec_u.csv',
+                '_rec_b.csv',
+                '_rec_c.csv',
+                '_rec_d.csv']
+        for ex in exts:
+            if not os.path.exists(pass2_prefix + ex):
+                return False
+        return True
+
+    if _do_parse_tandem_alignments_is_done():
+        assert skipped_all  # doesn't make sense to run one step then skip a later step
+        logging.info('Skipping parsing tandem sam because outputs at prefix "%s" already exist' % pass2_prefix)
+    else:
+        skipped_all = False
+        _do_parse_tandem_alignments()
 
     # ##################################################
     # 5. Predict
     # ##################################################
 
-    tim.start_timer('Make MAPQ predictions')
     predictions_fn, purge_predictions = _get_predictions_fn()
-    logging.info('Making MAPQ predictions')
-    logging.info('  instantiating feature table readers')
-    from feature_table import FeatureTableReader
-    tab_ts, tab_tr = FeatureTableReader(pass1_prefix, chunksize=args['max_rows']), \
-                     FeatureTableReader(pass2_prefix, chunksize=args['max_rows'])
 
-    def _do_predict(fit, tab, subdir, is_input, include_mapq=False):
-        pred = fit.predict(tab, temp_man, dedup=not args['no_collapse'], training=not is_input,
-                           calc_summaries=args['assess_accuracy'], prediction_mem_limit=args['assess_limit'],
-                           heap_profiler=hp, include_mapq=include_mapq, keep_data=args['assess_accuracy'])
-        if args['vanilla_output'] is None and pred.can_assess():
-            logging.info('  writing accuracy measures')
-            mkdir_quiet(join(*subdir))
-            assert pred.ordered_by == 'pcor', pred.ordered_by
-            pred.write_rocs(join(*(subdir + ['roc'])))
-            pred.write_top_incorrect(join(*(subdir + ['top_incorrect.csv'])))
-            pred.write_summary_measures(join(*(subdir + ['summary.csv'])))
-            pred.order_by_ids()
-            assert pred.ordered_by == 'id', pred.ordered_by
-            logging.info('  writing predictions')
-            pred.write_predictions(join(*(subdir + ['predictions.csv'])))
-        if is_input:
-            logging.info('  writing predictions')
-            pred.write_predictions(predictions_fn)
-        pred.purge_temporaries()  # purge temporary files generated during prediction
-        if args['profile_memory']:
-            print(hp.heap(), file=sys.stderr)
-        return pred
+    def _do_predictions():
+        tim.start_timer('Make MAPQ predictions')
+        logging.info('Making MAPQ predictions')
+        logging.info('  instantiating feature table readers')
+        from feature_table import FeatureTableReader
+        tab_ts, tab_tr = FeatureTableReader(pass1_prefix, chunksize=args['max_rows']), \
+                         FeatureTableReader(pass2_prefix, chunksize=args['max_rows'])
 
-    def _do_fit(_tab_tr, fam, fraction, subdir, include_mapq=False):
-        from fit import MapqFit
-        model_params = None
-        if args['model_params'] is not None:
-            model_params = map(float, args['model_params'].split(':'))
-        fit = MapqFit(_tab_tr, fam, sample_fraction=fraction, heap_profiler=hp, include_mapq=include_mapq,
-                      model_params=model_params)
-        if args['vanilla_output'] is None:
-            mkdir_quiet(join(*subdir))
-            fit.write_feature_importances(join(*(subdir + ['featimport'])))
-            fit.write_parameters(join(*(subdir + ['params'])))
-        logging.info('    finishing _do_fit (peak=%0.2fGB)' % _get_peak_gb())
-        if args['profile_memory']:
-            print(hp.heap(), file=sys.stderr)
-        return fit
+        def _do_predict(fit, tab, subdir, is_input, include_mapq=False):
+            pred = fit.predict(tab, temp_man, dedup=not args['no_collapse'], training=not is_input,
+                               calc_summaries=args['assess_accuracy'], prediction_mem_limit=args['assess_limit'],
+                               heap_profiler=hp, include_mapq=include_mapq, keep_data=args['assess_accuracy'])
+            if args['vanilla_output'] is None and pred.can_assess():
+                logging.info('  writing accuracy measures')
+                mkdir_quiet(join(*subdir))
+                assert pred.ordered_by == 'pcor', pred.ordered_by
+                pred.write_rocs(join(*(subdir + ['roc'])))
+                pred.write_top_incorrect(join(*(subdir + ['top_incorrect.csv'])))
+                pred.write_summary_measures(join(*(subdir + ['summary.csv'])))
+                pred.order_by_ids()
+                assert pred.ordered_by == 'id', pred.ordered_by
+                logging.info('  writing predictions')
+                pred.write_predictions(join(*(subdir + ['predictions.csv'])))
+            if is_input:
+                logging.info('  writing predictions')
+                pred.write_predictions(predictions_fn)
+            pred.purge_temporaries()  # purge temporary files generated during prediction
+            if args['profile_memory']:
+                print(hp.heap(), file=sys.stderr)
+            return pred
 
-    def _fits_and_predictions(fraction, fam, subdir, include_mapq=False):
-        logging.info('  fitting to tandem alignments')
-        subdir_ts = subdir + ['test'] if args['predict_for_training'] else subdir
-        fit = _do_fit(tab_tr, fam, fraction, subdir, include_mapq=include_mapq)
-        logging.info('Making predictions for input alignments (peak=%0.2fGB)' % _get_peak_gb())
-        _do_predict(fit, tab_ts, subdir_ts, True, include_mapq=include_mapq)
-        if args['predict_for_training']:
-            logging.info('Making predictions for tandem (training) alignments')
-            _do_predict(fit, tab_tr, subdir + ['training'], False, include_mapq=include_mapq)
+        def _do_fit(_tab_tr, fam, fraction, subdir, include_mapq=False):
+            from fit import MapqFit
+            model_params = None
+            if args['model_params'] is not None:
+                model_params = map(float, args['model_params'].split(':'))
+            fit = MapqFit(_tab_tr, fam, sample_fraction=fraction, heap_profiler=hp, include_mapq=include_mapq,
+                          model_params=model_params)
+            if args['vanilla_output'] is None:
+                mkdir_quiet(join(*subdir))
+                fit.write_feature_importances(join(*(subdir + ['featimport'])))
+                fit.write_parameters(join(*(subdir + ['params'])))
+            logging.info('    finishing _do_fit (peak=%0.2fGB)' % _get_peak_gb())
+            if args['profile_memory']:
+                print(hp.heap(), file=sys.stderr)
+            return fit
 
+        def _fits_and_predictions(fraction, fam, subdir, include_mapq=False):
+            logging.info('  fitting to tandem alignments')
+            subdir_ts = subdir + ['test'] if args['predict_for_training'] else subdir
+            fit = _do_fit(tab_tr, fam, fraction, subdir, include_mapq=include_mapq)
+            logging.info('Making predictions for input alignments (peak=%0.2fGB)' % _get_peak_gb())
+            _do_predict(fit, tab_ts, subdir_ts, True, include_mapq=include_mapq)
+            if args['predict_for_training']:
+                logging.info('Making predictions for tandem (training) alignments')
+                _do_predict(fit, tab_tr, subdir + ['training'], False, include_mapq=include_mapq)
 
-    def _all_fits_and_predictions():
-        from model_fam import model_family
-        fractions = list(map(float, args['subsampling_series'].split(',')))
-        for fraction in fractions:
-            if fraction < 0.0 or fraction > 1.0:
-                raise RuntimeError('Bad subsampling fraction: %f' % fraction)
-            _odir = [odir, 'sample' + str(fraction)] if len(fractions) > 1 else [odir]
-            if args['try_exclude_mapq']:
-                _odir.append('mapq_included')
-            if len(fractions) > 1:
-                logging.info('  trying sampling fraction %0.02f%%' % (100.0 * fraction))
-            for i in range(args['trials']):
-                if args['trials'] > 1:
-                    logging.info('  trial %d' % (i+1))
-                seed = args['seed'] + i
-                seed_all(seed)
-                logging.info('  pseudo-random seed %d' % seed)
-                fam = model_family(args['model_family'], seed, args['optimization_tolerance'])
-                _fits_and_predictions(fraction, fam,
-                                      _odir + ['trial%d' % (i+1)] if args['trials'] > 1 else _odir,
-                                      include_mapq=True)
+        def _all_fits_and_predictions():
+            from model_fam import model_family
+            fractions = list(map(float, args['subsampling_series'].split(',')))
+            for fraction in fractions:
+                if fraction < 0.0 or fraction > 1.0:
+                    raise RuntimeError('Bad subsampling fraction: %f' % fraction)
+                _odir = [odir, 'sample' + str(fraction)] if len(fractions) > 1 else [odir]
                 if args['try_exclude_mapq']:
-                    assert _odir[-1] == 'mapq_included'
-                    _odir[-1] = 'mapq_excluded'
+                    _odir.append('mapq_included')
+                if len(fractions) > 1:
+                    logging.info('  trying sampling fraction %0.02f%%' % (100.0 * fraction))
+                for i in range(args['trials']):
+                    if args['trials'] > 1:
+                        logging.info('  trial %d' % (i+1))
+                    seed = args['seed'] + i
+                    seed_all(seed)
+                    logging.info('  pseudo-random seed %d' % seed)
+                    fam = model_family(args['model_family'], seed, args['optimization_tolerance'])
                     _fits_and_predictions(fraction, fam,
                                           _odir + ['trial%d' % (i+1)] if args['trials'] > 1 else _odir,
-                                          include_mapq=False)
-                    _odir[-1] = 'mapq_included'
+                                          include_mapq=True)
+                    if args['try_exclude_mapq']:
+                        assert _odir[-1] == 'mapq_included'
+                        _odir[-1] = 'mapq_excluded'
+                        _fits_and_predictions(fraction, fam,
+                                              _odir + ['trial%d' % (i+1)] if args['trials'] > 1 else _odir,
+                                              include_mapq=False)
+                        _odir[-1] = 'mapq_included'
 
-    _all_fits_and_predictions()
-    pass1_cleanup()
-    pass2_cleanup()
-    tim.end_timer('Make MAPQ predictions')
+        _all_fits_and_predictions()
+        pass1_cleanup()
+        pass2_cleanup()
+        tim.end_timer('Make MAPQ predictions')
 
-    if args['profile_memory']:
-        print(hp.heap(), file=sys.stderr)
+        if args['profile_memory']:
+            print(hp.heap(), file=sys.stderr)
+
+    def _do_predictions_is_done():
+        return _exists_and_nonempty(predictions_fn)
+
+    if _do_predictions_is_done():
+        assert skipped_all  # doesn't make sense to run one step then skip a later step
+        logging.info('Skipping prediction because prediction file "%s" exists' % predictions_fn)
+    else:
+        _do_predictions()
+        skipped_all = False
 
     # ##################################################
     # 6. Rewrite SAM
     # ##################################################
 
-    tim.start_timer('Rewrite SAM file')
-    sanity_check_binary(rewrite_exe)
     pass3_prefix, pass3_cleanup = _get_pass3_file_prefix()
-    cmd = "%s %s -- %s -- %s -- %s" % \
-          (rewrite_exe, _get_passthrough_args(rewrite_exe), input_sam_fn, predictions_fn, _get_final_prefix())
-    logging.info('  running "%s"' % cmd)
-    ret = os.system(cmd)
-    if ret != 0:
-        raise RuntimeError("qsim-rewrite returned %d" % ret)
-    pass3_cleanup()
-    logging.debug('  rewriting finished; results in "%s.*"' % pass3_prefix)
-    input_sam_purge()
-    purge_predictions()
-    tim.end_timer('Rewrite SAM file')
+
+    def _do_rewrite():
+        tim.start_timer('Rewrite SAM file')
+        sanity_check_binary(rewrite_exe)
+        cmd = "%s %s -- %s -- %s -- %s" % \
+              (rewrite_exe, _get_passthrough_args(rewrite_exe), input_sam_fn, predictions_fn, _get_final_prefix())
+        logging.info('  running "%s"' % cmd)
+        ret = os.system(cmd)
+        if ret != 0:
+            raise RuntimeError("qsim-rewrite returned %d" % ret)
+        pass3_cleanup()
+        logging.debug('  rewriting finished; results in "%s.*"' % pass3_prefix)
+        input_sam_purge()
+        purge_predictions()
+        tim.end_timer('Rewrite SAM file')
+
+        if args['profile_memory']:
+            print(hp.heap(), file=sys.stderr)
+
+    def _do_rewrite_is_done():
+        return _exists_and_nonempty(_get_final_prefix() + '.sam')
+
+    if _do_rewrite_is_done():
+        assert skipped_all  # doesn't make sense to run one step then skip a later step
+        logging.info('Skipping rewriting because "%s" exists' % (pass3_prefix + '.sam'))
+    else:
+        skipped_all = False
+        _do_rewrite()
+
+    if skipped_all:
+        logging.warn('Skipped every step!  All outputs exist in output directory "%s"' % odir)
+        return
 
     logging.info('Purging temporaries')
     temp_man.purge()
 
     out_sz = getsize(_get_final_prefix() + '.sam')
     peak_tmp = temp_man.peak_size
-
-    if args['profile_memory']:
-        print(hp.heap(), file=sys.stderr)
 
     logging.info('Output SAM size: %0.2fMB' % (out_sz / (1024.0 * 1024)))
     logging.info('Peak temporary file size: %0.2fMB (%0.2f%% of output SAM)' % (peak_tmp / (1024.0 * 1024),
@@ -589,8 +691,10 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     if not args['vanilla_output']:
         with open(join(odir, 'timing.tsv'), 'w') as fh:
             fh.write(str(tim))
-    logging.info('Time overhead: %0.01f%%' % (100.0 * (tim.timers['Overall'] - tim.timers['Aligning input reads']) /
-                                              tim.timers['Aligning input reads']))
+
+    if 'Aligning input reads' in tim.timers:
+        logging.info('Time overhead: %0.01f%%' % (100.0 * (tim.timers['Overall'] - tim.timers['Aligning input reads']) /
+                                                  tim.timers['Aligning input reads']))
 
 
 def add_args(parser):

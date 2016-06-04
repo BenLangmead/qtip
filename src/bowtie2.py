@@ -105,5 +105,6 @@ class Bowtie2(Aligner):
                           stdin=popen_stdin, stdout=popen_stdout, stderr=popen_stderr,
                           bufsize=-1, close_fds='posix' in sys.builtin_module_names)
 
-    def supports_mix(self):
+    @staticmethod
+    def supports_mix():
         return True

@@ -178,7 +178,8 @@ class SnapAligner(Aligner):
                           stdin=popen_stdin, stdout=popen_stdout, stderr=popen_stderr,
                           bufsize=-1, close_fds='posix' in sys.builtin_module_names)
 
-    def supports_mix(self):
+    @staticmethod
+    def supports_mix():
         """
         Note: return value of true doesn't just mean it can take some unpaired
         and some paired in a given invocation; it also means that can be
