@@ -109,14 +109,20 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     tim = Timing()
     tim.start_timer('Overall')
 
-    if args['vanilla_output'] is not None and args['output_directory'] is not None:
+    # Set up logger
+    format_str = '%(asctime)s:%(levelname)s:%(message)s'
+    level = logging.DEBUG if args['verbose'] else logging.INFO
+    logging.basicConfig(format=format_str, datefmt='%m/%d/%y-%H:%M:%S', level=level)
+
+    vanilla = args['vanilla_output'] is not None
+    if vanilla and args['output_directory'] is not None:
         logging.warning("--vanilla-output overrides and disables --output-directory")
         args['output_directory'] = None
 
-    if args['vanilla_output'] is None and args['output_directory'] is None:
+    if vanilla is None and args['output_directory'] is None:
         args['output_directory'] = 'out'
 
-    if args['vanilla_output'] is not None and args['keep_intermediates']:
+    if vanilla is not None and args['keep_intermediates']:
         logging.warning("--vanilla-output overrides and disables --keep-intermediates")
         args['keep_intermediates'] = False
 
@@ -126,10 +132,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         odir = args['output_directory']
         mkdir_quiet(odir)
 
-    # Set up logger
-    format_str = '%(asctime)s:%(levelname)s:%(message)s'
-    level = logging.DEBUG if args['verbose'] else logging.INFO
-    logging.basicConfig(format=format_str, datefmt='%m/%d/%y-%H:%M:%S', level=level)
+    # Copy logging messages to file
     if args['output_directory'] is not None:
         fn = join(odir, 'ts_logs' + datetime.datetime.now().strftime('%Y_%m_%d_%H_%M_%S') + '.txt')
         fh = logging.FileHandler(fn)
@@ -244,7 +247,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             return join(dr, 'predictions.csv'), _purge
 
     def _get_final_prefix():
-        if args['vanilla_output'] is not None:
+        if vanilla:
             _ret = args['vanilla_output']
             if _ret.endswith('.sam'):
                 _ret = _ret[:-4]
@@ -351,7 +354,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     def _do_align_reads_is_done():
         return os.path.exists(input_sam_fn)
 
-    if _do_align_reads_is_done():
+    if not vanilla and _do_align_reads_is_done():
         logging.info('Skipping alignment because "%s" already exists' % input_sam_fn)
     else:
         _do_align_reads()
@@ -400,7 +403,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 return False
         return True
 
-    if _do_parse_input_sam_is_done():
+    if not vanilla and _do_parse_input_sam_is_done():
         logging.info('Skipping parsing input sam because outputs at prefix "%s" already exist' % pass1_prefix)
     else:
         _do_parse_input_sam()
@@ -469,7 +472,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     def _do_align_tandem_reads_is_done():
         return len(list(filter(_exists_and_nonempty, tandem_sams))) > 0
 
-    if _do_align_tandem_reads_is_done():
+    if not vanilla and _do_align_tandem_reads_is_done():
         assert skipped_all  # doesn't make sense to run one step then skip a later step
         logging.info('Skipping tandem read alignment because at least one output files exist (%s)' % str(tandem_sams))
     else:
@@ -509,7 +512,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 return False
         return True
 
-    if _do_parse_tandem_alignments_is_done():
+    if not vanilla and _do_parse_tandem_alignments_is_done():
         assert skipped_all  # doesn't make sense to run one step then skip a later step
         logging.info('Skipping parsing tandem sam because outputs at prefix "%s" already exist' % pass2_prefix)
     else:
@@ -534,7 +537,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             pred = fit.predict(tab, temp_man, dedup=not args['no_collapse'], training=not is_input,
                                calc_summaries=args['assess_accuracy'], prediction_mem_limit=args['assess_limit'],
                                heap_profiler=hp, include_mapq=include_mapq, keep_data=args['assess_accuracy'])
-            if args['vanilla_output'] is None and pred.can_assess():
+            if not vanilla and pred.can_assess():
                 logging.info('  writing accuracy measures')
                 mkdir_quiet(join(*subdir))
                 assert pred.ordered_by == 'pcor', pred.ordered_by
@@ -560,7 +563,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 model_params = map(float, args['model_params'].split(':'))
             fit = MapqFit(_tab_tr, fam, sample_fraction=fraction, heap_profiler=hp, include_mapq=include_mapq,
                           model_params=model_params)
-            if args['vanilla_output'] is None:
+            if not vanilla:
                 mkdir_quiet(join(*subdir))
                 fit.write_feature_importances(join(*(subdir + ['featimport'])))
                 fit.write_parameters(join(*(subdir + ['params'])))
@@ -619,7 +622,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     def _do_predictions_is_done():
         return _exists_and_nonempty(predictions_fn)
 
-    if _do_predictions_is_done():
+    if not vanilla and _do_predictions_is_done():
         assert skipped_all  # doesn't make sense to run one step then skip a later step
         logging.info('Skipping prediction because prediction file "%s" exists' % predictions_fn)
     else:
@@ -653,7 +656,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     def _do_rewrite_is_done():
         return _exists_and_nonempty(_get_final_prefix() + '.sam')
 
-    if _do_rewrite_is_done():
+    if not vanilla and _do_rewrite_is_done():
         assert skipped_all  # doesn't make sense to run one step then skip a later step
         logging.info('Skipping rewriting because "%s" exists' % (pass3_prefix + '.sam'))
     else:
@@ -673,7 +676,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     logging.info('Output SAM size: %0.2fMB' % (out_sz / (1024.0 * 1024)))
     logging.info('Peak temporary file size: %0.2fMB (%0.2f%% of output SAM)' % (peak_tmp / (1024.0 * 1024),
                                                                                 100.0 * peak_tmp / out_sz))
-    if args['vanilla_output'] is None:
+    if not vanilla:
         tot_sz = recursive_size(odir)
         logging.info('Total size of output directory: %0.2fMB (%0.2f%% of output SAM)' % (tot_sz / (1024.0 * 1024),
                                                                                           100.0 * tot_sz / out_sz))
@@ -688,7 +691,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     for ln in str(tim).split('\n'):
         if len(ln) > 0:
             logging.info(ln)
-    if not args['vanilla_output']:
+    if not vanilla:
         with open(join(odir, 'timing.tsv'), 'w') as fh:
             fh.write(str(tim))
 
