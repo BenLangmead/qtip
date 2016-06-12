@@ -119,10 +119,10 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         logging.warning("--vanilla-output overrides and disables --output-directory")
         args['output_directory'] = None
 
-    if vanilla is None and args['output_directory'] is None:
+    if not vanilla and args['output_directory'] is None:
         args['output_directory'] = 'out'
 
-    if vanilla is not None and args['keep_intermediates']:
+    if vanilla and args['keep_intermediates']:
         logging.warning("--vanilla-output overrides and disables --keep-intermediates")
         args['keep_intermediates'] = False
 
