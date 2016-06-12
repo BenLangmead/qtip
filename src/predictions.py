@@ -2,7 +2,7 @@ import numpy as np
 import pandas
 import logging
 from itertools import repeat
-from mapq import pcor_to_mapq, mapq_to_pcor, round_pcor
+from mapq import pcor_to_mapq, mapq_to_pcor
 from collections import defaultdict
 from roc import Roc
 try:
@@ -59,16 +59,16 @@ class MapqPredictions:
 
     def add(self, pcor, ids, category, mapq_orig=None, data=None, correct=None):
         """ Add a new batch of predictions. """
-        mapq_orig_iter = iter(mapq_orig) if mapq_orig is not None else repeat([None])
-        data_iter = iter(data) if data is not None else repeat([None])
-        correct_iter = iter(correct) if correct is not None else repeat([None])
+        mapq_orig_iter = iter(mapq_orig) if mapq_orig is not None else repeat(None)
+        data_iter = iter(data) if data is not None else repeat(None)
+        correct_iter = iter(correct) if correct is not None else repeat(None)
         self.has_correct = correct is not None
         if self.last_id is not None and ids[0] < self.last_id:
             self.pred_fh.close()
             self.temp_next_fn = '_'.join([self.pred_fn_prefix, str(len(self.pred_fns))])
             self.pred_fns.append(self.temp_man.get_file(self.temp_next_fn, group=self.temp_group_name))
             self.pred_fh = open(self.pred_fns[-1], 'wb')
-        for rec in izip(pcor, ids, repeat([category]), mapq_orig_iter, data_iter, correct_iter):
+        for rec in izip(pcor, ids, repeat(category), mapq_orig_iter, data_iter, correct_iter):
             self.last_id = rec[1]
             self.pred_fh.write((','.join(map(str, rec)) + '\n').encode('utf-8'))
             self.npredictions += 1
@@ -183,7 +183,7 @@ class MapqPredictions:
                                 self.name + '_mse_diff_pct_round']) + '\n').encode('utf-8'))
             fh.write((','.join(map(str, auc_stats + mse_stats)) + '\n').encode('utf-8'))
 
-    def write_top_incorrect(self, fn, n=50):
+    def write_top_incorrect(self, fn, n=100):
         """ Write a ROC table with # correct/# incorrect stratified by
             predicted MAPQ. """
         self.summarize_incorrect(n=n).to_csv(fn, sep=',', index=False)
@@ -248,6 +248,8 @@ class MapqPredictions:
         self.category = [self.category[i] for i in ordr]
         if self.correct is not None:
             self.correct = [self.correct[x] for x in ordr]
+        if self.data is not None:
+            self.data = [self.data[x] for x in ordr]
 
     def order_by_ids(self, log=logging):
         """ Reorder in-memory predictions by id of the alignment (low to high) """
