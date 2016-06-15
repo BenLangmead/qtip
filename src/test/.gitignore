@@ -2,5 +2,6 @@
 *.fastq
 *.sam
 full_e2e
+lambda_virus.*
 extra_e2e
 .r?.fq
