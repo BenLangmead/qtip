@@ -1,0 +1,16 @@
+#
+# Mason simulator - assumues cmake & gcc tools are already installed
+#
+
+mason_simulator: seqan/build/bin/mason_simulator
+	ln -s -f $<
+
+seqan/build/bin/mason_simulator: seqan/build/Makefile
+	make -C seqan/build mason_simulator
+
+seqan/build/Makefile: seqan/CMakeLists.txt
+	mkdir -p seqan/build
+	cd seqan/build && cmake ..
+
+seqan/CMakeLists.txt:
+	git clone git@github.com:seqan/seqan.git
