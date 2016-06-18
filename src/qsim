@@ -562,8 +562,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             if args['model_params'] is not None:
                 model_params = map(float, args['model_params'].split(':'))
             fit = MapqFit(_tab_tr, fam, sample_fraction=fraction, heap_profiler=hp, include_mapq=include_mapq,
-                          model_params=model_params, reweight_ratio=not args['reweight_ratio'],
-                          reweight_mapq=not args['reweight_mapq'])
+                          model_params=model_params, reweight_ratio=args['reweight_ratio'],
+                          reweight_mapq=args['reweight_mapq'])
             if not vanilla:
                 mkdir_quiet(join(*subdir))
                 fit.write_feature_importances(join(*(subdir + ['featimport'])))
