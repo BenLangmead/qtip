@@ -9,6 +9,7 @@ import gc
 import sys
 from predictions import MapqPredictions
 from sklearn import cross_validation
+from mapq import pcor_to_mapq_np
 
 __author__ = 'langmead'
 
@@ -86,16 +87,23 @@ class MapqFit:
             pcor_test = [max_noninf_pcor_test + 1e-6 if p >= 1.0 else p for p in pcor_test]
         return np.maximum(np.minimum(pcor_test, max_pcor), 0.)
 
-    def _fit_and_possibly_reweight_and_refit(self, predictor, x_train, y_train, reweight_and_refit=False):
+    def _fit_and_possibly_reweight_and_refit(self, predictor, x_train, y_train,
+                                             reweight_ratio=1.0, reweight_mapq=False):
         """ Fit, then, if request, use predictions to weigh samples and re-fit.
             Tends to force the model to fit the high-MAPQ points better so we have fewer
             incorrect alignments with high MAPQ. """
         predictor.fit(x_train, y_train)
-        if reweight_and_refit:
+        if reweight_ratio > 1.0:
             y_pred = predictor.predict(x_train)
+            lower = 1.0 / reweight_ratio
+            y_pred = lower + y_pred * (1.0 - lower)
+            predictor.fit(x_train, y_train, y_pred)
+        elif reweight_mapq:
+            y_pred = pcor_to_mapq_np(predictor.predict(x_train))
             predictor.fit(x_train, y_train, y_pred)
 
-    def _crossval_fit(self, mf_gen, x_train, y_train, dataset_shortname, use_oob=True, log=logging, reweight_and_refit=False):
+    def _crossval_fit(self, mf_gen, x_train, y_train, dataset_shortname, use_oob=True, log=logging,
+                      reweight_ratio=1.0, reweight_mapq=False):
         """ Use cross validation to pick the best model from a
             collection of possible models (model_family) """
         mf = mf_gen()
@@ -104,7 +112,8 @@ class MapqFit:
 
         def _oob_score(pred_):
             assert x_train.shape[0] == y_train.shape[0]
-            self._fit_and_possibly_reweight_and_refit(pred_, x_train, y_train, reweight_and_refit=reweight_and_refit)
+            self._fit_and_possibly_reweight_and_refit(pred_, x_train, y_train,
+                                                      reweight_ratio=reweight_ratio, reweight_mapq=reweight_mapq)
             return pred_.oob_score_
 
         def _crossval_score(pred_):
@@ -131,7 +140,8 @@ class MapqFit:
 
     datasets = list(zip('dbcu', ['Discordant', 'Bad-end', 'Concordant', 'Unpaired'], [True, False, True, False]))
 
-    def _fit(self, dfs, log=logging, frac=1.0, heap_profiler=None, include_mapq=False, model_params=None, reweight_and_refit=False):
+    def _fit(self, dfs, log=logging, frac=1.0, heap_profiler=None, include_mapq=False, model_params=None,
+             reweight_ratio=1.0, reweight_mapq=False):
         """ Train one model per training table. Optionally subsample training
             data first. """
         for ds, ds_long, paired in self.datasets:
@@ -170,11 +180,11 @@ class MapqFit:
                 self.trained_models[ds] = mf.predictor_from_params(model_params)
                 self.model_fam_name = mf.name
                 self._fit_and_possibly_reweight_and_refit(self.trained_models[ds], x_train, y_train,
-                                                          reweight_and_refit=reweight_and_refit)
+                                                          reweight_ratio=reweight_ratio, reweight_mapq=reweight_mapq)
                 self.trained_params[ds] = ':'.join(map(str, model_params))
                 log.info('    Using user-specified parameters: %s' % str(self.trained_params[ds]))
             self._fit_and_possibly_reweight_and_refit(self.trained_models[ds], x_train, y_train,
-                                                      reweight_and_refit=reweight_and_refit)
+                                                      reweight_ratio=reweight_ratio, reweight_mapq=reweight_mapq)
             del x_train
             del y_train
             gc.collect()
@@ -307,7 +317,8 @@ class MapqFit:
                  heap_profiler=None,
                  include_mapq=False,
                  model_params=None,
-                 reweight_and_refit=False):
+                 reweight_ratio=1.0,
+                 reweight_mapq=False):
         self.model_gen = model_gen
         self.trained_models = {}
         self.crossval_std = {}
@@ -318,4 +329,4 @@ class MapqFit:
         self.model_fam_name = None
         self.sample_fraction = sample_fraction
         self._fit(dfs, log=log, frac=sample_fraction, heap_profiler=heap_profiler, include_mapq=include_mapq,
-                  model_params=model_params, reweight_and_refit=reweight_and_refit)
+                  model_params=model_params, reweight_ratio=reweight_ratio, reweight_mapq=reweight_mapq)
