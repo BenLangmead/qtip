@@ -108,6 +108,8 @@ struct Alignment {
 		seq = NULL;
 		len = 0;
 		qual = NULL;
+		avg_clipped_qual = 0.0;
+		avg_aligned_qual = 0.0;
 		mdz = NULL;
 		cigar_equal_x = false;
 		best_score = 0;
@@ -474,6 +476,31 @@ struct Alignment {
 		rd_aln_buf.push_back(0);
 		rf_aln_buf.push_back(0);
 	}
+
+	/**
+	 * Having already parsed the quality and CIGAR strings, we can now
+	 * calculate the average quality of the aligned and clipped bases.
+	 */
+	void calc_qual_averages() {
+		assert(len > 0);
+		const size_t nclipped = left_clip + right_clip;
+		assert(nclipped < len);
+		size_t tot_clipped_qual = 0, tot_aligned_qual = 0;
+		for(size_t i = 0; i < len; i++) {
+			assert((int)qual[i] >= 33);
+			if(i < left_clip || i >= len - 1 - right_clip) {
+				tot_clipped_qual += ((int)qual[i] - 33);
+			} else {
+				tot_aligned_qual += ((int)qual[i] - 33);
+			}
+		}
+		avg_aligned_qual = (double)tot_aligned_qual / (len - nclipped);
+		if(nclipped > 0) {
+			avg_clipped_qual = (double)tot_clipped_qual / nclipped;
+		} else {
+			avg_clipped_qual = 100.0;
+		}
+	}
 	
 	/**
 	 * If the read has a recognizable simulated read name, set the 'correct'
@@ -693,6 +720,8 @@ struct Alignment {
 	char *seq;
 	size_t len;
 	char *qual;
+	double avg_clipped_qual;
+	double avg_aligned_qual;
 	char *mdz;
 	bool cigar_equal_x;
 	int best_score;
@@ -734,15 +763,25 @@ static char * parse_from_rname_on(Alignment& al) {
 	char *mapq_str = strtok(NULL, "\t"); assert(mapq_str != NULL);
 	al.mapq = atoi(mapq_str);
 	assert(al.mapq < 256);
-	al.cigar = strtok(NULL, "\t"); assert(al.cigar != NULL);
+
+	// sets cigar_ops, cigar_run
+	// if CIGAR string uses = and X, then also sets edit transcript
+	al.cigar = strtok(NULL, "\t");
+	assert(al.cigar != NULL);
 	al.parse_cigar();
+
 	al.rnext = strtok(NULL, "\t"); assert(al.rnext != NULL);
 	char *pnext_str = strtok(NULL, "\t"); assert(pnext_str != NULL);
 	al.pnext = atoi(pnext_str);
 	strtok(NULL, "\t"); // ignore tlen
 	al.seq = strtok(NULL, "\t"); assert(al.seq != NULL);
 	al.len = strlen(al.seq);
-	al.qual = strtok(NULL, "\t"); assert(al.qual != NULL);
+
+	// sets qual, avg_aligned_qual and avg_clipped_qual
+	al.qual = strtok(NULL, "\t");
+	assert(al.qual != NULL);
+	al.calc_qual_averages();
+
 	al.rest_of_line = al.qual + strlen(al.qual) + 1;
 	return al.rest_of_line;
 }
@@ -763,7 +802,7 @@ int sim_bad_end_min = 10000;
  * No guarantee about state of strtok upon return.
  */
 static void print_unpaired(
-	Alignment& al,
+	Alignment& al, // already parsed up through flags
 	size_t ordlen,
 	FILE *fh_model,
 	FILE *fh_recs,
@@ -811,10 +850,13 @@ static void print_unpaired(
 	
 	if(fh_recs != NULL) {
 		// Output information relevant to MAPQ model
-		fprintf(fh_recs, "%llu,%u,%llu",
+		fprintf(fh_recs, "%llu,%u,%u,%u,%u,%u",
 				(unsigned long long)al.line,
 				(unsigned)al.len,
-				(unsigned long long)ordlen);
+				al.left_clip + al.right_clip,
+				(unsigned)(al.avg_aligned_qual * 100),
+				(unsigned)(al.avg_clipped_qual * 100),
+				(unsigned)ordlen);
 		
 		// ... including all the ZT:Z fields
 		while(ztz_tok != NULL) {
@@ -878,8 +920,13 @@ static void print_paired_helper(
 		// Mate 1
 		//
 		
-		// Output information relevant to input model
-		fprintf(fh_recs, "%llu,%u", (unsigned long long)al1.line, (unsigned)al1.len);
+		fprintf(fh_recs, "%llu,%u,%u,%u,%u",
+		        (unsigned long long)al1.line,
+		        (unsigned)al1.len,
+		        al1.left_clip + al1.right_clip,
+		        (unsigned)(al1.avg_aligned_qual * 100),
+		        (unsigned)(al1.avg_clipped_qual * 100));
+
 		// ... including all the ZT:Z fields
 		while(ztz_tok1 != NULL) {
 			size_t toklen = strlen(ztz_tok1);
@@ -907,7 +954,12 @@ static void print_paired_helper(
 		//
 		
 		// Output information relevant to input model
-		fprintf(fh_recs, ",%u,%llu", (unsigned)al2.len, (unsigned long long)fraglen);
+		fprintf(fh_recs, ",%u,%u,%u,%u,%u",
+		        (unsigned)al2.len,
+		        al2.left_clip + al2.right_clip,
+		        (unsigned)(al2.avg_aligned_qual * 100),
+		        (unsigned)(al2.avg_clipped_qual * 100),
+		        (unsigned)fraglen);
 		// ... including all the ZT:Z fields
 		while(ztz_tok2 != NULL) {
 			size_t toklen = strlen(ztz_tok2);
@@ -926,12 +978,22 @@ static void print_paired_helper(
 		//
 		// Now mate 2 again
 		//
-		fprintf(fh_recs, "%llu,%u", (unsigned long long)al2.line, (unsigned)al2.len);
+		fprintf(fh_recs, "%llu,%u,%u,%u,%u",
+		        (unsigned long long)al2.line,
+		        (unsigned)al2.len,
+		        al2.left_clip + al2.right_clip,
+		        (unsigned)(al2.avg_aligned_qual * 100),
+		        (unsigned)(al2.avg_clipped_qual * 100));
 		for(size_t i = 0; i < ztz2_buf.size(); i++) {
 			fprintf(fh_recs, ",%s", ztz2_buf[i]);
 		}
 		// Now mate 1 again
-		fprintf(fh_recs, ",%u,%llu", (unsigned)al1.len, (unsigned long long)fraglen);
+		fprintf(fh_recs, ",%u,%u,%u,%u,%u",
+		        (unsigned)al1.len,
+		        al1.left_clip + al1.right_clip,
+		        (unsigned)(al1.avg_aligned_qual * 100),
+		        (unsigned)(al1.avg_clipped_qual * 100),
+		        (unsigned)fraglen);
 		for(size_t i = 0; i < ztz1_buf.size(); i++) {
 			fprintf(fh_recs, ",%s", ztz1_buf[i]);
 		}
@@ -983,11 +1045,11 @@ static void print_paired_helper(
  * (according to appearance in the SAM) first.
  */
 static void print_paired(
-						 Alignment& al1,
-						 Alignment& al2,
-						 FILE *fh_model,
-						 FILE *fh_recs,
-						 ReservoirSampledEList<TemplatePaired> *paired_model)
+	Alignment& al1,
+	Alignment& al2,
+	FILE *fh_model,
+	FILE *fh_recs,
+	ReservoirSampledEList<TemplatePaired> *paired_model)
 {
 	print_paired_helper(al1.line < al2.line ? al1 : al2,
 						al1.line < al2.line ? al2 : al1,
@@ -1047,7 +1109,7 @@ static size_t infer_read_length(const char *rest_of_line) {
  * Print column headers for an unpaired file of feature records.
  */
 static void print_unpaired_header(FILE *fh, int n_ztz_fields) {
-	fprintf(fh, "id,len,olen");
+	fprintf(fh, "id,len,clip,alqual,clipqual,olen");
 	for(int i = 0; i < n_ztz_fields; i++) {
 		fprintf(fh, ",ztz%d", i);
 	}
@@ -1058,11 +1120,11 @@ static void print_unpaired_header(FILE *fh, int n_ztz_fields) {
  * Print column headers for a paired-end file of feature records.
  */
 static void print_paired_header(FILE *fh, int n_ztz_fields) {
-	fprintf(fh, "id,len");
+	fprintf(fh, "id,len,clip,alqual,clipqual");
 	for(int i = 0; i < n_ztz_fields; i++) {
 		fprintf(fh, ",ztz_%d", i);
 	}
-	fprintf(fh, ",olen,fraglen");
+	fprintf(fh, ",olen,oclip,oalqual,oclipqual,fraglen");
 	for(int i = 0; i < n_ztz_fields; i++) {
 		fprintf(fh, ",oztz_%d", i);
 	}
