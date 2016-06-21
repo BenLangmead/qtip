@@ -252,7 +252,7 @@ struct Alignment {
 	}
 	
 	/**
-	 * MD:Z to list.
+	 * Parses the MD:Z string into the mdz_oro list.
 	 */
 	void mdz_to_list() {
 		assert(mdz_char.empty());
@@ -297,7 +297,12 @@ struct Alignment {
 		}
 		assert(i == mlen);
 	}
-	
+
+	/**
+	 * Convert a CIGAR string with =s and Xs into an edit transcript.
+	 *
+	 * MODIFIES edit_xscript
+	 */
 	void cigar_to_edit_xscript() {
 		assert(cigar_equal_x);
 		assert(edit_xscript.empty());
