@@ -1,5 +1,5 @@
 import copy
-from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor
+from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor, GradientBoostingRegressor
 
 __author__ = 'langmead'
 
@@ -7,7 +7,7 @@ __author__ = 'langmead'
 class ModelFamily(object):
     """ Model family and simple hill-climbing hyperparameter search. """
 
-    def __init__(self, name, new_predictor, params, round_to, min_separation, start_in_middle=True):
+    def __init__(self, name, new_predictor, params, round_to, min_separation, start_in_middle=True, calculates_oob=True):
         """
         name: name indicating the type of model, e.g. "RandomForestRegressor"
         new_predictor: function taking hyperparameters and returning new predictor with those params
@@ -32,6 +32,7 @@ class ModelFamily(object):
         self.workset = {center}
         self.added_to_workset = copy.copy(self.workset)
         self._add_neighbors_to_workset(center)
+        self._calculates_oob = calculates_oob
 
     def _add_neighbors_to_workset(self, center):
         for i in range(len(self.params)):
@@ -79,12 +80,14 @@ class ModelFamily(object):
             return True, False
         return False, False
 
+    def calculates_oob(self):
+        return self._calculates_oob
+
     def best_predictor(self):
         return self.best_translated_params, self.new_predictor(self.best_translated_params)
 
 
 def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.01):
-    # These perform OK but not as well as the extremely random trees
     def _gen(params):
         return RandomForestRegressor(n_estimators=int(round(params[0])),
                                      max_depth=int(round(params[1])),
@@ -97,7 +100,6 @@ def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.01):
 
 
 def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.002):
-    # These perform quite well
     def _gen(params):
         return ExtraTreesRegressor(n_estimators=int(round(params[0])),
                                    max_depth=int(round(params[1])),
@@ -109,11 +111,26 @@ def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.002):
                                round_to, min_separation=min_separation)
 
 
+def gradient_boosting_models(random_seed=33, round_to=1e-5, min_separation=0.002):
+    def _gen(params):
+        return GradientBoostingRegressor(
+            n_estimators=int(round(params[0])),
+            max_depth=int(round(params[1])),
+            learning_rate=params[2],
+            random_state=random_seed,
+            loss='ls')
+    return lambda: ModelFamily('GradientBoostingRegressor',
+                               _gen, [range(20, 60, 2), range(1, 11, 1), [x/10.0 for x in range(5, 11, 1)]],
+                               round_to, min_separation=min_separation, calculates_oob=False)
+
+
 def model_family(family, seed, optimization_tolerance):
     """ Given command-line arguments, return appropriate model family """
     if family == 'RandomForest':
         return random_forest_models(seed, optimization_tolerance)
     elif family == 'ExtraTrees':
         return extra_trees_models(seed, optimization_tolerance)
+    elif family == 'GradientBoostingRegressor':
+        return gradient_boosting_models(seed, optimization_tolerance)
     else:
         raise RuntimeError('Bad value for --model-family: "%s"' % family)

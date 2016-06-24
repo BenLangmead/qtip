@@ -134,14 +134,15 @@ class MapqFit:
                 symbol = '+'
             log.debug("%s, %s=%0.3f, %s%s" % (dataset_shortname, 'oob' if use_oob else 'score', score, str(params), symbol))
         best_params, best_pred = mf.best_predictor()
-        log.debug("BEST: %s, avg=%0.3f, %s" % (dataset_shortname, max(scores), str(best_params)))
+        log.info("BEST: %s, avg=%0.3f, %s, using %s" % (dataset_shortname, max(scores), str(best_params),
+                                                        'OOB' if use_oob else 'cross validation'))
         assert best_pred is not None
         return best_pred, best_params
 
     datasets = list(zip('dbcu', ['Discordant', 'Bad-end', 'Concordant', 'Unpaired'], [True, False, True, False]))
 
     def _fit(self, dfs, log=logging, frac=1.0, heap_profiler=None, include_mapq=False, model_params=None,
-             reweight_ratio=1.0, reweight_mapq=False):
+             reweight_ratio=1.0, reweight_mapq=False, no_oob=False):
         """ Train one model per training table. Optionally subsample training
             data first. """
         for ds, ds_long, paired in self.datasets:
@@ -173,7 +174,8 @@ class MapqFit:
             self.trained_shape[ds] = x_train.shape
             if model_params is None:
                 self.trained_models[ds], self.trained_params[ds] = \
-                    self._crossval_fit(self.model_gen, x_train, y_train, ds)
+                    self._crossval_fit(self.model_gen, x_train, y_train, ds,
+                                       use_oob=self.model_gen().calculates_oob() and not no_oob)
                 log.info('    Chose parameters: %s' % str(self.trained_params[ds]))
             else:
                 mf = self.model_gen()
@@ -295,7 +297,7 @@ class MapqFit:
                 colnames.append(ds + '_model_params')
                 colnames.append(ds + '_training_rows')
                 colnames.append(ds + '_training_cols')
-                colnames.append(ds + '_oob_score')
+                #colnames.append(ds + '_oob_score')
             fh.write(','.join(colnames) + '\n')
             data = [self.model_fam_name, str(self.sample_fraction)]
             for ds, ds_long, paired in self.datasets:
@@ -304,7 +306,7 @@ class MapqFit:
                     data.append(str(self.trained_shape[ds][0]))
                     data.append(str(self.trained_shape[ds][1]))
                     assert ds in self.trained_models
-                    data.append(str(self.trained_models[ds].oob_score_))
+                    #data.append(str(self.trained_models[ds].oob_score_))
                 else:
                     data.extend(['NA', '0', '0', '0'])
             fh.write(','.join(data) + '\n')
@@ -318,7 +320,8 @@ class MapqFit:
                  include_mapq=False,
                  model_params=None,
                  reweight_ratio=1.0,
-                 reweight_mapq=False):
+                 reweight_mapq=False,
+                 no_oob=False):
         self.model_gen = model_gen
         self.trained_models = {}
         self.crossval_std = {}
@@ -329,4 +332,5 @@ class MapqFit:
         self.model_fam_name = None
         self.sample_fraction = sample_fraction
         self._fit(dfs, log=log, frac=sample_fraction, heap_profiler=heap_profiler, include_mapq=include_mapq,
-                  model_params=model_params, reweight_ratio=reweight_ratio, reweight_mapq=reweight_mapq)
+                  model_params=model_params, reweight_ratio=reweight_ratio, reweight_mapq=reweight_mapq,
+                  no_oob=no_oob)

@@ -563,7 +563,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 model_params = map(float, args['model_params'].split(':'))
             fit = MapqFit(_tab_tr, fam, sample_fraction=fraction, heap_profiler=hp, include_mapq=include_mapq,
                           model_params=model_params, reweight_ratio=args['reweight_ratio'],
-                          reweight_mapq=args['reweight_mapq'])
+                          reweight_mapq=args['reweight_mapq'], no_oob=args['no_oob'])
             if not vanilla:
                 mkdir_quiet(join(*subdir))
                 fit.write_feature_importances(join(*(subdir + ['featimport'])))
@@ -786,6 +786,9 @@ def add_args(parser):
                         help='Number of times to repeat fiting/prediction')
     parser.add_argument('--max-rows', metavar='int', type=int, default=250000,
                         help='Maximum number of rows (alignments) to feed at once to the prediction function')
+    parser.add_argument('--no-oob', action='store_const', const=True, default=False,
+                        help='Don\'t use out-of-bag score when choosing hyperparameters -- use cross validation '
+                             'instead.  No effect for models that don\'t calculate OOB score.')
     parser.add_argument('--profile-prediction', action='store_const', const=True, default=False,
                         help='Run a profiler for the duration of the prediction portion')
     parser.add_argument('--profile-memory', action='store_const', const=True, default=False,
