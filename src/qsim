@@ -773,7 +773,8 @@ def add_args(parser):
     parser.add_argument('--predict-for-training', action='store_const', const=True, default=False,
                         help='Make predictions (and associated plots/output files) for training (tandem) data')
     parser.add_argument('--reweight-ratio', metavar='float', type=float, default=1.0,
-                        help='When fitting, reweigh samples so weight of highest-mapq alignment has this times as much weight as lowest-mapq')
+                        help='When fitting, reweigh samples so weight of highest-mapq alignment has this times as '
+                             'much weight as lowest-mapq')
     parser.add_argument('--reweight-mapq', action='store_const', const=True, default=False,
                         help='When fitting, reweigh samples according to initially-predicted mapq')
     parser.add_argument('--no-collapse', action='store_const', const=True, default=False,
