@@ -12,13 +12,11 @@ final_full_e2e.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--m1 .r_1.fastq \
 		--m2 .r_2.fastq \
 		--index lambda_virus \
-		--seed 34 \
 		--aligner bowtie2 \
 		--bt2-exe $(BT2) \
-		--output-directory $@ \
+		--vanilla-output $@ \
 		--write-orig-mapq \
-		--write-precise-mapq \
-		--assess-accuracy
+		--write-precise-mapq
 
 full_e2e/final.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
 	python ../qsim \
