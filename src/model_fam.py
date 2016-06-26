@@ -138,7 +138,7 @@ def gradient_boosting_models(random_seed, round_to, min_separation,
 
 def add_args(parser):
     parser.add_argument('--model-family', metavar='family', type=str, required=False,
-                        default='ExtraTrees', help='{RandomForest | ExtraTrees | GradientBoosting}')
+                        default='RandomForest', help='{RandomForest | ExtraTrees | GradientBoosting}')
     parser.add_argument('--model-params', metavar='parameters', type=str, required=False,
                         help='hyperparameters for model; for RandomForest or ExtraTrees: (#trees):(max depth)')
 
@@ -147,12 +147,12 @@ def add_args(parser):
                         default=','.join(map(str, default_num_trees_range)),
                         help='number of decision trees to try; relevant for all model families')
 
-    default_max_depth_range = range(4, 11, 1)
+    default_max_depth_range = range(5, 12, 1)
     parser.add_argument('--max-tree-depth', metavar='parameters', type=str,
                         default=','.join(map(str, default_max_depth_range)),
                         help='maximum decision tree depth to try; relevant for all model families')
 
-    default_max_features_range = [0.1, 0.2, 0.25, 0.3, 0.35]
+    default_max_features_range = [0.05, 0.1, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5]
     parser.add_argument('--max-features', metavar='parameters', type=str,
                         default=','.join(map(str, default_max_features_range)),
                         help='maximum number of features to consider at each decision tree node; '

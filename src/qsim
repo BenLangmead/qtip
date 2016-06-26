@@ -563,7 +563,9 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 model_params = map(float, args['model_params'].split(':'))
             fit = MapqFit(_tab_tr, fam, sample_fraction=fraction, heap_profiler=hp, include_mapq=include_mapq,
                           model_params=model_params, reweight_ratio=args['reweight_ratio'],
-                          reweight_mapq=args['reweight_mapq'], no_oob=args['no_oob'])
+                          reweight_mapq=args['reweight_mapq'],
+                          reweight_mapq_offset=args['reweight_mapq_offset'],
+                          no_oob=args['no_oob'])
             if not vanilla:
                 mkdir_quiet(join(*subdir))
                 fit.write_feature_importances(join(*(subdir + ['featimport'])))
@@ -773,6 +775,8 @@ def add_args(parser):
                              'much weight as lowest-mapq')
     parser.add_argument('--reweight-mapq', action='store_const', const=True, default=False,
                         help='When fitting, reweigh samples according to initially-predicted mapq')
+    parser.add_argument('--reweight-mapq-offset', type=float, default=10.0, required=False,
+                        help='Add this to every MAPQ before reweighting')
     parser.add_argument('--no-collapse', action='store_const', const=True, default=False,
                         help='Don\'t remove redundant rows just before prediction')
     parser.add_argument('--try-exclude-mapq', action='store_const', const=True, default=False,
