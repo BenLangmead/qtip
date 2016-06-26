@@ -600,7 +600,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                     seed = args['seed'] + i
                     seed_all(seed)
                     logging.info('  pseudo-random seed %d' % seed)
-                    fam = model_family(args['model_family'], seed, args['optimization_tolerance'])
+                    fam = model_family(args, seed)
                     _fits_and_predictions(fraction, fam,
                                           _odir + ['trial%d' % (i+1)] if args['trials'] > 1 else _odir,
                                           include_mapq=True)
@@ -764,12 +764,8 @@ def add_args(parser):
                         help='Don\'t remove the ZT:Z flag from the final output SAM')
 
     # Prediction
-    parser.add_argument('--model-family', metavar='family', type=str, required=False,
-                        default='ExtraTrees', help='{RandomForest | ExtraTrees}')
-    parser.add_argument('--model-params', metavar='parameters', type=str, required=False,
-                        help='hyperparameters for model; for RandomForest or ExtraTrees: (#trees):(max depth)')
-    parser.add_argument('--optimization-tolerance', metavar='float', type=float, default=1e-3,
-                        help='Tolerance when searching for best model parameters')
+    import model_fam
+    model_fam.add_args(parser)
     parser.add_argument('--predict-for-training', action='store_const', const=True, default=False,
                         help='Make predictions (and associated plots/output files) for training (tandem) data')
     parser.add_argument('--reweight-ratio', metavar='float', type=float, default=1.0,

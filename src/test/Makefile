@@ -75,7 +75,7 @@ test_random_forest: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--write-precise-mapq \
 		--assess-accuracy \
 		--model-family RandomForest \
-		--model-params 50:8
+		--model-params 50:8:0.5
 
 test_gradient_boost: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
 	python ../qsim \
@@ -95,7 +95,7 @@ test_gradient_boost: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(
 		--write-orig-mapq \
 		--write-precise-mapq \
 		--assess-accuracy \
-		--model-family GradientBoostingRegressor \
+		--model-family GradientBoosting \
 		--verbose
 
 .r_1.fastq: .rtmp_1.fastq

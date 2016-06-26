@@ -87,31 +87,40 @@ class ModelFamily(object):
         return self.best_translated_params, self.new_predictor(self.best_translated_params)
 
 
-def random_forest_models(random_seed=33, round_to=1e-5, min_separation=0.01):
+def random_forest_models(random_seed, round_to, min_separation, num_trees_str, max_tree_depth_str, max_features_str):
     def _gen(params):
         return RandomForestRegressor(n_estimators=int(round(params[0])),
                                      max_depth=int(round(params[1])),
                                      random_state=random_seed,
-                                     max_features=2,
-                                     oob_score=True, bootstrap=True)
+                                     max_features=params[2],
+                                     oob_score=True,
+                                     bootstrap=True)
+    num_trees = map(float, num_trees_str.split(','))
+    max_tree_depth = map(float, max_tree_depth_str.split(','))
+    max_features = map(float, max_features_str.split(','))
     return lambda: ModelFamily('RandomForestRegressor',
-                               _gen, [range(5, 40, 2), range(4, 11, 1)],
+                               _gen, [num_trees, max_tree_depth, max_features],
                                round_to, min_separation=min_separation)
 
 
-def extra_trees_models(random_seed=33, round_to=1e-5, min_separation=0.002):
+def extra_trees_models(random_seed, round_to, min_separation, num_trees_str, max_tree_depth_str, max_features_str):
     def _gen(params):
         return ExtraTreesRegressor(n_estimators=int(round(params[0])),
                                    max_depth=int(round(params[1])),
                                    random_state=random_seed,
-                                   max_features=0.5,
-                                   oob_score=True, bootstrap=True)
+                                   max_features=params[2],
+                                   oob_score=True,
+                                   bootstrap=True)
+    num_trees = map(float, num_trees_str.split(','))
+    max_tree_depth = map(float, max_tree_depth_str.split(','))
+    max_features = map(float, max_features_str.split(','))
     return lambda: ModelFamily('ExtraTreesRegressor',
-                               _gen, [range(5, 40, 2), range(4, 11, 1)],
+                               _gen, [num_trees, max_tree_depth, max_features],
                                round_to, min_separation=min_separation)
 
 
-def gradient_boosting_models(random_seed=33, round_to=1e-5, min_separation=0.002):
+def gradient_boosting_models(random_seed, round_to, min_separation,
+                             num_trees_str, max_tree_depth_str, learning_rate_str):
     def _gen(params):
         return GradientBoostingRegressor(
             n_estimators=int(round(params[0])),
@@ -119,18 +128,58 @@ def gradient_boosting_models(random_seed=33, round_to=1e-5, min_separation=0.002
             learning_rate=params[2],
             random_state=random_seed,
             loss='ls')
+    num_trees = map(float, num_trees_str.split(','))
+    max_tree_depth = map(float, max_tree_depth_str.split(','))
+    learning_rate = map(float, learning_rate_str.split(','))
     return lambda: ModelFamily('GradientBoostingRegressor',
-                               _gen, [range(20, 60, 2), range(1, 11, 1), [x/10.0 for x in range(5, 11, 1)]],
+                               _gen, [num_trees, max_tree_depth, learning_rate],
                                round_to, min_separation=min_separation, calculates_oob=False)
 
 
-def model_family(family, seed, optimization_tolerance):
+def add_args(parser):
+    parser.add_argument('--model-family', metavar='family', type=str, required=False,
+                        default='ExtraTrees', help='{RandomForest | ExtraTrees | GradientBoosting}')
+    parser.add_argument('--model-params', metavar='parameters', type=str, required=False,
+                        help='hyperparameters for model; for RandomForest or ExtraTrees: (#trees):(max depth)')
+
+    default_num_trees_range = range(5, 40, 2)
+    parser.add_argument('--num-trees', metavar='parameters', type=str,
+                        default=','.join(map(str, default_num_trees_range)),
+                        help='number of decision trees to try; relevant for all model families')
+
+    default_max_depth_range = range(4, 11, 1)
+    parser.add_argument('--max-tree-depth', metavar='parameters', type=str,
+                        default=','.join(map(str, default_max_depth_range)),
+                        help='maximum decision tree depth to try; relevant for all model families')
+
+    default_max_features_range = [0.1, 0.2, 0.25, 0.3, 0.35]
+    parser.add_argument('--max-features', metavar='parameters', type=str,
+                        default=','.join(map(str, default_max_features_range)),
+                        help='maximum number of features to consider at each decision tree node; '
+                             'relevant for RandomForest and ExtraTrees')
+
+    default_learning_rate_range = [0.75, 0.8, 0.85, 0.9, 0.95, 1.0]
+    parser.add_argument('--learning-rate', metavar='parameters', type=str,
+                        default=','.join(map(str, default_learning_rate_range)),
+                        help='learning rate to use when fitting; only relevant for GradientBoosting')
+
+
+def model_family(args, random_seed):
     """ Given command-line arguments, return appropriate model family """
-    if family == 'RandomForest':
-        return random_forest_models(seed, optimization_tolerance)
-    elif family == 'ExtraTrees':
-        return extra_trees_models(seed, optimization_tolerance)
-    elif family == 'GradientBoostingRegressor':
-        return gradient_boosting_models(seed, optimization_tolerance)
+    if args['model_family'] == 'RandomForest':
+        if args['model_params'] is not None and args['model_params'].count(':') != 2:
+            raise RuntimeError('--model-params for RandomForest must have 3 fields separated by :')
+        return random_forest_models(random_seed, 1e-5, 0.01,
+                                    args['num_trees'], args['max_tree_depth'], args['max_features'])
+    elif args['model_family'] == 'ExtraTrees':
+        if args['model_params'] is not None and args['model_params'].count(':') != 2:
+            raise RuntimeError('--model-params for ExtraTrees must have 3 fields separated by :')
+        return extra_trees_models(random_seed, 1e-5, 0.01,
+                                  args['num_trees'], args['max_tree_depth'], args['max_features'])
+    elif args['model_family'] == 'GradientBoosting':
+        if args['model_params'] is not None and args['model_params'].count(':') != 2:
+            raise RuntimeError('--model-params for GradientBoosting must have 3 fields separated by :')
+        return gradient_boosting_models(random_seed, 1e-5, 0.01,
+                                        args['num_trees'], args['max_tree_depth'], args['learning_rate'])
     else:
-        raise RuntimeError('Bad value for --model-family: "%s"' % family)
+        raise RuntimeError('Bad value for --model-family: "%s"' % args['model_family'])
