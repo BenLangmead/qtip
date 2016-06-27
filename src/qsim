@@ -592,8 +592,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 if fraction < 0.0 or fraction > 1.0:
                     raise RuntimeError('Bad subsampling fraction: %f' % fraction)
                 _odir = [odir, 'sample' + str(fraction)] if len(fractions) > 1 else [odir]
-                if args['try_exclude_mapq']:
-                    _odir.append('mapq_included')
+                if args['try_include_mapq']:
+                    _odir.append('mapq_excluded')
                 if len(fractions) > 1:
                     logging.info('  trying sampling fraction %0.02f%%' % (100.0 * fraction))
                 for i in range(args['trials']):
@@ -605,14 +605,14 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                     fam = model_family(args, seed)
                     _fits_and_predictions(fraction, fam,
                                           _odir + ['trial%d' % (i+1)] if args['trials'] > 1 else _odir,
-                                          include_mapq=True)
-                    if args['try_exclude_mapq']:
-                        assert _odir[-1] == 'mapq_included'
-                        _odir[-1] = 'mapq_excluded'
+                                          include_mapq=False)
+                    if args['try_include_mapq']:
+                        assert _odir[-1] == 'mapq_excluded'
+                        _odir[-1] = 'mapq_included'
                         _fits_and_predictions(fraction, fam,
                                               _odir + ['trial%d' % (i+1)] if args['trials'] > 1 else _odir,
-                                              include_mapq=False)
-                        _odir[-1] = 'mapq_included'
+                                              include_mapq=True)
+                        _odir[-1] = 'mapq_excluded'
 
         _all_fits_and_predictions()
         pass1_cleanup()
@@ -779,8 +779,9 @@ def add_args(parser):
                         help='Add this to every MAPQ before reweighting')
     parser.add_argument('--no-collapse', action='store_const', const=True, default=False,
                         help='Don\'t remove redundant rows just before prediction')
-    parser.add_argument('--try-exclude-mapq', action='store_const', const=True, default=False,
-                        help='Try both with and without including the tool-predicted MAPQ as a feature')
+    parser.add_argument('--try-include-mapq', action='store_const', const=True, default=False,
+                        help='Try both with and without including the tool-predicted MAPQ as a feature; '
+                             'default: doesn\'t include it')
     parser.add_argument('--subsampling-series', metavar='floats', type=str, default='1.0',
                         help='Comma separated list of subsampling fractions to try')
     parser.add_argument('--trials', metavar='int', type=int, default=1,

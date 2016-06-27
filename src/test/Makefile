@@ -45,7 +45,7 @@ extra_e2e/final.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(
 		--output-directory extra_e2e \
 		--keep-intermediates \
 		--predict-for-training \
-		--try-exclude-mapq \
+		--try-include-mapq \
 		--subsampling-series 0.1,0.5,1.0 \
 		--trials 2 \
 		--write-orig-mapq \
@@ -68,7 +68,7 @@ test_random_forest: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--output-directory $@ \
 		--keep-intermediates \
 		--predict-for-training \
-		--try-exclude-mapq \
+		--try-include-mapq \
 		--subsampling-series 0.1,0.5,1.0 \
 		--trials 2 \
 		--write-orig-mapq \
@@ -120,7 +120,7 @@ test_gradient_boost: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(
 		--output-directory $@ \
 		--keep-intermediates \
 		--predict-for-training \
-		--try-exclude-mapq \
+		--try-include-mapq \
 		--subsampling-series 0.5,1.0 \
 		--trials 3 \
 		--write-orig-mapq \
@@ -161,6 +161,6 @@ lambda_virus.1.bt2:
 
 .PHONY: clean
 clean:
-	rm -rf full_e2e extra_e2e test_random_forest test_gradient_boost
+	rm -rf full_e2e extra_e2e test_random_forest test_gradient_boost test_reweight_mapq test_reweight_ratio
 	rm -f .r*.fastq
 	rm -f lambda_virus.*
