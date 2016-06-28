@@ -139,7 +139,7 @@ def add_args(parser):
     parser.add_argument('--model-params', metavar='parameters', type=str, required=False,
                         help='hyperparameters for model; for RandomForest or ExtraTrees: (#trees):(max depth)')
 
-    default_num_trees_range = range(5, 50, 2)
+    default_num_trees_range = range(5, 60, 2)
     parser.add_argument('--num-trees', metavar='int,int,...', type=str,
                         default=','.join(map(str, default_num_trees_range)),
                         help='number of decision trees to try; relevant for all model families')
