@@ -98,6 +98,7 @@ def random_forest_models(random_seed, min_separation, num_trees_str, max_tree_de
     num_trees = map(float, num_trees_str.split(','))
     max_tree_depth = map(float, max_tree_depth_str.split(','))
     max_features = map(float, max_features_str.split(','))
+    max_leaf_nodes = [None]
     if max_leaf_nodes_str != 'None':
         max_leaf_nodes = map(int, max_leaf_nodes_str.split(','))
         max_tree_depth = [5]  # doesn't matter what the number is; just want to prevent search
