@@ -84,35 +84,50 @@ class ModelFamily(object):
         return self.best_translated_params, self.new_predictor(self.best_translated_params)
 
 
-def random_forest_models(random_seed, min_separation, num_trees_str, max_tree_depth_str, max_features_str):
+def random_forest_models(random_seed, min_separation, num_trees_str, max_tree_depth_str, max_features_str,
+                         max_leaf_nodes_str, min_samples_leaf_str):
     def _gen(params):
         return RandomForestRegressor(n_estimators=int(round(params[0])),
                                      max_depth=int(round(params[1])),
-                                     random_state=random_seed,
                                      max_features=params[2],
+                                     max_leaf_nodes=params[3],
+                                     min_samples_leaf=params[4],
+                                     random_state=random_seed,
                                      oob_score=True,
                                      bootstrap=True)
     num_trees = map(float, num_trees_str.split(','))
     max_tree_depth = map(float, max_tree_depth_str.split(','))
     max_features = map(float, max_features_str.split(','))
+    if max_leaf_nodes_str != 'None':
+        max_leaf_nodes = map(int, max_leaf_nodes_str.split(','))
+        max_tree_depth = [5]  # doesn't matter what the number is; just want to prevent search
+    min_samples_leaf = map(int, min_samples_leaf_str.split(','))
     return lambda: ModelFamily('RandomForestRegressor',
-                               _gen, [num_trees, max_tree_depth, max_features],
+                               _gen, [num_trees, max_tree_depth, max_features, max_leaf_nodes, min_samples_leaf],
                                min_separation=min_separation)
 
 
-def extra_trees_models(random_seed, min_separation, num_trees_str, max_tree_depth_str, max_features_str):
+def extra_trees_models(random_seed, min_separation, num_trees_str, max_tree_depth_str, max_features_str,
+                       max_leaf_nodes_str, min_samples_leaf_str):
     def _gen(params):
         return ExtraTreesRegressor(n_estimators=int(round(params[0])),
                                    max_depth=int(round(params[1])),
                                    random_state=random_seed,
                                    max_features=params[2],
+                                   max_leaf_nodes=params[3],
+                                   min_samples_leaf=params[4],
                                    oob_score=True,
                                    bootstrap=True)
     num_trees = map(float, num_trees_str.split(','))
     max_tree_depth = map(float, max_tree_depth_str.split(','))
     max_features = map(float, max_features_str.split(','))
+    max_leaf_nodes = [None]
+    if max_leaf_nodes_str != 'None':
+        max_leaf_nodes = map(int, max_leaf_nodes_str.split(','))
+        max_tree_depth = [5]  # doesn't matter what the number is; just want to prevent search
+    min_samples_leaf = map(int, min_samples_leaf_str.split(','))
     return lambda: ModelFamily('ExtraTreesRegressor',
-                               _gen, [num_trees, max_tree_depth, max_features],
+                               _gen, [num_trees, max_tree_depth, max_features, max_leaf_nodes, min_samples_leaf],
                                min_separation=min_separation)
 
 
@@ -155,12 +170,24 @@ def add_args(parser):
                         help='maximum number of features to consider at each decision tree node; '
                              'relevant for RandomForest and ExtraTrees')
 
+    default_max_leaf_nodes_range = ['None']
+    parser.add_argument('--max-leaf-nodes', metavar='int,int,...', type=str,
+                        default=','.join(map(str, default_max_leaf_nodes_range)),
+                        help='maximum number of leaf nodes to include in a decision tree; '
+                             'relevant for RandomForest and ExtraTrees')
+
+    default_min_samples_leaf_range = [1]
+    parser.add_argument('--min-samples-leaf', metavar='int,int,...', type=str,
+                        default=','.join(map(str, default_min_samples_leaf_range)),
+                        help='minimum number of data points required for a leaf node; '
+                             'relevant for RandomForest and ExtraTrees')
+
     default_learning_rate_range = [0.75, 0.8, 0.85, 0.9, 0.95, 1.0]
     parser.add_argument('--learning-rate', metavar='float,float,...', type=str,
                         default=','.join(map(str, default_learning_rate_range)),
                         help='learning rate to use when fitting; only relevant for GradientBoosting')
 
-    parser.add_argument('--optimization-tolerance', metavar='fraction', type=float, default=0.001,
+    parser.add_argument('--optimization-tolerance', metavar='fraction', type=float, default=0.01,
                         help='When using hill climbing procedure to optimize hyperparamters,'
                              'stop when OOB score can\'t be improved by this relative factor')
 
@@ -171,12 +198,14 @@ def model_family(args, random_seed):
         if args['model_params'] is not None and args['model_params'].count(':') != 2:
             raise RuntimeError('--model-params for RandomForest must have 3 fields separated by :')
         return random_forest_models(random_seed, args['optimization_tolerance'],
-                                    args['num_trees'], args['max_tree_depth'], args['max_features'])
+                                    args['num_trees'], args['max_tree_depth'], args['max_features'],
+                                    args['max_leaf_nodes'], args['min_samples_leaf'])
     elif args['model_family'] == 'ExtraTrees':
         if args['model_params'] is not None and args['model_params'].count(':') != 2:
             raise RuntimeError('--model-params for ExtraTrees must have 3 fields separated by :')
         return extra_trees_models(random_seed, args['optimization_tolerance'],
-                                  args['num_trees'], args['max_tree_depth'], args['max_features'])
+                                  args['num_trees'], args['max_tree_depth'], args['max_features'],
+                                  args['max_leaf_nodes'], args['min_samples_leaf'])
     elif args['model_family'] == 'GradientBoosting':
         if args['model_params'] is not None and args['model_params'].count(':') != 2:
             raise RuntimeError('--model-params for GradientBoosting must have 3 fields separated by :')

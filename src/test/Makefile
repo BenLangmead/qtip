@@ -4,7 +4,7 @@ BT2_DIR=../../software/bowtie2
 BT2=$(BT2_DIR)/bowtie2
 MASON_CONVERT=python ../../bin/mason_convert.py
 
-all: full_e2e/final.sam extra_e2e/final.sam final_full_e2e.sam test_random_forest test_gradient_boost test_reweight_mapq test_reweight_ratio
+all: full_e2e/final.sam extra_e2e/final.sam final_full_e2e.sam test_random_forest test_gradient_boost test_reweight_mapq test_reweight_ratio test_min_samples_leaf test_max_leaf_nodes
 
 final_full_e2e.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
 	python ../qsim \
@@ -76,6 +76,32 @@ test_random_forest: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--assess-accuracy \
 		--model-family RandomForest \
 		--model-params 50:8:0.5
+
+test_min_samples_leaf: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
+	python ../qsim \
+		--ref lambda_virus.fa \
+		--m1 .r_1.fastq \
+		--m2 .r_2.fastq \
+		--index lambda_virus \
+		--seed 34 \
+		--aligner bowtie2 \
+		--bt2-exe $(BT2) \
+		--output-directory $@ \
+		--model-family RandomForest \
+		--min-samples-leaf 10
+
+test_max_leaf_nodes: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
+	python ../qsim \
+		--ref lambda_virus.fa \
+		--m1 .r_1.fastq \
+		--m2 .r_2.fastq \
+		--index lambda_virus \
+		--seed 34 \
+		--aligner bowtie2 \
+		--bt2-exe $(BT2) \
+		--output-directory $@ \
+		--model-family RandomForest \
+		--max-leaf-nodes 20
 
 test_reweight_mapq: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
 	python ../qsim \
@@ -161,6 +187,6 @@ lambda_virus.1.bt2:
 
 .PHONY: clean
 clean:
-	rm -rf full_e2e extra_e2e test_random_forest test_gradient_boost test_reweight_mapq test_reweight_ratio
+	rm -rf full_e2e extra_e2e test_random_forest test_gradient_boost test_reweight_mapq test_reweight_ratio test_min_samples_leaf test_max_leaf_nodes
 	rm -f .r*.fastq
 	rm -f lambda_virus.*
