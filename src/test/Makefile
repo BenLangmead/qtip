@@ -74,8 +74,7 @@ test_random_forest: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--write-orig-mapq \
 		--write-precise-mapq \
 		--assess-accuracy \
-		--model-family RandomForest \
-		--model-params 50:8:0.5
+		--model-family RandomForest
 
 test_min_samples_leaf: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
 	python ../qsim \

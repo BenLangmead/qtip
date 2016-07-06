@@ -150,7 +150,7 @@ class MapqFit:
 
     datasets = list(zip('dbcu', ['Discordant', 'Bad-end', 'Concordant', 'Unpaired'], [True, False, True, False]))
 
-    def _fit(self, dfs, log=logging, frac=1.0, heap_profiler=None, include_mapq=False, model_params=None,
+    def _fit(self, dfs, log=logging, frac=1.0, heap_profiler=None, include_mapq=False,
              reweight_ratio=1.0, reweight_mapq=False, reweight_mapq_offset=10.0, no_oob=False):
         """ Train one model per training table. Optionally subsample training
             data first. """
@@ -181,22 +181,10 @@ class MapqFit:
             log.info('Fitting %d %s training records; %d features each' % (x_train.shape[0], ds_long, x_train.shape[1]))
             assert x_train.shape[0] == y_train.shape[0]
             self.trained_shape[ds] = x_train.shape
-            if model_params is None:
-                self.trained_models[ds], self.trained_params[ds], self.model_score[ds] = \
-                    self._crossval_fit(self.model_gen, x_train, y_train, ds,
-                                       use_oob=self.model_gen().calculates_oob() and not no_oob)
-                log.info('    Chose parameters: %s' % str(self.trained_params[ds]))
-            else:
-                mf = self.model_gen()
-                self.trained_models[ds] = mf.predictor_from_params(model_params)
-                self.model_fam_name = mf.name
-                self._fit_and_possibly_reweight_and_refit(self.trained_models[ds], x_train, y_train,
-                                                          reweight_ratio=reweight_ratio,
-                                                          reweight_mapq=reweight_mapq,
-                                                          reweight_mapq_offset=reweight_mapq_offset)
-                self.trained_params[ds] = ':'.join(map(str, model_params))
-                self.model_score[ds] = 0
-                log.info('    Using user-specified parameters: %s' % str(self.trained_params[ds]))
+            self.trained_models[ds], self.trained_params[ds], self.model_score[ds] = \
+                self._crossval_fit(self.model_gen, x_train, y_train, ds,
+                                   use_oob=self.model_gen().calculates_oob() and not no_oob)
+            log.info('    Chose parameters: %s' % str(self.trained_params[ds]))
             self._fit_and_possibly_reweight_and_refit(self.trained_models[ds], x_train, y_train,
                                                       reweight_ratio=reweight_ratio,
                                                       reweight_mapq=reweight_mapq,
@@ -332,7 +320,6 @@ class MapqFit:
                  sample_fraction=1.0,  # fraction of training data to actually use
                  heap_profiler=None,
                  include_mapq=False,
-                 model_params=None,
                  reweight_ratio=1.0,
                  reweight_mapq=False,
                  reweight_mapq_offset=10.0,
@@ -348,5 +335,5 @@ class MapqFit:
         self.model_fam_name = None
         self.sample_fraction = sample_fraction
         self._fit(dfs, log=log, frac=sample_fraction, heap_profiler=heap_profiler, include_mapq=include_mapq,
-                  model_params=model_params, reweight_ratio=reweight_ratio, reweight_mapq=reweight_mapq,
+                  reweight_ratio=reweight_ratio, reweight_mapq=reweight_mapq,
                   reweight_mapq_offset=reweight_mapq_offset, no_oob=no_oob)

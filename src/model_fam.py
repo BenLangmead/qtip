@@ -152,8 +152,6 @@ def gradient_boosting_models(random_seed, min_separation,
 def add_args(parser):
     parser.add_argument('--model-family', metavar='family', type=str, required=False,
                         default='RandomForest', help='{RandomForest | ExtraTrees | GradientBoosting}')
-    parser.add_argument('--model-params', metavar='parameters', type=str, required=False,
-                        help='hyperparameters for model; for RandomForest or ExtraTrees: (#trees):(max depth)')
 
     default_num_trees_range = range(10, 80, 4)
     parser.add_argument('--num-trees', metavar='int,int,...', type=str,
@@ -196,20 +194,14 @@ def add_args(parser):
 def model_family(args, random_seed):
     """ Given command-line arguments, return appropriate model family """
     if args['model_family'] == 'RandomForest':
-        if args['model_params'] is not None and args['model_params'].count(':') != 2:
-            raise RuntimeError('--model-params for RandomForest must have 3 fields separated by :')
         return random_forest_models(random_seed, args['optimization_tolerance'],
                                     args['num_trees'], args['max_tree_depth'], args['max_features'],
                                     args['max_leaf_nodes'], args['min_samples_leaf'])
     elif args['model_family'] == 'ExtraTrees':
-        if args['model_params'] is not None and args['model_params'].count(':') != 2:
-            raise RuntimeError('--model-params for ExtraTrees must have 3 fields separated by :')
         return extra_trees_models(random_seed, args['optimization_tolerance'],
                                   args['num_trees'], args['max_tree_depth'], args['max_features'],
                                   args['max_leaf_nodes'], args['min_samples_leaf'])
     elif args['model_family'] == 'GradientBoosting':
-        if args['model_params'] is not None and args['model_params'].count(':') != 2:
-            raise RuntimeError('--model-params for GradientBoosting must have 3 fields separated by :')
         return gradient_boosting_models(random_seed, args['optimization_tolerance'],
                                         args['num_trees'], args['max_tree_depth'], args['learning_rate'])
     else:
