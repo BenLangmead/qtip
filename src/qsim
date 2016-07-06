@@ -558,11 +558,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
 
         def _do_fit(_tab_tr, fam, fraction, subdir, include_mapq=False):
             from fit import MapqFit
-            model_params = None
-            if args['model_params'] is not None:
-                model_params = map(float, args['model_params'].split(':'))
             fit = MapqFit(_tab_tr, fam, sample_fraction=fraction, heap_profiler=hp, include_mapq=include_mapq,
-                          model_params=model_params, reweight_ratio=args['reweight_ratio'],
+                          reweight_ratio=args['reweight_ratio'],
                           reweight_mapq=args['reweight_mapq'],
                           reweight_mapq_offset=args['reweight_mapq_offset'],
                           no_oob=args['no_oob'])
