@@ -115,8 +115,7 @@ test_reweight_mapq: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--reweight-mapq-offset 20.0 \
 		--reweight-mapq \
 		--assess-accuracy \
-		--model-family RandomForest \
-		--model-params 50:8:0.5
+		--model-family RandomForest
 
 test_reweight_ratio: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
 	python ../qsim \
@@ -130,8 +129,7 @@ test_reweight_ratio: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(
 		--output-directory $@ \
 		--reweight-ratio 10.0 \
 		--assess-accuracy \
-		--model-family RandomForest \
-		--model-params 50:8:0.5
+		--model-family RandomForest
 
 test_gradient_boost: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
 	python ../qsim \
