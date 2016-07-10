@@ -87,12 +87,13 @@ class ModelFamily(object):
 def random_forest_models(random_seed, min_separation, num_trees_str, max_features_str,
                          max_leaf_nodes_str):
     def _gen(params):
-        return RandomForestRegressor(n_estimators=int(round(params[0])),
-                                     max_features=params[1],
-                                     max_leaf_nodes=params[2],
-                                     random_state=random_seed,
-                                     oob_score=True,
-                                     bootstrap=True)
+        return RandomForestRegressor(
+            n_estimators=int(round(params[0])),
+            random_state=random_seed,
+            max_features=params[1],
+            max_leaf_nodes=int(round(params[2])),
+            oob_score=True,
+            bootstrap=True)
     num_trees = map(float, num_trees_str.split(','))
     max_features = map(float, max_features_str.split(','))
     max_leaf_nodes = [None]
@@ -106,12 +107,13 @@ def random_forest_models(random_seed, min_separation, num_trees_str, max_feature
 def extra_trees_models(random_seed, min_separation, num_trees_str, max_features_str,
                        max_leaf_nodes_str):
     def _gen(params):
-        return ExtraTreesRegressor(n_estimators=int(round(params[0])),
-                                   random_state=random_seed,
-                                   max_features=params[1],
-                                   max_leaf_nodes=params[2],
-                                   oob_score=True,
-                                   bootstrap=True)
+        return ExtraTreesRegressor(
+            n_estimators=int(round(params[0])),
+            random_state=random_seed,
+            max_features=params[1],
+            max_leaf_nodes=int(round(params[2])),
+            oob_score=True,
+            bootstrap=True)
     num_trees = map(float, num_trees_str.split(','))
     max_features = map(float, max_features_str.split(','))
     max_leaf_nodes = [None]
@@ -127,8 +129,8 @@ def gradient_boosting_models(random_seed, min_separation, num_trees_str, max_fea
     def _gen(params):
         return GradientBoostingRegressor(
             n_estimators=int(round(params[0])),
-            max_features=int(round(params[1])),
-            max_leaf_nodes=params[2],
+            max_features=params[1],
+            max_leaf_nodes=int(round(params[2])),
             learning_rate=params[3],
             random_state=random_seed,
             loss='ls')
