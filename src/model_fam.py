@@ -95,7 +95,7 @@ def random_forest_models(random_seed, min_separation, num_trees_str, max_feature
             oob_score=True,
             bootstrap=True)
     num_trees = map(float, num_trees_str.split(','))
-    max_features = map(float, max_features_str.split(','))
+    max_features = map(float if '.' in max_features_str else int, max_features_str.split(','))
     max_leaf_nodes = [None]
     if max_leaf_nodes_str != 'None':
         max_leaf_nodes = map(int, max_leaf_nodes_str.split(','))
@@ -115,7 +115,7 @@ def extra_trees_models(random_seed, min_separation, num_trees_str, max_features_
             oob_score=True,
             bootstrap=True)
     num_trees = map(float, num_trees_str.split(','))
-    max_features = map(float, max_features_str.split(','))
+    max_features = map(float if '.' in max_features_str else int, max_features_str.split(','))
     max_leaf_nodes = [None]
     if max_leaf_nodes_str != 'None':
         max_leaf_nodes = map(int, max_leaf_nodes_str.split(','))
@@ -135,7 +135,7 @@ def gradient_boosting_models(random_seed, min_separation, num_trees_str, max_fea
             random_state=random_seed,
             loss='ls')
     num_trees = map(float, num_trees_str.split(','))
-    max_features = map(float, max_features_str.split(','))
+    max_features = map(float if '.' in max_features_str else int, max_features_str.split(','))
     max_leaf_nodes = [None]
     if max_leaf_nodes_str != 'None':
         max_leaf_nodes = map(int, max_leaf_nodes_str.split(','))
