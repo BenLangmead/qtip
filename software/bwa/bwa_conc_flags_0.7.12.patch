@@ -1,48 +1,77 @@
 diff -rupN -x Xcode -x .git bwa/bwamem.c bwa-mod/bwamem.c
 --- bwa/bwamem.c	2015-07-08 13:14:28.000000000 -0400
-+++ bwa-mod/bwamem.c	2016-07-29 21:32:26.000000000 -0400
-@@ -942,6 +942,40 @@ void mem_aln2sam(const mem_opt_t *opt, c
++++ bwa-mod/bwamem.c	2016-07-29 22:21:24.000000000 -0400
+@@ -838,6 +838,7 @@ void mem_aln2sam(const mem_opt_t *opt, c
+ 	ks_resize(str, str->l + s->l_seq + l_name + (s->qual? s->l_seq : 0) + 20);
+ 	kputsn(s->name, l_name, str); kputc('\t', str); // QNAME
+ 	kputw((p->flag&0xffff) | (p->flag&0x10000? 0x100 : 0), str); kputc('\t', str); // FLAG
++	int ngaps = 0, nextends = 0;
+ 	if (p->rid >= 0) { // with coordinate
+ 		kputs(bns->anns[p->rid].name, str); kputc('\t', str); // RNAME
+ 		kputl(p->pos + 1, str); kputc('\t', str); // POS
+@@ -847,6 +848,10 @@ void mem_aln2sam(const mem_opt_t *opt, c
+ 				int c = p->cigar[i]&0xf;
+ 				if (!(opt->flag&MEM_F_SOFTCLIP) && !p->is_alt && (c == 3 || c == 4))
+ 					c = which? 4 : 3; // use hard clipping for supplementary alignments
++				if(c == 1 || c == 2) {
++					ngaps++;
++					nextends += (p->cigar[i] >> 4);
++				}
+ 				kputw(p->cigar[i]>>4, str); kputc("MIDSH"[c], str);
+ 			}
+ 		} else kputc('*', str); // having a coordinate but unaligned (e.g. when copy_mate is true)
+@@ -942,6 +947,50 @@ void mem_aln2sam(const mem_opt_t *opt, c
  		for (i = tmp; i < str->l; ++i) // replace TAB in the comment to SPACE
  			if (str->s[i] == '\t') str->s[i] = ' ';
  	}
 +	if ((p->flag & 4) == 0) {
 +		kputsn("\tZT:Z:", 6, str);
-+		kputw(p->score, str); // same as AS:i
++		kputw(p->score, str); // same as AS:i, ztz0
++		kputc(',', str);
++		if(p->n_cigar) {
++			kputw(p->NM, str); // ztz1
++		} else {
++			kputsn("NA", 2, str);
++		}
++		kputc(',', str);
++		kputw(ngaps, str); // ztz2
++		kputc(',', str);
++		kputw(nextends, str); // ztz3
 +		kputc(',', str);
 +		if(p->sub >= 0) {
-+			kputw(p->score - p->sub, str);
++			kputw(p->score - p->sub, str); // ztz4
 +		} else {
 +			kputsn("NA", 2, str);
 +		}
 +		kputc(',', str);
-+		kputw(p->pair_score, str);
++		kputw(p->pair_score, str); // ztz5
 +		kputc(',', str);
 +		if(p->pair_sub >= 0) {
-+			kputw(p->pair_score - p->pair_sub, str);
++			kputw(p->pair_score - p->pair_sub, str); // ztz6
 +		} else {
 +			kputsn("NA", 2, str);
 +		}
 +		kputc(',', str);
-+		kputw(p->n_comp, str);
++		kputw(p->n_comp, str); // ztz7
 +		kputc(',', str);
-+		kputw(p->seedlen0, str);
++		kputw(p->seedlen0, str); // ztz8
 +		kputc(',', str);
-+		kputw(p->sub_n, str);
++		kputw(p->sub_n, str); // ztz9
 +		kputc(',', str);
-+		kputw(p->pair_nsub, str);
++		kputw(p->pair_nsub, str); // ztz10
 +		kputc(',', str);
-+		kputw((int)(p->frac_rep * 1000.0), str);
++		kputw((int)(p->frac_rep * 1000.0), str); // ztz11
 +		kputc(',', str);
-+		kputw((int)(p->pair_frac_rep * 1000.0), str);
++		kputw((int)(p->pair_frac_rep * 1000.0), str); // ztz12
 +		kputc(',', str);
-+		kputw((int)(p->seedcov * 1000.0), str);
++		kputw((int)(p->seedcov * 1000.0), str); // ztz13
 +		kputc(',', str);
-+		kputw((int)(p->pair_seedcov * 1000.0), str);
++		kputw((int)(p->pair_seedcov * 1000.0), str); // ztz14
 +	}
  	kputc('\n', str);
  }
  
-@@ -1131,6 +1165,13 @@ mem_aln_t mem_reg2aln(const mem_opt_t *o
+@@ -1131,6 +1180,13 @@ mem_aln_t mem_reg2aln(const mem_opt_t *o
  	a.pos = pos - bns->anns[a.rid].offset;
  	a.score = ar->score; a.sub = ar->sub > ar->csub? ar->sub : ar->csub;
  	a.is_alt = ar->is_alt; a.alt_sc = ar->alt_sc;
