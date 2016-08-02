@@ -1,6 +1,6 @@
 #!gmake
 
-VER=0.7.12
+VER=0.7.15
 NM=bwa-$(VER)
 AR=$(NM).tar.bz2
 URL=http://downloads.sourceforge.net/project/bio-bwa/$(AR)
