@@ -734,8 +734,8 @@ def add_args(parser):
                         help='Function to apply to number of input reads when determining number of '
                              'tandem reads to simulate in a given category.  See also: --sim-factor.')
     parser.add_argument('--sim-factor', metavar='fraction', type=float, default=45.0, required=False,
-                        help='This is multiplied with X (if --sim-scaling=linear) or sqrt(X) '
-                             '(if --sim-scaling=sqrt) to calculate number of tandem reads to '
+                        help='This is multiplied with X (if --sim-function=linear) or sqrt(X) '
+                             '(if --sim-function=sqrt) to calculate number of tandem reads to '
                              'simulate in a given category, where X is number of input reads '
                              'in that category.')
 
