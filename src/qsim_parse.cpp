@@ -490,7 +490,8 @@ struct Alignment {
 		assert(len > 0);
 		const size_t nclipped = left_clip + right_clip;
 		assert(nclipped < len);
-		size_t tot_clipped_qual = 0, tot_aligned_qual = 0;
+		tot_clipped_qual = 0;
+		tot_aligned_qual = 0;
 		for(size_t i = 0; i < len; i++) {
 			assert((int)qual[i] >= 33);
 			if(i < left_clip || i >= len - 1 - right_clip) {
@@ -503,7 +504,7 @@ struct Alignment {
 		if(nclipped > 0) {
 			avg_clipped_qual = (double)tot_clipped_qual / nclipped;
 		} else {
-			avg_clipped_qual = 100.0;
+			avg_clipped_qual = 100.0; // why not 0?
 		}
 	}
 	
@@ -725,6 +726,8 @@ struct Alignment {
 	char *seq;
 	size_t len;
 	char *qual;
+	size_t tot_clipped_qual;
+	size_t tot_aligned_qual;
 	double avg_clipped_qual;
 	double avg_aligned_qual;
 	char *mdz;
@@ -859,8 +862,8 @@ static void print_unpaired(
 				(unsigned long long)al.line,
 				(unsigned)al.len,
 				al.left_clip + al.right_clip,
-				(unsigned)(al.avg_aligned_qual * 100),
-				(unsigned)(al.avg_clipped_qual * 100),
+				(unsigned)(al.tot_aligned_qual),
+				(unsigned)(al.tot_clipped_qual),
 				(unsigned)ordlen);
 		
 		// ... including all the ZT:Z fields
@@ -929,8 +932,8 @@ static void print_paired_helper(
 		        (unsigned long long)al1.line,
 		        (unsigned)al1.len,
 		        al1.left_clip + al1.right_clip,
-		        (unsigned)(al1.avg_aligned_qual * 100),
-		        (unsigned)(al1.avg_clipped_qual * 100));
+		        (unsigned)(al1.tot_aligned_qual),
+		        (unsigned)(al1.tot_clipped_qual));
 
 		// ... including all the ZT:Z fields
 		while(ztz_tok1 != NULL) {
@@ -962,8 +965,8 @@ static void print_paired_helper(
 		fprintf(fh_recs, ",%u,%u,%u,%u,%u",
 		        (unsigned)al2.len,
 		        al2.left_clip + al2.right_clip,
-		        (unsigned)(al2.avg_aligned_qual * 100),
-		        (unsigned)(al2.avg_clipped_qual * 100),
+		        (unsigned)(al2.tot_aligned_qual),
+		        (unsigned)(al2.tot_clipped_qual),
 		        (unsigned)fraglen);
 		// ... including all the ZT:Z fields
 		while(ztz_tok2 != NULL) {
@@ -987,8 +990,8 @@ static void print_paired_helper(
 		        (unsigned long long)al2.line,
 		        (unsigned)al2.len,
 		        al2.left_clip + al2.right_clip,
-		        (unsigned)(al2.avg_aligned_qual * 100),
-		        (unsigned)(al2.avg_clipped_qual * 100));
+		        (unsigned)(al2.tot_aligned_qual),
+		        (unsigned)(al2.tot_clipped_qual));
 		for(size_t i = 0; i < ztz2_buf.size(); i++) {
 			fprintf(fh_recs, ",%s", ztz2_buf[i]);
 		}
@@ -996,8 +999,8 @@ static void print_paired_helper(
 		fprintf(fh_recs, ",%u,%u,%u,%u,%u",
 		        (unsigned)al1.len,
 		        al1.left_clip + al1.right_clip,
-		        (unsigned)(al1.avg_aligned_qual * 100),
-		        (unsigned)(al1.avg_clipped_qual * 100),
+		        (unsigned)(al1.tot_aligned_qual),
+		        (unsigned)(al1.tot_clipped_qual),
 		        (unsigned)fraglen);
 		for(size_t i = 0; i < ztz1_buf.size(); i++) {
 			fprintf(fh_recs, ",%s", ztz1_buf[i]);
