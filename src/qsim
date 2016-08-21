@@ -387,10 +387,10 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 '_rec_b.csv',
                 '_rec_c.csv',
                 '_rec_d.csv',
-                '_mod_u.csv',
-                '_mod_b.csv',
-                '_mod_c.csv',
-                '_mod_d.csv',
+                #'_mod_u.csv',  # these are unused
+                #'_mod_b.csv',  # these are unused
+                #'_mod_c.csv',  # these are unused
+                #'_mod_d.csv',  # these are unused
                 '_reads_u.fastq',
                 '_reads_b_1.fastq',
                 '_reads_c_1.fastq',

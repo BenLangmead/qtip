@@ -833,15 +833,17 @@ static void print_unpaired(
 	
 	if(fh_model != NULL) {
 		// Output information relevant to input model
-		fprintf(fh_model, "%d,%c,%s,%u,%c,%u,%s\n",
-				al.best_score,
-				fw_flag,
-				al.qual,
-				(unsigned)al.len,
-				al.mate_flag(),
-				(unsigned)ordlen,
-				al.edit_xscript.ptr());
+		fprintf(
+			fh_model, "%d,%c,%s,%u,%c,%u,%s\n",
+			al.best_score,
+			fw_flag,
+			al.qual,
+			(unsigned)al.len,
+			al.mate_flag(),
+			(unsigned)ordlen,
+			al.edit_xscript.ptr());
 	}
+
 	if(unp_model != NULL) {
 		size_t off = unp_model->add_part1();
 		if(off < unp_model->k()) {
@@ -1008,23 +1010,24 @@ static void print_paired_helper(
 		// Now aligner-predicted MAPQ and correctness
 		fprintf(fh_recs, ",%d,%d\n", al2.mapq, al2.correct);
 	}
-	
+
 	if(fh_model != NULL) {
 		// Output information relevant to input model
-		fprintf(fh_model, "%d,%c,%s,%d,%u,%s,%c,%s,%d,%u,%s,%c,%llu\n",
-				al1.best_score + al2.best_score,
-				fw_flag1,
-				al1.qual,
-				al1.best_score,
-				(unsigned)al1.len,
-				al1.edit_xscript.ptr(),
-				fw_flag2,
-				al2.qual,
-				al2.best_score,
-				(unsigned)al2.len,
-				al2.edit_xscript.ptr(),
-				upstream1 ? 'T' : 'F',
-				(unsigned long long)fraglen);
+		fprintf(
+			fh_model, "%d,%c,%s,%d,%u,%s,%c,%s,%d,%u,%s,%c,%llu\n",
+			al1.best_score + al2.best_score,
+			fw_flag1,
+			al1.qual,
+			al1.best_score,
+			(unsigned)al1.len,
+			al1.edit_xscript.ptr(),
+			fw_flag2,
+			al2.qual,
+			al2.best_score,
+			(unsigned)al2.len,
+			al2.edit_xscript.ptr(),
+			upstream1 ? 'T' : 'F',
+			(unsigned long long)fraglen);
 	}
 
 	if(paired_model != NULL) {
@@ -1446,31 +1449,31 @@ int main(int argc, char **argv) {
 					throw 1;
 				}
 				// this is where parameters get set
-				if(strcmp(argv[i], "wiggle") == 0) {
+				else if(strcmp(argv[i], "wiggle") == 0) {
 					wiggle = atoi(argv[++i]);
 				}
-				if(strcmp(argv[i], "input-model-size") == 0) {
+				else if(strcmp(argv[i], "input-model-size") == 0) {
 					input_model_size = atoi(argv[++i]);
 				}
-				if(strcmp(argv[i], "fraction-even") == 0) {
+				else if(strcmp(argv[i], "fraction-even") == 0) {
 					fraction_even = atof(argv[++i]);
 					if(fraction_even < 1.0f) {
 						cerr << "Warning: fraction-even not currently implemented" << endl;
 					}
 				}
-				if(strcmp(argv[i], "low-score-bias") == 0) {
+				else if(strcmp(argv[i], "low-score-bias") == 0) {
 					low_score_bias = atof(argv[++i]);
 					if(low_score_bias < 1.0f) {
 						cerr << "Warning: low-score bias not currently implemented" << endl;
 					}
 				}
-				if(strcmp(argv[i], "max-allowed-fraglen") == 0) {
+				else if(strcmp(argv[i], "max-allowed-fraglen") == 0) {
 					max_allowed_fraglen = atoi(argv[++i]);
 				}
-				if(strcmp(argv[i], "sim-factor") == 0) {
+				else if(strcmp(argv[i], "sim-factor") == 0) {
 					sim_factor = atof(argv[++i]);
 				}
-				if(strcmp(argv[i], "sim-function") == 0) {
+				else if(strcmp(argv[i], "sim-function") == 0) {
 				    i++;
 					if(strcmp(argv[i], "sqrt") == 0) {
 					    sim_function = FUNC_SQRT;
@@ -1481,22 +1484,22 @@ int main(int argc, char **argv) {
 						return -1;
 					}
 				}
-				if(strcmp(argv[i], "sim-unp-min") == 0) {
+				else if(strcmp(argv[i], "sim-unp-min") == 0) {
 					sim_unp_min = atoi(argv[++i]);
 				}
-				if(strcmp(argv[i], "sim-conc-min") == 0) {
+				else if(strcmp(argv[i], "sim-conc-min") == 0) {
 					sim_conc_min = atoi(argv[++i]);
 				}
-				if(strcmp(argv[i], "sim-disc-min") == 0) {
+				else if(strcmp(argv[i], "sim-disc-min") == 0) {
 					sim_disc_min = atoi(argv[++i]);
 				}
-				if(strcmp(argv[i], "sim-bad-end-min") == 0) {
+				else if(strcmp(argv[i], "sim-bad-end-min") == 0) {
 					sim_bad_end_min = atoi(argv[++i]);
 				}
-				if(strcmp(argv[i], "seed") == 0) {
+				else if(strcmp(argv[i], "seed") == 0) {
 					// Unsure whether this is a good way to do this
-					set_seed(atoi(argv[i+1]), atoi(argv[i+1])*77);
 					i++;
+					set_seed(atoi(argv[i]), atoi(argv[i])*77);
 				}
 			} else if(section == 2) {
 				sams.push_back(string(argv[i]));
@@ -1543,13 +1546,13 @@ int main(int argc, char **argv) {
 	keep_templates = do_simulation;
 	
 	FILEDEC(orec_u_fn, orec_u_fh, orec_u_buf, "feature", do_features);
-	FILEDEC(omod_u_fn, omod_u_fh, omod_u_buf, "template record", do_input_model);
+	FILEDEC(omod_u_fn, omod_u_fh, omod_u_buf, "template record", false);
 	FILEDEC(orec_b_fn, orec_b_fh, orec_b_buf, "feature", do_features);
-	FILEDEC(omod_b_fn, omod_b_fh, omod_b_buf, "template record", do_input_model);
+	FILEDEC(omod_b_fn, omod_b_fh, omod_b_buf, "template record", false);
 	FILEDEC(orec_c_fn, orec_c_fh, orec_c_buf, "feature", do_features);
-	FILEDEC(omod_c_fn, omod_c_fh, omod_c_buf, "template record", do_input_model);
+	FILEDEC(omod_c_fn, omod_c_fh, omod_c_buf, "template record", false);
 	FILEDEC(orec_d_fn, orec_d_fh, orec_d_buf, "feature", do_features);
-	FILEDEC(omod_d_fn, omod_d_fh, omod_d_buf, "template record", do_input_model);
+	FILEDEC(omod_d_fn, omod_d_fh, omod_d_buf, "template record", false);
 
 	ReservoirSampledEList<TemplateUnpaired> u_templates(input_model_size);
 	ReservoirSampledEList<TemplateUnpaired> b_templates(input_model_size);
@@ -1596,16 +1599,20 @@ int main(int argc, char **argv) {
 	if(keep_templates) {
 		cerr << "Input model in memory:" << endl;
 		if(!u_templates.empty()) {
-			cerr << "  Saved " << u_templates.size() << " unpaired templates" << endl;
+			cerr << "  Saved " << u_templates.list().size() << " unpaired templates "
+			     << "(out of " << u_templates.size() << ")" << endl;
 		}
 		if(!b_templates.empty()) {
-			cerr << "  Saved " << b_templates.size() << " bad-end templates" << endl;
+			cerr << "  Saved " << b_templates.list().size() << " bad-end templates "
+			     << "(out of " << b_templates.size() << ")" << endl;
 		}
 		if(!c_templates.empty()) {
-			cerr << "  Saved " << c_templates.size() << " concordant pair templates" << endl;
+			cerr << "  Saved " << c_templates.list().size() << " concordant pair templates "
+			     << "(out of " << c_templates.size() << ")" << endl;
 		}
 		if(!d_templates.empty()) {
-			cerr << "  Saved " << d_templates.size() << " discordant pair templates" << endl;
+			cerr << "  Saved " << d_templates.list().size() << " discordant pair templates "
+			     << "(out of " << d_templates.size() << ")" << endl;
 		}
 	}
 
