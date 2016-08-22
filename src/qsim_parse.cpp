@@ -501,10 +501,12 @@ struct Alignment {
 			}
 		}
 		avg_aligned_qual = (double)tot_aligned_qual / (len - nclipped);
-		if(nclipped > 0) {
+		if(nclipped > 1) {
 			avg_clipped_qual = (double)tot_clipped_qual / nclipped;
 		} else {
-			avg_clipped_qual = 100.0; // why not 0?
+			avg_clipped_qual = 100.0;
+			tot_clipped_qual = 0;
+			left_clip = right_clip = 0;
 		}
 	}
 	
