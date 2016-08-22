@@ -1,7 +1,7 @@
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/AlignmentResult.h
 --- tmp/snap/SNAPLib/AlignmentResult.h	2016-01-18 14:51:10.000000000 -0500
-+++ snap/SNAPLib/AlignmentResult.h	2016-01-18 14:45:43.000000000 -0500
-@@ -46,6 +46,56 @@ inline const char *AlignmentResultToStri
++++ snap/SNAPLib/AlignmentResult.h	2016-08-22 13:32:15.000000000 -0400
+@@ -46,6 +46,60 @@ inline const char *AlignmentResultToStri
      }
  }
  
@@ -9,9 +9,10 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
 +struct TS_MapqEstimationFeatures {
 +	
 +	TS_MapqEstimationFeatures() :
-+	bestPossible(0),
 +	bestScore(0),
 +	secondBestScore(0),
++	bestScorePair(0),
++	secondBestScorePair(0),
 +	probabilityOfAllCandidates(0.0),
 +	probabilityOfBestCandidate(0.0),
 +	popularSeedsSkipped(0),
@@ -20,9 +21,10 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
 +	hitsPerLookup(0.0f),
 +	hitsPerLookupPair(0.0f) { }
 +	
-+	void init(unsigned _bestPossible,
-+			  unsigned _bestScore,
++	void init(unsigned _bestScore,
 +			  unsigned _secondBestScore,
++			  unsigned _bestScorePair,
++			  unsigned _secondBestScorePair,
 +			  double _probabilityOfAllCandidates,
 +			  double _probabilityOfBestCandidate,
 +			  unsigned _popularSeedsSkipped,
@@ -31,9 +33,10 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
 +			  float _hitsPerLookup,
 +			  float _hitsPerLookupPair)
 +	{
-+		bestPossible = _bestPossible;
 +		bestScore = _bestScore;
 +		secondBestScore = _secondBestScore;
++		bestScorePair = _bestScorePair;
++		secondBestScorePair = _secondBestScorePair;
 +		probabilityOfAllCandidates = _probabilityOfAllCandidates;
 +		probabilityOfBestCandidate = _probabilityOfBestCandidate;
 +		popularSeedsSkipped = _popularSeedsSkipped;
@@ -43,9 +46,10 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
 +		hitsPerLookupPair = _hitsPerLookupPair;
 +	}
 +
-+	unsigned bestPossible;
 +	unsigned bestScore;
 +	unsigned secondBestScore;
++	unsigned bestScorePair;
++	unsigned secondBestScorePair;
 +	double probabilityOfAllCandidates;
 +	double probabilityOfBestCandidate;
 +	unsigned popularSeedsSkipped;
@@ -58,7 +62,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
  struct SingleAlignmentResult {
  	AlignmentResult status;
  
-@@ -54,6 +104,7 @@ struct SingleAlignmentResult {
+@@ -54,6 +108,7 @@ struct SingleAlignmentResult {
      int             score;		// score of each end if matched
  
      int             mapq;		// mapping quality, encoded like a Phred score (but as an integer, not ASCII Phred + 33).
@@ -66,7 +70,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
  
      static int compareByContigAndScore(const void *first, const void *second);      // qsort()-style compare routine
      static int compareByScore(const void *first, const void *second);               // qsort()-style compare routine
-@@ -81,6 +132,8 @@ struct PairedAlignmentResult {
+@@ -81,6 +136,8 @@ struct PairedAlignmentResult {
  	int score[NUM_READS_PER_PAIR];              // score of each end if matched
  
  	int mapq[NUM_READS_PER_PAIR];               // mapping quality of each end, encoded like a Phred score (but as an integer, not ASCII Phred + 33).
@@ -75,7 +79,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
  
  	bool fromAlignTogether;                     // Was this alignment created by aligning both reads together, rather than from some combination of single-end aligners?
  	bool alignedAsPair;                         // Were the reads aligned as a pair, or separately?
-@@ -90,4 +143,4 @@ struct PairedAlignmentResult {
+@@ -90,4 +147,4 @@ struct PairedAlignmentResult {
  
      static int compareByContigAndScore(const void *first, const void *second);      // qsort()-style compare routine
      static int compareByScore(const void *first, const void *second);               // qsort()-style compare routine
@@ -114,7 +118,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/Bam.cpp snap/SNAPLib/Bam.cpp
          *spaceUsed = bamSize;
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/BaseAligner.cpp snap/SNAPLib/BaseAligner.cpp
 --- tmp/snap/SNAPLib/BaseAligner.cpp	2016-01-18 14:51:10.000000000 -0500
-+++ snap/SNAPLib/BaseAligner.cpp	2016-01-18 14:54:04.000000000 -0500
++++ snap/SNAPLib/BaseAligner.cpp	2016-08-22 13:33:06.000000000 -0400
 @@ -289,7 +289,7 @@ Return Value:
      primaryResult->score = UnusedScoreValue;
      primaryResult->status = NotFound;
@@ -132,16 +136,15 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/BaseAligner.cpp snap/SNAPLib/BaseAl
  
  
  #ifdef  _DEBUG
-@@ -764,6 +765,19 @@ Return Value:
+@@ -764,6 +765,18 @@ Return Value:
                  primaryResult->score = bestScore;
                  if (bestScore <= maxK) {
                      primaryResult->location = bestScoreGenomeLocation;
 +					float hitsPerLookup = (float)hitsThisRun / lookupsThisRun;
-+					primaryResult->features.init(bestScore == 0 &&
-+												   secondBestScore == UnusedScoreValue &&
-+												   popularSeedsSkipped == 0,
-+												 bestScore,
++					primaryResult->features.init(bestScore,
 +												 secondBestScore,
++												 0xffff,
++												 0xffff,
 +												 probabilityOfAllCandidates,
 +												 probabilityOfBestCandidate,
 +												 popularSeedsSkipped,
@@ -215,8 +218,24 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/FileFormat.h snap/SNAPLib/FileForma
          bool alignedAsPair = false) const = 0; 
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/IntersectingPairedEndAligner.cpp snap/SNAPLib/IntersectingPairedEndAligner.cpp
 --- tmp/snap/SNAPLib/IntersectingPairedEndAligner.cpp	2016-01-18 14:55:36.000000000 -0500
-+++ snap/SNAPLib/IntersectingPairedEndAligner.cpp	2016-01-18 14:48:53.000000000 -0500
-@@ -852,9 +852,26 @@ doneScoring:
++++ snap/SNAPLib/IntersectingPairedEndAligner.cpp	2016-08-22 13:48:33.000000000 -0400
+@@ -277,6 +277,7 @@ IntersectingPairedEndAligner::align(
+     localBestPairProbability[1] = 0;
+     double probabilityOfAllPairs = 0;
+     unsigned bestPairScore = 65536;
++    unsigned secondBestPairScore = 65536;
+     unsigned scoreLimit = maxK + extraSearchDepth;
+ 
+     //
+@@ -756,6 +757,7 @@ IntersectingPairedEndAligner::align(
+                                     (*nSecondaryResults)++;
+ 
+                                 }
++								secondBestPairScore = bestPairScore;
+                                 bestPairScore = pairScore;
+                                 probabilityOfBestPair = pairProbability;
+                                 bestResultGenomeLocation[readWithFewerHits] = candidate->readWithFewerHitsGenomeLocation + fewerEndGenomeLocationOffset;
+@@ -852,9 +854,24 @@ doneScoring:
  #endif  // DEBUG
          }
      } else {
@@ -227,12 +246,10 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/IntersectingPairedEndAligner.cpp sn
              result->location[whichRead] = bestResultGenomeLocation[whichRead];
              result->direction[whichRead] = bestResultDirection[whichRead];
 +			float hits_per_lookup = (float)(totalHashTableHits[whichRead][FORWARD] + totalHashTableHits[whichRead][RC]) / countOfHashTableLookups[whichRead];
-+			result->features[whichRead].init(bestResultScore[whichRead] == 0 &&
-+											   bestResultScore[whichRead ^ 1] == 0 &&
-+											   probabilityOfAllPairs <= probabilityOfBestPair &&
-+											   popularSeedsSkipped[0] + popularSeedsSkipped[1] == 0,
-+											 bestResultScore[whichRead],
++			result->features[whichRead].init(bestResultScore[whichRead],
 +											 0xffff,
++											 bestPairScore,
++											 secondBestPairScore,
 +											 probabilityOfAllPairs,
 +											 probabilityOfBestPair,
 +											 popularSeedsSkipped[whichRead],
@@ -281,7 +298,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/ReadWriter.cpp snap/SNAPLib/ReadWri
                      if (0 == addFrontClipping) {
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
 --- tmp/snap/SNAPLib/SAM.cpp	2016-01-18 14:55:36.000000000 -0500
-+++ snap/SNAPLib/SAM.cpp	2016-01-18 15:15:58.000000000 -0500
++++ snap/SNAPLib/SAM.cpp	2016-08-22 13:46:48.000000000 -0400
 @@ -1123,6 +1123,7 @@ SAMFormat::writeRead(
      Read * read,
      AlignmentResult result, 
@@ -290,7 +307,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
      GenomeLocation genomeLocation,
      Direction direction,
      bool secondaryAlignment,
-@@ -1249,7 +1250,37 @@ SAMFormat::writeRead(
+@@ -1249,7 +1250,44 @@ SAMFormat::writeRead(
              readGroupString = read->getReadGroup();
          }
      }
@@ -302,7 +319,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
 +	
 +	if((flags & 4) == 0) {
 +		// ZT:Z
-+		char diffbuf[100];
++		char diffbuf[100], diffbufPair[100];
 +		if(features.secondBestScore != 0xffff) {
 +			snprintf(diffbuf, 40, "%d", -(features.secondBestScore - features.bestScore));
 +		} else {
@@ -310,13 +327,20 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
 +			diffbuf[1] = 'A';
 +			diffbuf[2] = '\0';
 +		}
++		if(features.secondBestScorePair != 0xffff) {
++			snprintf(diffbufPair, 40, "%d", -(features.secondBestScorePair - features.bestScorePair));
++		} else {
++			diffbufPair[0] = 'N';
++			diffbufPair[1] = 'A';
++			diffbufPair[2] = '\0';
++		}
 +		ztzSeparator = "\tZT:Z:";
-+		snprintf(ztzbuf, 1024, "%u,%d,%s,%.8e,%d,%d,%lld,%d,%d",
-+				 features.bestPossible,
++		snprintf(ztzbuf, 1024, "%d,%s,%s,%d,%d,%d,%lld,%d,%d",
 +				 -features.bestScore,
 +				 diffbuf,
-+				 features.probabilityOfBestCandidate /
-+					(features.probabilityOfAllCandidates > 0 ? features.probabilityOfAllCandidates : 1),
++				 diffbufPair,
++				 (int)(9999.0 * features.probabilityOfBestCandidate /
++				       (features.probabilityOfAllCandidates > 0 ? features.probabilityOfAllCandidates : 1)),
 +				 features.popularSeedsSkipped,
 +				 features.popularSeedsSkippedPair,
 +				 features.countOfHashTableLookups,
@@ -329,7 +353,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/SAM.cpp snap/SNAPLib/SAM.cpp
          qnameLen, read->getId(),
          flags,
          contigName,
-@@ -1263,7 +1294,8 @@ SAMFormat::writeRead(
+@@ -1263,7 +1301,8 @@ SAMFormat::writeRead(
          fullLength, quality,
          aux != NULL ? "\t" : "", auxLen, aux != NULL ? aux : "",
          readGroupSeparator, readGroupString,
