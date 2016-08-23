@@ -1,7 +1,7 @@
 diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/AlignmentResult.h
 --- tmp/snap/SNAPLib/AlignmentResult.h	2016-01-18 14:51:10.000000000 -0500
-+++ snap/SNAPLib/AlignmentResult.h	2016-08-22 21:20:15.000000000 -0400
-@@ -46,6 +46,68 @@ inline const char *AlignmentResultToStri
++++ snap/SNAPLib/AlignmentResult.h	2016-08-22 21:27:05.000000000 -0400
+@@ -46,6 +46,64 @@ inline const char *AlignmentResultToStri
      }
  }
  
@@ -15,7 +15,6 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
 +	secondBestScorePair(0),
 +	probabilityOfAllCandidates(0.0),
 +	probabilityOfBestCandidate(0.0),
-+	probabilityOfSecondBestCandidate(0.0),
 +	popularSeedsSkipped(0),
 +	popularSeedsSkippedPair(0),
 +	minHits(0),
@@ -29,7 +28,6 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
 +			  unsigned _secondBestScorePair,
 +			  double _probabilityOfAllCandidates,
 +			  double _probabilityOfBestCandidate,
-+			  double _probabilityOfSecondBestCandidate,
 +			  unsigned _popularSeedsSkipped,
 +			  unsigned _popularSeedsSkippedPair,
 +			  _int64 _minHits,
@@ -43,7 +41,6 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
 +		secondBestScorePair = _secondBestScorePair;
 +		probabilityOfAllCandidates = _probabilityOfAllCandidates;
 +		probabilityOfBestCandidate = _probabilityOfBestCandidate;
-+		probabilityOfSecondBestCandidate = _probabilityOfSecondBestCandidate;
 +		popularSeedsSkipped = _popularSeedsSkipped;
 +		popularSeedsSkippedPair = _popularSeedsSkippedPair;
 +		minHits = _minHits;
@@ -58,7 +55,6 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
 +	unsigned secondBestScorePair;
 +	double probabilityOfAllCandidates;
 +	double probabilityOfBestCandidate;
-+	double probabilityOfSecondBestCandidate;
 +	unsigned popularSeedsSkipped;
 +	unsigned popularSeedsSkippedPair;
 +	_int64 minHits;
@@ -70,7 +66,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
  struct SingleAlignmentResult {
  	AlignmentResult status;
  
-@@ -54,6 +116,7 @@ struct SingleAlignmentResult {
+@@ -54,6 +112,7 @@ struct SingleAlignmentResult {
      int             score;		// score of each end if matched
  
      int             mapq;		// mapping quality, encoded like a Phred score (but as an integer, not ASCII Phred + 33).
@@ -78,7 +74,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
  
      static int compareByContigAndScore(const void *first, const void *second);      // qsort()-style compare routine
      static int compareByScore(const void *first, const void *second);               // qsort()-style compare routine
-@@ -81,6 +144,8 @@ struct PairedAlignmentResult {
+@@ -81,6 +140,8 @@ struct PairedAlignmentResult {
  	int score[NUM_READS_PER_PAIR];              // score of each end if matched
  
  	int mapq[NUM_READS_PER_PAIR];               // mapping quality of each end, encoded like a Phred score (but as an integer, not ASCII Phred + 33).
@@ -87,7 +83,7 @@ diff -rupN -x Xcode -x .git tmp/snap/SNAPLib/AlignmentResult.h snap/SNAPLib/Alig
  
  	bool fromAlignTogether;                     // Was this alignment created by aligning both reads together, rather than from some combination of single-end aligners?
  	bool alignedAsPair;                         // Were the reads aligned as a pair, or separately?
-@@ -90,4 +155,4 @@ struct PairedAlignmentResult {
+@@ -90,4 +151,4 @@ struct PairedAlignmentResult {
  
      static int compareByContigAndScore(const void *first, const void *second);      // qsort()-style compare routine
      static int compareByScore(const void *first, const void *second);               // qsort()-style compare routine
