@@ -37,3 +37,4 @@ clean:
 	rm -rf *.dSYM
 	rm -f $(TOOL)-parse* *.csv $(TOOL)-rewrite*
 	rm -f VERSION
+	rm -f *.pyc
