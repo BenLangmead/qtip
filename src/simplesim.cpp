@@ -211,19 +211,21 @@ void StreamingSimulator::simulate_batch(
 	while(true) {
 		const char * buf = fa_.next(refid, refid_full, refoff, retsz);
 		if(buf == NULL && fa_.done()) {
-			break;
+			break; // finished scanning FASTA
 		}
 		if(retsz < olap_) {
-			continue;
+			continue; // chunk is too small to simulate fragments from
 		}
-		const size_t nchances = retsz - olap_ + 1;
+		const size_t nchances = retsz - olap_ + 1; // # draws within window
+
 		const float binom_p = min(((float)nchances) * 1.1f / tot_fasta_len_, 0.999f);
+		// Histogram characters
 		memset(hist, 0, sizeof(int) * 256);
 		for(size_t i = 0; i < retsz; i++) {
 			hist[(int)buf[i]]++;
 		}
 		if(hist['N'] > (int)(0.9 * retsz)) {
-			continue; // mostly Ns
+			continue; // skip chunks that are mostly Ns
 		}
 		
 		// Maybe N content should affect choice for n*_chances

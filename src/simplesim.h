@@ -212,7 +212,7 @@ public:
 	
 	StreamingSimulator(
 		const std::vector<std::string>& fns, // FASTAs to simulate reads from
-		size_t chunksz, // rolling FASTA buffer length
+		size_t chunksz,                      // rolling FASTA buffer length
 		const InputModelUnpaired& model_u,
 		const InputModelUnpaired& model_b,
 		const InputModelPaired& model_c,
@@ -244,7 +244,8 @@ public:
 	}
 	
 	/**
-	 * Simulate a batch of reads
+	 * Simulate a batch of reads over the course of a single pass over the
+	 * FASTA files.
 	 */
 	void simulate_batch(
 		float fraction,
@@ -283,20 +284,21 @@ protected:
 		return tot;
 	}
 	
-	size_t olap_;
-	FastaChunkwiseParser fa_;
-	size_t tot_fasta_len_;
-	const InputModelUnpaired& model_u_;
-	const InputModelUnpaired& model_b_;
-	const InputModelPaired& model_c_;
-	const InputModelPaired& model_d_;
-	FILE *fh_u_;
-	FILE *fh_b_1_;
-	FILE *fh_b_2_;
-	FILE *fh_c_1_;
-	FILE *fh_c_2_;
-	FILE *fh_d_1_;
-	FILE *fh_d_2_;
+	size_t olap_;  // bases of overlap between overlapping windows from ref
+	FastaChunkwiseParser fa_;  // FASTA parser that gives chunks at a time
+	                           // chunk size is set in constructor
+	size_t tot_fasta_len_;     // estimate of FASTA length, based on file size
+	const InputModelUnpaired& model_u_;  // input model for unpaired alns
+	const InputModelUnpaired& model_b_;  // input model for bad-end alns
+	const InputModelPaired&   model_c_;  // input model for concordant alns
+	const InputModelPaired&   model_d_;  // input model for discordant alns
+	FILE *fh_u_;    // destimation for simulated unpaired reads
+	FILE *fh_b_1_;  // destimation for simulated bad-end reads, mate 1
+	FILE *fh_b_2_;  // destimation for simulated bad-end reads, mate 2
+	FILE *fh_c_1_;  // destimation for simulated concordant reads, mate 1
+	FILE *fh_c_2_;  // destimation for simulated discordant reads, mate 2
+	FILE *fh_d_1_;  // destimation for simulated concordant reads, mate 1
+	FILE *fh_d_2_;  // destimation for simulated discordant reads, mate 2
 };
 
 #endif /* defined(__qsim__simplesim__) */
