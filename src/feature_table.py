@@ -19,7 +19,7 @@ def _exists_and_nonempty(fn):
 class FeatureTableReader(object):
 
     """ Reads a table of information describing alignments.  These are tables
-        output by qsim.  Tables might describe training or test alignments.
+        output by qtip.  Tables might describe training or test alignments.
 
         The trickiest issue here is whether and how to normalize certain
         features, like alignment scores.  The goal would be to make scores

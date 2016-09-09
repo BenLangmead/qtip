@@ -1,37 +1,39 @@
 #!gmake
 
+TOOL=qtip
+
 .PHONY: all
-all: qsim-parse qsim-rewrite VERSION
+all: $(TOOL)-parse $(TOOL)-rewrite VERSION
 
 .PHONY: allall
-allall: all qsim-parse-debug qsim-rewrite-debug
+allall: all $(TOOL)-parse-debug $(TOOL)-rewrite-debug
 
-PARSE_DEPS = qsim_parse.cpp simplesim.cpp input_model.cpp ranlib.cpp rnglib.cpp fasta.cpp
+PARSE_DEPS = $(TOOL)_parse.cpp simplesim.cpp input_model.cpp ranlib.cpp rnglib.cpp fasta.cpp
 
-REWRITE_DEPS = qsim_rewrite.cpp
+REWRITE_DEPS = $(TOOL)_rewrite.cpp
 
 # http://programmers.stackexchange.com/questions/141973/how-do-you-achieve-a-numeric-versioning-scheme-with-git
-# git tag -a v1.0.6 -m 'Version 1.0.6'
+# git tag -a v1.2.1 -m 'Version 1.2.1'
 # git push --tags
 VERSION:
 	git describe --tags --long > $@
 
-qsim-parse: $(PARSE_DEPS)
+$(TOOL)-parse: $(PARSE_DEPS)
 	g++ -O3 -o $@ $^
 
 # note, on some JHU systems I have to use -gdwarf-3
-qsim-parse-debug: $(PARSE_DEPS)
+$(TOOL)-parse-debug: $(PARSE_DEPS)
 	g++ -g -O0 -o $@ $^
 
-qsim-rewrite: $(REWRITE_DEPS)
+$(TOOL)-rewrite: $(REWRITE_DEPS)
 	g++ -O3 -o $@ $^
 
 # note, on some JHU systems I have to use -gdwarf-3
-qsim-rewrite-debug: $(REWRITE_DEPS)
+$(TOOL)-rewrite-debug: $(REWRITE_DEPS)
 	g++ -g -O0 -o $@ $^
 
 .PHONY: clean
 clean:
 	rm -rf *.dSYM
-	rm -f qsim-parse* *.csv qsim-rewrite*
+	rm -f $(TOOL)-parse* *.csv $(TOOL)-rewrite*
 	rm -f VERSION

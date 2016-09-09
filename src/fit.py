@@ -162,7 +162,7 @@ class MapqFit:
                 continue  # empty
             if train['correct'].nunique() == 1:
                 logging.warning('Warning: All training data has correct=%d.  This might mean '
-                                'the qsim software is making a mistake.  It could also '
+                                'the qtip software is making a mistake.  It could also '
                                 'mean that, because of your data and reference genome, the aligner '
                                 'can correctly resolve point of origin for all reads.  Treat '
                                 'results circumspectly.' % train['correct'][0])
