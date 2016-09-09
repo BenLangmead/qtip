@@ -3,11 +3,12 @@ MASON=$(MASON_DIR)/mason
 BT2_DIR=../../software/bowtie2
 BT2=$(BT2_DIR)/bowtie2
 MASON_CONVERT=python ../../bin/mason_convert.py
+TOOL=qtip
 
 all: full_e2e/final.sam extra_e2e/final.sam final_full_e2e.sam test_random_forest test_gradient_boost test_reweight_mapq test_reweight_ratio test_max_leaf_nodes
 
 final_full_e2e.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
-	python ../qsim \
+	python ../$(TOOL) \
 		--ref lambda_virus.fa \
 		--m1 .r_1.fastq \
 		--m2 .r_2.fastq \
@@ -19,7 +20,7 @@ final_full_e2e.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--write-precise-mapq
 
 full_e2e/final.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
-	python ../qsim \
+	python ../$(TOOL) \
 		--ref lambda_virus.fa \
 		--m1 .r_1.fastq \
 		--m2 .r_2.fastq \
@@ -34,7 +35,7 @@ full_e2e/final.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--assess-accuracy
 
 extra_e2e/final.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
-	python ../qsim \
+	python ../$(TOOL) \
 		--ref lambda_virus.fa \
 		--m1 .r_1.fastq \
 		--m2 .r_2.fastq \
@@ -57,7 +58,7 @@ extra_e2e/final.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(
 # Try a few different machine learning models
 #
 test_random_forest: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
-	python ../qsim \
+	python ../$(TOOL) \
 		--ref lambda_virus.fa \
 		--m1 .r_1.fastq \
 		--m2 .r_2.fastq \
@@ -77,7 +78,7 @@ test_random_forest: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--model-family RandomForest
 
 test_max_leaf_nodes: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
-	python ../qsim \
+	python ../$(TOOL) \
 		--ref lambda_virus.fa \
 		--m1 .r_1.fastq \
 		--m2 .r_2.fastq \
@@ -90,7 +91,7 @@ test_max_leaf_nodes: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(
 		--max-leaf-nodes 20
 
 test_reweight_mapq: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
-	python ../qsim \
+	python ../$(TOOL) \
 		--ref lambda_virus.fa \
 		--m1 .r_1.fastq \
 		--m2 .r_2.fastq \
@@ -105,7 +106,7 @@ test_reweight_mapq: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--model-family RandomForest
 
 test_reweight_ratio: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
-	python ../qsim \
+	python ../$(TOOL) \
 		--ref lambda_virus.fa \
 		--m1 .r_1.fastq \
 		--m2 .r_2.fastq \
@@ -119,7 +120,7 @@ test_reweight_ratio: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(
 		--model-family RandomForest
 
 test_gradient_boost: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
-	python ../qsim \
+	python ../$(TOOL) \
 		--ref lambda_virus.fa \
 		--m1 .r_1.fastq \
 		--m2 .r_2.fastq \
