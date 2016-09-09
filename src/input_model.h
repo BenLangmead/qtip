@@ -1,13 +1,13 @@
 //
 //  input_model.h
-//  qsim
+//  qtip
 //
 //  Created by Ben Langmead on 9/15/15.
 //  Copyright (c) 2015 JHU. All rights reserved.
 //
 
-#ifndef __qsim__input_model__
-#define __qsim__input_model__
+#ifndef __qtip__input_model__
+#define __qtip__input_model__
 
 #include <stdio.h>
 #include <algorithm>
@@ -166,4 +166,4 @@ protected:
 	float low_score_bias_; // unused
 };
 
-#endif /* defined(__qsim__input_model__) */
+#endif /* defined(__qtip__input_model__) */

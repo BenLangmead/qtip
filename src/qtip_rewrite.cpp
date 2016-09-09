@@ -1,6 +1,6 @@
 //
-//  qsim_rewrite.cpp
-//  qsim
+//  qtip_rewrite.cpp
+//  qtip
 //
 //  Created by Ben Langmead on 9/25/15.
 //  Copyright (c) 2015 JHU. All rights reserved.
@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 #include <cassert>
-#include "qsim_rewrite.h"
+#include "qtip_rewrite.h"
 
 using namespace std;
 
@@ -166,7 +166,7 @@ int main(int argc, char **argv) {
 			}
 		}
 		if(sams.empty() || !prefix_set) {
-			cerr << "Usage: qsim_rewrite" << endl;
+			cerr << "Usage: qtip_rewrite" << endl;
 		}
 	}
 

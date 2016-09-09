@@ -67,7 +67,7 @@ using namespace std;
  */
 
 /**
- * Implementations of the various passes that Qsim makes over SAM files.
+ * Implementations of the various passes that qtip makes over SAM files.
  *
  * NOTE: uses strtok so not multithreaded.
  */
@@ -210,7 +210,7 @@ struct Alignment {
 		if(ztz == NULL) {
 			cerr << "Input SAM file did not have ZT:Z field.  Be sure to run"
 			     << " a version of the aligner that produces the output needed"
-			     << " for qsim." << endl;
+			     << " for qtip." << endl;
 			throw 1;
 		}
 		return ztz;
@@ -521,7 +521,7 @@ struct Alignment {
 		const size_t rname_len = strlen(rname);
 		if(strncmp(qname, sim_startswith, strlen(sim_startswith)) == 0) {
 			correct = 0;
-			// This is read simulated by qsim
+			// This is read simulated by qtip
 			char *qname_cur = qname +strlen(sim_startswith);
 			assert(*qname_cur == sim_sep);
 			qname_cur++;
@@ -632,7 +632,7 @@ struct Alignment {
 			// This may still be a simulated read; depends on whether input
 			// data was simulated.  Here we only check if it has a very special
 			// read name format that's based on wgsim's.  That's the format
-			// used by the qsim script for simulating input reads.
+			// used by the qtip script for simulating input reads.
 			
 			// Example: 11_25006153_25006410_0:0:0_0:0:0_100_100_1_1/1
 			//           ^ refid
@@ -825,7 +825,7 @@ static void print_unpaired(
 	if(al.edit_xscript.empty()) {
 		cerr << "Error: Input SAM file has neither extended CIGAR (using ="
 		     << " and X instead of M) nor MD:Z field.  One or the other is"
-		     << " required for use with Qsim." << endl;
+		     << " required for use with qtip." << endl;
 		throw 1;
 	}
 	char *ztz_tok = strtok(ztz, ",");
@@ -910,7 +910,7 @@ static void print_paired_helper(
 	if(al1.edit_xscript.empty()) {
 		cerr << "Error: Input SAM file has neither extended CIGAR (using ="
 		     << " and X instead of M) nor MD:Z field.  One or the other is"
-		     << " required for use with Qsim." << endl;
+		     << " required for use with qtip." << endl;
 		throw 1;
 	}
 	char *ztz2 = al2.parse_extra(extra2);
@@ -1534,7 +1534,7 @@ int main(int argc, char **argv) {
 			}
 		}
 		if(sams.empty() || !prefix_set) {
-			cerr << "Usage: qsim_parse_input [modes]* -- [argument value]* -- [sam]* -- [fasta]* -- [output prefix]" << endl;
+			cerr << "Usage: qtip_parse_input [modes]* -- [argument value]* -- [sam]* -- [fasta]* -- [output prefix]" << endl;
 			cerr << "Modes:" << endl;
 			cerr << "  i: write input-model templates" << endl;
 			cerr << "  f: write feature records for learning/prediction" << endl;

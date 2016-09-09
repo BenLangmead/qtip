@@ -1,5 +1,5 @@
-#ifndef __qsim__align__
-#define __qsim__align__
+#ifndef __qtip__align__
+#define __qtip__align__
 
 #include <stdio.h>
 #include <cassert>
@@ -64,4 +64,4 @@ protected:
 	bool filled_;
 };
 
-#endif /* defined(__qsim__align__) */
+#endif /* defined(__qtip__align__) */

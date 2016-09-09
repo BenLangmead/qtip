@@ -1,5 +1,5 @@
-#ifndef __qsim__ds__
-#define __qsim__ds__
+#ifndef __qtip__ds__
+#define __qtip__ds__
 
 #include <cassert>
 #include <algorithm>

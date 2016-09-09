@@ -1,4 +1,4 @@
-To tag a new version of `qsim`:
+To tag a new version of `qtip`:
 
 ```
 git tag -a vX.Y.Z -m 'Version X.Y.Z'

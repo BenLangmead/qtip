@@ -1,13 +1,13 @@
 //
 //  edit_xscript.h
-//  qsim
+//  qtip
 //
 //  Created by Ben Langmead on 9/19/15.
 //  Copyright (c) 2015 JHU. All rights reserved.
 //
 
-#ifndef qsim_edit_xscript_h
-#define qsim_edit_xscript_h
+#ifndef qtip_edit_xscript_h
+#define qtip_edit_xscript_h
 
 /**
  * Given edit transcript, get total number of reference characters involved.

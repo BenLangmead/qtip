@@ -1,13 +1,13 @@
 //
 //  template.h
-//  qsim
+//  qtip
 //
 //  Created by Ben Langmead on 9/13/15.
 //  Copyright (c) 2015 JHU. All rights reserved.
 //
 
-#ifndef qsim_template_h
-#define qsim_template_h
+#ifndef qtip_template_h
+#define qtip_template_h
 
 #include <stdio.h>
 #include <stdlib.h>

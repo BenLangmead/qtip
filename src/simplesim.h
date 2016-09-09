@@ -1,13 +1,13 @@
 //
 //  simplesim.h
-//  qsim
+//  qtip
 //
 //  Created by Ben Langmead on 9/12/15.
 //  Copyright (c) 2015 JHU. All rights reserved.
 //
 
-#ifndef __qsim__simplesim__
-#define __qsim__simplesim__
+#ifndef __qtip__simplesim__
+#define __qtip__simplesim__
 
 #include <stdio.h>
 #include <vector>
@@ -17,7 +17,7 @@
 #include "input_model.h"
 #include "ranlib.hpp"
 
-#define SIM_STARTSWITH_LITERAL "qsim!"
+#define SIM_STARTSWITH_LITERAL "qtip!"
 #define SIM_SEPARATOR_LITERAL ':'
 
 static const char * sim_startswith = SIM_STARTSWITH_LITERAL;
@@ -301,4 +301,4 @@ protected:
 	FILE *fh_d_2_;  // destimation for simulated discordant reads, mate 2
 };
 
-#endif /* defined(__qsim__simplesim__) */
+#endif /* defined(__qtip__simplesim__) */

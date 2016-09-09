@@ -1,13 +1,13 @@
 //
 //  fasta.h
-//  qsim
+//  qtip
 //
 //  Created by Ben Langmead on 9/4/15.
 //  Copyright (c) 2015 JHU. All rights reserved.
 //
 
-#ifndef __qsim__fasta__
-#define __qsim__fasta__
+#ifndef __qtip__fasta__
+#define __qtip__fasta__
 
 #include <stdio.h>
 #include <vector>
@@ -104,4 +104,4 @@ protected:
 	int pushback_;
 };
 
-#endif /* defined(__qsim__fasta__) */
+#endif /* defined(__qtip__fasta__) */
