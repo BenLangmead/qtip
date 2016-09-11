@@ -1747,8 +1747,9 @@ void set_seed ( int cg1, int cg2 )
 //
 //  Initialize the generator.
 //
-  t = 0;
-  init_generator ( t );
+  // BTL: commented the following because it seems to override the cg_set above
+  //t = 0;
+  //init_generator ( t );
 
   return;
 }

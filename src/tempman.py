@@ -26,11 +26,9 @@ class TemporaryFileManager(object):
         self.dirs = set()
         self.groups = defaultdict(list)
         self.peak_size = 0
-        self.purged = False
 
     def get_file(self, fn_basename, group=''):
         """ Return filename for new temporary file in temp dir """
-        assert not self.purged
         if fn_basename in self.files:
             raise RuntimeError('Temporary file with name "%s" already exists' % fn_basename)
         self.groups[group].append((fn_basename, False))
@@ -39,7 +37,6 @@ class TemporaryFileManager(object):
 
     def get_dir(self, dir_basename, group=''):
         """ Return filename for new temporary file in temp dir """
-        assert not self.purged
         if dir_basename in self.dirs:
             raise RuntimeError('Temporary directory with name "%s" already exists' % dir_basename)
         if len(group) == 0:
@@ -57,7 +54,6 @@ class TemporaryFileManager(object):
 
     def remove_group(self, group):
         """ Remove all the temporary files belonging to the named group """
-        assert not self.purged
         self.update_peak()
         for base, is_dir in self.groups[group]:
             if is_dir:
@@ -73,16 +69,20 @@ class TemporaryFileManager(object):
         self.update_peak()
         for root, subdirs, files in os.walk(self.dir):
             for fn in files:
-                log.debug("  still have: %s/%s" % (root, fn))
-        shutil.rmtree(self.dir)
-        self.purged = True
+                log.warning("  still have file: %s/%s" % (root, fn))
+                os.remove(join(root, fn))
+            for dr in subdirs:
+                log.warning("  still have subdir: %s/%s" % (root, dr))
+                shutil.rmtree(join(root, dr))
+        assert len(list(os.walk(self.dir))) == 1, str(list(os.walk(self.dir)))
+        self.files = set()
+        self.dirs = set()
+        self.groups = defaultdict(list)
 
     def size(self):
         """ Return total size of all the files in the temp dir """
-        assert not self.purged
         return _recursive_size(self.dir)
 
     def update_peak(self):
         """ Update peak size of temporary files """
-        assert not self.purged
         self.peak_size = max(self.peak_size, self.size())

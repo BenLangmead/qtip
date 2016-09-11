@@ -1412,7 +1412,7 @@ int main(int argc, char **argv) {
 	string orec_b_fn, omod_b_fn, oread1_b_fn, oread2_b_fn;
 	string orec_c_fn, omod_c_fn, oread1_c_fn, oread2_c_fn;
 	string orec_d_fn, omod_d_fn, oread1_d_fn, oread2_d_fn;
-	string prefix;
+	string prefix, mod_prefix;
 	vector<string> fastas, sams;
 	char buf_input_sam[BUFSZ];
 	
@@ -1421,12 +1421,15 @@ int main(int argc, char **argv) {
 	bool do_features = false; // output records related to training/prediction
 	bool keep_templates = false; // keep templates in memory for simulation
 	assert(keep_templates || !do_simulation);
+	int seed = 0;
+
+	initialize(); // initialize ranlib
 
 	// All arguments except last are SAM files to parse.  Final argument is
 	// prefix for output files.
+	int prefix_set = 0, mod_prefix_set = 0;
 	{
 		int section = 0;
-		int prefix_set = 0;
 		for(int i = 1; i < argc; i++) {
 			if(strcmp(argv[i], "--") == 0) {
 				section++;
@@ -1501,52 +1504,70 @@ int main(int argc, char **argv) {
 				else if(strcmp(argv[i], "seed") == 0) {
 					// Unsure whether this is a good way to do this
 					i++;
-					set_seed(atoi(argv[i]), atoi(argv[i])*77);
+					seed = atoi(argv[i]);
+					set_seed(seed, (atoi(argv[i])*77L) % 2147483562 + 1);
 				}
 			} else if(section == 2) {
 				sams.push_back(string(argv[i]));
 			} else if(section == 3) {
 				fastas.push_back(string(argv[i]));
-			} else {
+			} else if(section == 4) {
 				prefix = argv[i];
 				prefix_set++;
 				
+				// input records for prediction
 				orec_u_fn = prefix + string("_rec_u.csv");
 				orec_b_fn = prefix + string("_rec_b.csv");
 				orec_c_fn = prefix + string("_rec_c.csv");
 				orec_d_fn = prefix + string("_rec_d.csv");
+			} else {
+				mod_prefix = argv[i];
+				mod_prefix_set++;
 
-				omod_u_fn = prefix + string("_mod_u.csv");
-				omod_b_fn = prefix + string("_mod_b.csv");
-				omod_c_fn = prefix + string("_mod_c.csv");
-				omod_d_fn = prefix + string("_mod_d.csv");
+				// input models for simulation -- not actually written
+				omod_u_fn = mod_prefix + string("_mod_u.csv");
+				omod_b_fn = mod_prefix + string("_mod_b.csv");
+				omod_c_fn = mod_prefix + string("_mod_c.csv");
+				omod_d_fn = mod_prefix + string("_mod_d.csv");
 
-				oread_u_fn = prefix + string("_reads_u.fastq");
-				oread1_b_fn = prefix + string("_reads_b_1.fastq");
-				oread1_c_fn = prefix + string("_reads_c_1.fastq");
-				oread1_d_fn = prefix + string("_reads_d_1.fastq");
-				oread2_b_fn = prefix + string("_reads_b_2.fastq");
-				oread2_c_fn = prefix + string("_reads_c_2.fastq");
-				oread2_d_fn = prefix + string("_reads_d_2.fastq");
+				// simulated (tandem) reads
+				oread_u_fn = mod_prefix + string("_reads_u.fastq");
+				oread1_b_fn = mod_prefix + string("_reads_b_1.fastq");
+				oread1_c_fn = mod_prefix + string("_reads_c_1.fastq");
+				oread1_d_fn = mod_prefix + string("_reads_d_1.fastq");
+				oread2_b_fn = mod_prefix + string("_reads_b_2.fastq");
+				oread2_c_fn = mod_prefix + string("_reads_c_2.fastq");
+				oread2_d_fn = mod_prefix + string("_reads_d_2.fastq");
 			}
 			if(prefix_set > 1) {
-				cerr << "Warning: More than output prefix specified; using last one: \"" << prefix << "\"" << endl;
+				cerr << "Warning: More than one output prefix specified; using last one: \"" << prefix << "\"" << endl;
+			}
+			if(mod_prefix_set > 1) {
+				cerr << "Warning: More than one model output prefix specified; using last one: \"" << mod_prefix << "\"" << endl;
 			}
 		}
 		if(sams.empty() || !prefix_set) {
-			cerr << "Usage: qtip_parse_input [modes]* -- [argument value]* -- [sam]* -- [fasta]* -- [output prefix]" << endl;
+			cerr << "Usage: qtip_parse_input [modes]* -- [argument value]* -- [sam]* -- [fasta]* -- [record prefix] -- [read/model prefix]" << endl;
+			cerr << "[record prefix] is prefix for record files" << endl;
+			cerr << "[read/model prefix] is prefix for simulated read and model files" << endl;
 			cerr << "Modes:" << endl;
-			cerr << "  i: write input-model templates" << endl;
 			cerr << "  f: write feature records for learning/prediction" << endl;
-			cerr << "  s: simulate reads based on input model templates" << endl;
+			cerr << "  i: write input-model templates (requires [read/model prefix])" << endl;
+			cerr << "  s: simulate reads based on input model templates (requires [read/model prefix])" << endl;
 			cerr << "Arguments:" << endl;
+			// TODO: better documentation here
 			cerr << "  wiggle <int>: if the reported alignment is within "
 			     << "this many of the true alignment, it's considered correct"
 			     << endl;
 		}
 	}
 	keep_templates = do_simulation;
-	
+
+	if(do_simulation && mod_prefix_set == 0) {
+		cerr << "s (simulation) argument specified, but [read/model prefix] not specified" << endl;
+		return -1;
+	}
+
 	FILEDEC(orec_u_fn, orec_u_fh, orec_u_buf, "feature", do_features);
 	FILEDEC(omod_u_fn, omod_u_fh, omod_u_buf, "template record", false);
 	FILEDEC(orec_b_fn, orec_b_fh, orec_b_buf, "feature", do_features);
@@ -1563,7 +1584,7 @@ int main(int argc, char **argv) {
 
 	if(do_features || do_input_model || do_simulation) {
 		for(size_t i = 0; i < sams.size(); i++) {
-			cerr << "Parsing SAM file \"" << sams[i] << "\"" << endl;
+			cerr << "Parsing SAM file \"" << sams[i] << "\" (seed=" << seed << ")" << endl;
 			FILE *fh = fopen(sams[i].c_str(), "rb");
 			if(fh == NULL) {
 				cerr << "Could not open input SAM file \"" << sams[i] << "\"" << endl;
