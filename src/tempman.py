@@ -29,21 +29,24 @@ class TemporaryFileManager(object):
 
     def get_file(self, fn_basename, group=''):
         """ Return filename for new temporary file in temp dir """
+        fullpath = join(self.dir, fn_basename)
         if fn_basename in self.files:
-            raise RuntimeError('Temporary file with name "%s" already exists' % fn_basename)
+            #raise RuntimeError('Temporary file with name "%s" already exists' % fn_basename)
+            return fullpath
         self.groups[group].append((fn_basename, False))
         self.files.add(fn_basename)
-        return join(self.dir, fn_basename)
+        return fullpath
 
     def get_dir(self, dir_basename, group=''):
-        """ Return filename for new temporary file in temp dir """
+        """ Return filename for new temporary subdir in temp dir """
+        fullpath = join(self.dir, dir_basename)
         if dir_basename in self.dirs:
-            raise RuntimeError('Temporary directory with name "%s" already exists' % dir_basename)
+            #raise RuntimeError('Temporary directory with name "%s" already exists' % dir_basename)
+            return fullpath
         if len(group) == 0:
             group = dir_basename
         self.groups[group].append((dir_basename, True))
         self.dirs.add(dir_basename)
-        fullpath = join(self.dir, dir_basename)
         # Create output directory if needed
         try:
             os.makedirs(fullpath)
