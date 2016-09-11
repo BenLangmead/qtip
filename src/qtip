@@ -379,7 +379,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         args['seed'] = (abs(hash((orig_seed, triali, 0))) % 2147483562)+1
         seed_all(args['seed'])
 
-        mkdir_quiet(_get_trial_subdir(trial_multi, triali))
+        if args['keep_intermediates']:
+            mkdir_quiet(_get_trial_subdir(trial_multi, triali))
         skipped_all = True
 
         # ##################################################
