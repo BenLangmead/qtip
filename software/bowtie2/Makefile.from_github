@@ -4,12 +4,11 @@
 
 GIT=$(shell which git)
 
-bowtie2: bowtie2-git/bowtie2-align
+bowtie2: bowtie2-git/bowtie2-align-s
 	ln -s -f bowtie2-git/bowtie2 bowtie2
-	ln -s -f bowtie2-git/bowtie2-align bowtie2-align
 	ln -s -f bowtie2-git/bowtie2-build bowtie2-build
 
-bowtie2-git/bowtie2-align: bowtie2-git
+bowtie2-git/bowtie2-align-s: bowtie2-git
 	cd bowtie2-git && make
 
 bowtie2-git: $(GIT)
@@ -17,5 +16,5 @@ bowtie2-git: $(GIT)
 
 .PHONY: clean
 clean:
-	rm -f bowtie2 bowtie2-align bowtie2-build
+	rm -f bowtie2 bowtie2-build
 	rm -rf bowtie2-git
