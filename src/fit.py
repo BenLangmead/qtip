@@ -33,7 +33,7 @@ class MapqFit:
             original MAPQ predictions, the ids for the alignments (i.e. their
             line of origin) and whether or not the alignments are correct. """
         labs = []
-        exclude_cols = ['id', 'correct']
+        exclude_cols = ['id', 'correct', 'rname']
         if not include_mapq:
             exclude_cols.append('mapq')
         if training:

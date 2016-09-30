@@ -836,7 +836,8 @@ static void print_unpaired(
 	if(fh_model != NULL) {
 		// Output information relevant to input model
 		fprintf(
-			fh_model, "%d,%c,%s,%u,%c,%u,%s\n",
+			fh_model, "%s,%d,%c,%s,%u,%c,%u,%s\n",
+			al.rname,
 			al.best_score,
 			fw_flag,
 			al.qual,
@@ -932,7 +933,8 @@ static void print_paired_helper(
 		// Mate 1
 		//
 		
-		fprintf(fh_recs, "%llu,%u,%u,%u,%u",
+		fprintf(fh_recs, "%s,%llu,%u,%u,%u,%u",
+		        al1.rname,
 		        (unsigned long long)al1.line,
 		        (unsigned)al1.len,
 		        al1.left_clip + al1.right_clip,
@@ -990,7 +992,8 @@ static void print_paired_helper(
 		//
 		// Now mate 2 again
 		//
-		fprintf(fh_recs, "%llu,%u,%u,%u,%u",
+		fprintf(fh_recs, "%s,%llu,%u,%u,%u,%u",
+		        al2.rname,
 		        (unsigned long long)al2.line,
 		        (unsigned)al2.len,
 		        al2.left_clip + al2.right_clip,
@@ -1122,7 +1125,7 @@ static size_t infer_read_length(const char *rest_of_line) {
  * Print column headers for an unpaired file of feature records.
  */
 static void print_unpaired_header(FILE *fh, int n_ztz_fields) {
-	fprintf(fh, "id,len,clip,alqual,clipqual,olen");
+	fprintf(fh, "rname,id,len,clip,alqual,clipqual,olen");
 	for(int i = 0; i < n_ztz_fields; i++) {
 		fprintf(fh, ",ztz%d", i);
 	}
@@ -1133,7 +1136,7 @@ static void print_unpaired_header(FILE *fh, int n_ztz_fields) {
  * Print column headers for a paired-end file of feature records.
  */
 static void print_paired_header(FILE *fh, int n_ztz_fields) {
-	fprintf(fh, "id,len,clip,alqual,clipqual");
+	fprintf(fh, "rname,id,len,clip,alqual,clipqual");
 	for(int i = 0; i < n_ztz_fields; i++) {
 		fprintf(fh, ",ztz_%d", i);
 	}
