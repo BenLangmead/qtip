@@ -836,8 +836,7 @@ static void print_unpaired(
 	if(fh_model != NULL) {
 		// Output information relevant to input model
 		fprintf(
-			fh_model, "%s,%d,%c,%s,%u,%c,%u,%s\n",
-			al.rname,
+			fh_model, "%d,%c,%s,%u,%c,%u,%s\n",
 			al.best_score,
 			fw_flag,
 			al.qual,
@@ -863,7 +862,8 @@ static void print_unpaired(
 	
 	if(fh_recs != NULL) {
 		// Output information relevant to MAPQ model
-		fprintf(fh_recs, "%llu,%u,%u,%u,%u,%u",
+		fprintf(fh_recs, "%s,%llu,%u,%u,%u,%u,%u",
+				al.rname,
 				(unsigned long long)al.line,
 				(unsigned)al.len,
 				al.left_clip + al.right_clip,
