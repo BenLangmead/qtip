@@ -27,7 +27,7 @@ $(NM)-dir/bowtie2-align-s: $(NM)-dir
 $(NM)-dir: $(AR)
 	unzip $<
 	mv $(NMVER) $@
-	cd $@ && patch -p1 < ../bowtie2_$(VER)_mapq.patch
+	cd $@ && patch -p1 < ../bowtie2_$(VER)_mapq.diff
 
 $(AR):
 	wget $(URL)
