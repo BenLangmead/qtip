@@ -13,7 +13,7 @@ PARSE_DEPS = $(TOOL)_parse.cpp simplesim.cpp input_model.cpp ranlib.cpp rnglib.c
 REWRITE_DEPS = $(TOOL)_rewrite.cpp
 
 # http://programmers.stackexchange.com/questions/141973/how-do-you-achieve-a-numeric-versioning-scheme-with-git
-# git tag -a v1.3.1 -m 'Version 1.3.1'
+# git tag -a v1.4.1 -m 'Version 1.4.1'
 # git push --tags
 VERSION:
 	git describe --tags --long > $@

@@ -61,14 +61,15 @@ class MapqPredictions:
         """ Add a new batch of predictions. """
         mapq_orig_iter = map(int, mapq_orig) if mapq_orig is not None else repeat(None)
         data_iter = iter(data) if data is not None else repeat(None)
-        correct_iter = iter(correct) if correct is not None else repeat(None)
+        correct_iter = map(int, correct) if correct is not None else repeat(None)
+        id_iter = map(int, ids)
         self.has_correct = correct is not None
         if self.last_id is not None and ids[0] < self.last_id:
             self.pred_fh.close()
             self.temp_next_fn = '_'.join([self.pred_fn_prefix, str(len(self.pred_fns))])
             self.pred_fns.append(self.temp_man.get_file(self.temp_next_fn, group=self.temp_group_name))
             self.pred_fh = open(self.pred_fns[-1], 'wb')
-        for rec in izip(pcor, ids, repeat(category), mapq_orig_iter, data_iter, correct_iter):
+        for rec in izip(pcor, id_iter, repeat(category), mapq_orig_iter, data_iter, correct_iter):
             self.last_id = rec[1]
             self.pred_fh.write((','.join(map(str, rec)) + '\n').encode('utf-8'))
             self.npredictions += 1
@@ -200,7 +201,7 @@ class MapqPredictions:
                         int_ident = int(ident)
                         assert int_ident > last_id, "%d,%d:%s" % (int_ident, last_id, str(self.pred_fns))
                         last_id = int_ident
-                        ofh.write(('%s,%0.3f\n' % (ident, pcor_to_mapq(float(pcor)))).encode('utf-8'))
+                        ofh.write(('%d,%0.3f\n' % (int_ident, pcor_to_mapq(float(pcor)))).encode('utf-8'))
         else:
             # have to merge!  more complex
             pred_fhs = list(map(lambda x: open(x, 'rb'), self.pred_fns))
