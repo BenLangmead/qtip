@@ -59,7 +59,7 @@ class MapqPredictions:
 
     def add(self, pcor, ids, category, mapq_orig=None, data=None, correct=None):
         """ Add a new batch of predictions. """
-        mapq_orig_iter = iter(mapq_orig) if mapq_orig is not None else repeat(None)
+        mapq_orig_iter = map(int, mapq_orig) if mapq_orig is not None else repeat(None)
         data_iter = iter(data) if data is not None else repeat(None)
         correct_iter = iter(correct) if correct is not None else repeat(None)
         self.has_correct = correct is not None
