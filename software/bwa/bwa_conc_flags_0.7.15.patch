@@ -30,7 +30,11 @@ diff -rupN -x Xcode -x .git bwa/bwamem.c bwa-mod/bwamem.c
 +			kputsn("NA", 2, str);
 +		}
 +		kputc(',', str);
-+		kputw(p->osub, str); // ztz3
++		if(p->osub >= 0) {
++			kputw(p->score - p->osub, str); // ztz3
++		} else {
++			kputsn("NA", 2, str);
++		}
 +		kputc(',', str);
 +		kputw(p->pair_score, str); // ztz4
 +		kputc(',', str);
