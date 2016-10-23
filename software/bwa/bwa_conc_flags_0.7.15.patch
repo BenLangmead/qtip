@@ -1,6 +1,6 @@
 diff -rupN -x Xcode -x .git bwa/bwamem.c bwa-mod/bwamem.c
 --- bwa/bwamem.c	2016-08-02 14:26:30.000000000 -0400
-+++ bwa-mod/bwamem.c	2016-08-02 14:28:02.000000000 -0400
++++ bwa-mod/bwamem.c	2016-10-23 10:09:07.000000000 -0400
 @@ -505,6 +505,8 @@ static void mem_mark_primary_se_core(con
  			int e_min = a[j].qe < a[i].qe? a[j].qe : a[i].qe;
  			if (e_min > b_max) { // have overlap
@@ -10,7 +10,7 @@ diff -rupN -x Xcode -x .git bwa/bwamem.c bwa-mod/bwamem.c
  				if (e_min - b_max >= min_l * opt->mask_level) { // significant overlap
  					if (a[j].sub == 0) a[j].sub = a[i].score;
  					if (a[j].score - a[i].score <= tmp && (a[j].is_alt || !a[i].is_alt))
-@@ -935,6 +937,48 @@ void mem_aln2sam(const mem_opt_t *opt, c
+@@ -935,6 +937,52 @@ void mem_aln2sam(const mem_opt_t *opt, c
  		for (i = tmp; i < str->l; ++i) // replace TAB in the comment to SPACE
  			if (str->s[i] == '\t') str->s[i] = ' ';
  	}
@@ -63,7 +63,7 @@ diff -rupN -x Xcode -x .git bwa/bwamem.c bwa-mod/bwamem.c
  	kputc('\n', str);
  }
  
-@@ -1120,8 +1164,17 @@ mem_aln_t mem_reg2aln(const mem_opt_t *o
+@@ -1120,8 +1168,17 @@ mem_aln_t mem_reg2aln(const mem_opt_t *o
  	a.rid = bns_pos2rid(bns, pos);
  	assert(a.rid == ar->rid);
  	a.pos = pos - bns->anns[a.rid].offset;
