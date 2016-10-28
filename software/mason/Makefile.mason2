@@ -13,4 +13,4 @@ seqan/build/Makefile: seqan/CMakeLists.txt
 	cd seqan/build && cmake ..
 
 seqan/CMakeLists.txt:
-	git clone git@github.com:seqan/seqan.git
+	git clone https://github.com/seqan/seqan.git

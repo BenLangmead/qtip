@@ -12,7 +12,7 @@ bowtie2-git/bowtie2-align-s: bowtie2-git
 	cd bowtie2-git && make
 
 bowtie2-git: $(GIT)
-	$(GIT) clone -b mapq git@github.com:BenLangmead/bowtie2.git $@
+	$(GIT) clone -b mapq https://github.com/BenLangmead/bowtie2.git $@
 
 .PHONY: clean
 clean:
