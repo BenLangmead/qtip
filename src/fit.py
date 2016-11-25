@@ -253,7 +253,7 @@ class MapqFit:
                  ('training' if training else 'test', len(pred_overall.pcor)))
         pred_overall.finalize()
         if len(pred_per_category) > 1:
-            for ds, pred in pred_per_category.iteritems():
+            for ds, pred in pred_per_category.items():
                 log.info('Finalizing results for "%s" %s data (%d alignments)' %
                          (ds, 'training' if training else 'test', len(pred.pcor)))
                 pred.finalize()
