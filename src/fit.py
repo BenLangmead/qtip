@@ -6,6 +6,7 @@ import numpy as np
 import itertools
 import resource
 import gc
+import os
 import sys
 from predictions import MapqPredictions
 from sklearn import cross_validation
@@ -196,16 +197,66 @@ class MapqFit:
             if heap_profiler is not None:
                 print(heap_profiler.heap(), file=sys.stderr)
 
+    def prediction_worker(self, my_chunki, my_test_chunk, training, ds, ds_long, dedup, pred_overall,
+                          pred_per_category, log=logging, keep_per_category=False, keep_data=False,
+                          multiprocess=True, include_mapq=False):
+        gc.collect()
+        log.info('  PID %d making predictions for %s %s chunk, %d rows (peak mem=%0.2fGB)' %
+                 (os.getpid(), 'training' if training else 'test', ds_long, my_test_chunk.shape[0], _get_peak_gb()))
+        log.info('    Loading data')
+        x_test, ids, mapq_orig_test, y_test, col_names = \
+            self._df_to_mat(my_test_chunk, ds, False, log=log, include_mapq=include_mapq)
+        del my_test_chunk
+        gc.collect()
+        if dedup:
+            log.info('    Done loading data; collapsing and making predictions')
+            idxs, invs = _np_deduping_indexes(x_test)
+            log.info('    Collapsed %d rows to %d distinct rows (%0.2f%%)' %
+                     (len(invs), len(idxs), 100.0 * len(idxs) / len(invs)))
+            pcor = self.trained_models[ds].predict(x_test[idxs])[invs]  # make predictions
+        else:
+            log.info('    Done loading data; making predictions')
+            pcor = self.trained_models[ds].predict(x_test)  # make predictions
+        data = x_test.tolist() if keep_data else None
+        del x_test
+        gc.collect()
+        log.info('    Done making predictions; about to postprocess (peak mem=%0.2fGB)' % _get_peak_gb())
+        pcor = np.array(self.postprocess_predictions(pcor, ds_long))
+        log.info('    Done postprocessing; adding to tally (peak mem=%0.2fGB)' % _get_peak_gb())
+        if multiprocess:
+            self.q.put((my_chunki, (pcor, ids, ds, mapq_orig_test, data, y_test)))
+        else:
+            for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
+                    prd.add(pcor, ids, ds, mapq_orig=mapq_orig_test, data=data, correct=y_test)
+        log.info('    Done; peak mem usage so far = %0.2fGB' %
+                 (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)))
+
+    def prediction_worker_init(self, q, log):
+        #import signal
+        #signal.signal(signal.SIGINT, signal.SIG_IGN)
+        log.info('  Initializing worker process with PID %d' % (os.getpid()))
+        self.q = q
+
     def predict(self, dfs, temp_man,
                 keep_data=False, keep_per_category=False, log=logging,
                 dedup=False, training=False, calc_summaries=False, prediction_mem_limit=10000000,
-                heap_profiler=None, include_mapq=False):
+                heap_profiler=None, include_mapq=False,
+                multiprocess=True, n_multi=8):
 
         name = '_'.join(['overall', 'training' if training else 'test'])
         pred_overall = MapqPredictions(temp_man, name, calc_summaries=calc_summaries,
                                        prediction_mem_limit=prediction_mem_limit)
         pred_per_category = {}
         log.info('  Created overall MapqPredictions (peak mem=%0.2fGB)' % _get_peak_gb())
+
+        p, q = None, None
+        methodcaller = None
+        if multiprocess:
+            assert n_multi is None or n_multi > 0
+            import multiprocessing as mp
+            from operator import methodcaller
+            q = mp.Queue()
+            p = mp.Pool(n_multi, methodcaller('prediction_worker_init', q, log)(self), maxtasksperchild=2)
 
         for ds, ds_long, paired in self.datasets:  # outer loop over alignment types
             if ds not in dfs:
@@ -216,38 +267,44 @@ class MapqFit:
                                                         prediction_mem_limit=prediction_mem_limit)
                 log.info('  Created %s MapqPredictions (peak mem=%0.2fGB)' % (name, _get_peak_gb()))
 
-            nchunk = 0
-            for test_chunk in dfs.dataset_iter(ds):  # inner loop over chunks of rows
-                if heap_profiler is not None:
-                    print(heap_profiler.heap(), file=sys.stderr)
+            if multiprocess:
+                try:
+                    chunki = 0
+                    for test_chunk in dfs.dataset_iter(ds):
+                        log.info('  Starting multiprocessing job %d' % chunki)
+                        p.apply_async(methodcaller('prediction_worker', chunki, test_chunk, training, ds,
+                                      ds_long, dedup, pred_overall, pred_per_category, log, keep_per_category,
+                                      keep_data, multiprocess, include_mapq)(self))
+                        chunki += 1
+                    log.info('  PID %d finished starting multiprocessing jobs' % os.getpid())
 
-                nchunk += 1
-                gc.collect()
-                log.info('  Making predictions for %s %s chunk %d, %d rows (peak mem=%0.2fGB)' %
-                         ('training' if training else 'test', ds_long, nchunk, test_chunk.shape[0], _get_peak_gb()))
-                log.info('    Loading data')
-                x_test, ids, mapq_orig_test, y_test, col_names = self._df_to_mat(test_chunk, ds, False, log=log, include_mapq=include_mapq)
-                del test_chunk
-                gc.collect()
-                if dedup:
-                    log.info('    Done loading data; collapsing and making predictions')
-                    idxs, invs = _np_deduping_indexes(x_test)
-                    log.info('    Collapsed %d rows to %d distinct rows (%0.2f%%)' %
-                             (len(invs), len(idxs), 100.0 * len(idxs) / len(invs)))
-                    pcor = self.trained_models[ds].predict(x_test[idxs])[invs]  # make predictions
-                else:
-                    log.info('    Done loading data; making predictions')
-                    pcor = self.trained_models[ds].predict(x_test)  # make predictions
-                data = x_test.tolist() if keep_data else None
-                del x_test
-                gc.collect()
-                log.info('    Done making predictions; about to postprocess (peak mem=%0.2fGB)' % _get_peak_gb())
-                pcor = np.array(self.postprocess_predictions(pcor, ds_long))
-                log.info('    Done postprocessing; adding to tally (peak mem=%0.2fGB)' % _get_peak_gb())
-                for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
-                    prd.add(pcor, ids, ds, mapq_orig=mapq_orig_test, data=data, correct=y_test)
-                log.info('    Done; peak mem usage so far = %0.2fGB' %
-                         (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)))
+                    def handle_tup(tup):
+                        pcor, ids, ds, mapq_orig_test, data, y_test = tup
+                        for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
+                            prd.add(pcor, ids, ds, mapq_orig=mapq_orig_test, data=data, correct=y_test)
+
+                    nexti = 0
+                    buffered_results = {}
+                    while nexti < chunki:
+                        log.info('  Trying to get output from job %d' % nexti)
+                        i, tup = q.get()
+                        if i == nexti:
+                            handle_tup(tup)
+                            nexti += 1
+                            while nexti in buffered_results:
+                                handle_tup(buffered_results[nexti])
+                                nexti += 1
+                        else:
+                            buffered_results[i] = tup
+                except KeyboardInterrupt:
+                    p.terminate()
+                    p.join()
+                    raise
+            else:
+                for chunki, test_chunk in enumerate(dfs.dataset_iter(ds)):
+                    self.prediction_worker(chunki, test_chunk, training, ds, ds_long, dedup, pred_overall,
+                          pred_per_category, log=log, keep_per_category=keep_per_category, keep_data=keep_data,
+                          multiprocess=multiprocess, include_mapq=include_mapq)
 
         log.info('Finalizing results for overall %s data (%d alignments)' %
                  ('training' if training else 'test', len(pred_overall.pcor)))
@@ -334,6 +391,7 @@ class MapqFit:
         self.training_labs = {}
         self.model_fam_name = None
         self.sample_fraction = sample_fraction
+        self.q = None
         self._fit(dfs, log=log, frac=sample_fraction, heap_profiler=heap_profiler, include_mapq=include_mapq,
                   reweight_ratio=reweight_ratio, reweight_mapq=reweight_mapq,
                   reweight_mapq_offset=reweight_mapq_offset, no_oob=no_oob)

@@ -560,7 +560,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             def _do_predict(fit, tab, subdir, is_input, include_mapq=False):
                 pred = fit.predict(tab, temp_man, dedup=not args['no_collapse'], training=not is_input,
                                    calc_summaries=args['assess_accuracy'], prediction_mem_limit=args['assess_limit'],
-                                   heap_profiler=hp, include_mapq=include_mapq, keep_data=args['assess_accuracy'])
+                                   heap_profiler=hp, include_mapq=include_mapq, keep_data=args['assess_accuracy'],
+                                   multiprocess=args['threads'] > 1, n_multi=args['threads'])
                 if not vanilla and pred.can_assess():
                     logging.info('  writing accuracy measures')
                     mkdir_quiet(join(*subdir))
@@ -795,7 +796,12 @@ def add_args(parser):
 
     # Prediction
     import model_fam
+    import multiprocessing
     model_fam.add_args(parser)
+    parser.add_argument('--serial', action='store_const', const=True, default=False,
+                        help='Do not use multiprocessing when making predictions')
+    parser.add_argument('--threads', metavar='int', type=int, default=1,
+                        help='Number of simultaneous threads to use for prediction')
     parser.add_argument('--predict-for-training', action='store_const', const=True, default=False,
                         help='Make predictions (and associated plots/output files) for training (tandem) data')
     parser.add_argument('--reweight-ratio', metavar='float', type=float, default=1.0,
