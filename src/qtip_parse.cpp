@@ -635,12 +635,9 @@ struct Alignment {
 			// used by the qtip script for simulating input reads.
 			
 			// Example: 11_25006153_25006410_0:0:0_0:0:0_100_100_1_1/1
-			//           ^ refid
-			//             ^ frag start (1-based)
-			//                      ^ frag end (1-based)
-			//                                           ^ len1
-			//                                               ^ len2
-			//                                                   ^ flip
+			//           ^ refid    ^ frag end (1-based) ^ len1  ^ flip
+			//             ^ frag start (1-based)            ^ len2
+			//                              (bunch of 0s)
 			const size_t qname_len = strlen(qname);
 			int nund = 0, ncolon = 0;
 			for(size_t i = 0; i < qname_len; i++) {
@@ -656,12 +653,12 @@ struct Alignment {
 				if(strncmp(qname_cur, rname, rname_len) != 0) {
 					return;
 				}
-				qname_cur += rname_len;
+				qname_cur += rname_len; // skip over refid
 				if(*qname_cur++ != '_') {
 					return;
 				}
 				size_t frag_start = 0;
-				while(isdigit(*qname_cur)) {
+				while(isdigit(*qname_cur)) { // parse frag start
 					frag_start *= 10;
 					frag_start += (int)(*qname_cur++ - '0');
 				}
@@ -669,7 +666,7 @@ struct Alignment {
 					return;
 				}
 				size_t frag_end = 0;
-				while(isdigit(*qname_cur)) {
+				while(isdigit(*qname_cur)) { // parse frag end
 					frag_end *= 10;
 					frag_end += (int)(*qname_cur++ - '0');
 				}
@@ -682,7 +679,7 @@ struct Alignment {
 						ncolon--;
 					}
 				}
-				while(isdigit(*qname_cur++));
+				while(isdigit(*qname_cur++)); // skip number after last colon
 				int len1 = 0;
 				while(isdigit(*qname_cur)) {
 					len1 *= 10;
