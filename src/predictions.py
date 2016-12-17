@@ -105,7 +105,7 @@ class MapqPredictions:
                 for rec_ln in ifh:
                     toks = rec_ln.rstrip().split(','.encode('UTF-8'))
                     pc, ident, ct, mq_orig, correct = toks[0], toks[1], toks[2], toks[3], toks[-1]
-                    data = ','.join(toks[4:-1])
+                    data = b','.join(toks[4:-1])
                     mq_orig = int(mq_orig)
                     correct = int(correct)
                     pc = float(pc)
@@ -177,7 +177,7 @@ class MapqPredictions:
         assert self.correct is not None
         auc_stats = [self.auc_diff_pct, self.auc_diff_round_pct]
         mse_stats = [self.mse_diff_pct, self.mse_diff_round_pct]
-        with open(fn, 'w') as fh:
+        with open(fn, 'wb') as fh:
             fh.write((','.join([self.name + '_auc_diff_pct',
                                 self.name + '_auc_diff_pct_round',
                                 self.name + '_mse_diff_pct',

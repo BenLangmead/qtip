@@ -8,9 +8,14 @@ import resource
 import gc
 import os
 import sys
+import multiprocessing
 from predictions import MapqPredictions
 from sklearn import cross_validation
 from mapq import pcor_to_mapq_np
+try:
+    import itertools.izip as zip
+except ImportError:
+    pass
 
 __author__ = 'langmead'
 
@@ -25,43 +30,113 @@ def _get_peak_gb():
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)
 
 
+def _clamp_predictions(pcor, min_pcor=0.0, max_pcor=0.999999):
+    return np.maximum(np.minimum(pcor, max_pcor), min_pcor)
+
+
+def postprocess_predictions(pcor_test, dataset_name, max_pcor=0.999999, log=logging):
+    """ Deal with pcors equal to 1.0, which cause infinite MAPQs """
+    mn, mx = min(pcor_test), max(pcor_test)
+    if mx >= 1.0:
+        if mn == mx:
+            log.warning('All data points for %s are predicted correct; results unreliable' % dataset_name)
+            pcor_test = [max_pcor] * len(pcor_test)
+        max_noninf_pcor_test = max(filter(lambda x: x < 1.0, pcor_test))
+        pcor_test = [max_noninf_pcor_test + 1e-6 if p >= 1.0 else p for p in pcor_test]
+    return _clamp_predictions(pcor_test, 0.0, max_pcor)
+
+
+def _df_to_mat(data, shortname, training, training_labs, log=logging, include_mapq=False):
+    """ Convert a data frame read with read_dataset into a matrix suitable
+        for use with scikit-learn, and parallel vectors giving the
+        original MAPQ predictions, the ids for the alignments (i.e. their
+        line of origin) and whether or not the alignments are correct. """
+    labs = []
+    exclude_cols = ['id', 'correct', 'rname']
+    if not include_mapq:
+        exclude_cols.append('mapq')
+    if training:
+        assert shortname not in training_labs
+        log.info('  Removing duplicate columns')
+        for col in data:
+            if col not in exclude_cols and data[col].nunique() > 1:
+                labs.append(col)
+        to_remove = set()
+        for x, y in itertools.combinations(labs, 2):
+            if (data[x] == data[y]).all():
+                to_remove.add(y)
+        for lab in to_remove:
+            labs.remove(lab)
+        training_labs[shortname] = labs
+        if len(labs) == 0:
+            raise RuntimeError('Error: all training records were identical')
+    else:
+        assert shortname in training_labs, (shortname, str(training_labs.keys()))
+        labs = training_labs[shortname]
+        for lab in labs:
+            assert lab in data, "Column %s in training data, but not in test (%s)" % (lab, shortname)
+    for lab in labs:
+        assert not np.isnan(data[lab]).any()
+    data_mat = data[labs].values
+    assert not np.isinf(data_mat).any() and not np.isnan(data_mat).any()
+    return data_mat, np.array(data['id']), np.array(data['mapq']), np.array(data['correct']), labs
+
+
+_prediction_worker_queue = multiprocessing.Queue()
+_prediction_worker_trained_models = None
+_prediction_worker_pred_overall = None
+_prediction_worker_log = None
+
+
+def _prediction_worker(my_test_chunk, training, training_labs, ds,
+                       ds_long, pred_per_category, dedup,
+                       keep_per_category=False, keep_data=False,
+                       multiprocess=True, include_mapq=False):
+    gc.collect()
+    log = _prediction_worker_log
+    trained_model = _prediction_worker_trained_models[ds]
+    pred_overall = _prediction_worker_pred_overall
+    log.info('  PID %d making predictions for %s %s chunk, %d rows (peak mem=%0.2fGB)' %
+             (os.getpid(), 'training' if training else 'test', ds_long, my_test_chunk.shape[0], _get_peak_gb()))
+    log.info('    Loading data')
+    x_test, ids, mapq_orig_test, y_test, col_names = \
+        _df_to_mat(my_test_chunk, ds, False, training_labs, log=log, include_mapq=include_mapq)
+    del my_test_chunk
+    gc.collect()
+    if dedup:
+        log.info('    Done loading data; collapsing and making predictions')
+        idxs, invs = _np_deduping_indexes(x_test)
+        log.info('    Collapsed %d rows to %d distinct rows (%0.2f%%)' %
+                 (len(invs), len(idxs), 100.0 * len(idxs) / len(invs)))
+        pcor = trained_model.predict(x_test[idxs])[invs]  # make predictions
+    else:
+        log.info('    Done loading data; making predictions')
+        pcor = trained_model.predict(x_test)  # make predictions
+    data = x_test.tolist() if keep_data else None
+    del x_test
+    gc.collect()
+    log.info('    Done making predictions; about to postprocess (peak mem=%0.2fGB)' % _get_peak_gb())
+    pcor = np.array(postprocess_predictions(pcor, ds_long))
+    log.info('    Done postprocessing; adding to tally (peak mem=%0.2fGB)' % _get_peak_gb())
+    if multiprocess:
+        return pcor, ids, ds, mapq_orig_test, data, y_test
+    else:
+        for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
+                prd.add(pcor, ids, ds, mapq_orig=mapq_orig_test, data=data, correct=y_test)
+    log.info('    Done; peak mem usage so far = %0.2fGB' %
+             (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)))
+
+
+def _prediction_worker_star(a_b):
+    return _prediction_worker(*a_b)
+
+
+def _prediction_worker_init(log):
+    log.info('  Initializing worker process with PID %d' % (os.getpid()))
+
+
 class MapqFit:
     """ Encapsulates an object that fits models and makes predictions """
-
-    def _df_to_mat(self, data, shortname, training, log=logging, include_mapq=False):
-        """ Convert a data frame read with read_dataset into a matrix suitable
-            for use with scikit-learn, and parallel vectors giving the
-            original MAPQ predictions, the ids for the alignments (i.e. their
-            line of origin) and whether or not the alignments are correct. """
-        labs = []
-        exclude_cols = ['id', 'correct', 'rname']
-        if not include_mapq:
-            exclude_cols.append('mapq')
-        if training:
-            assert shortname not in self.training_labs
-            log.info('  Removing duplicate columns')
-            for col in data:
-                if col not in exclude_cols and data[col].nunique() > 1:
-                    labs.append(col)
-            to_remove = set()
-            for x, y in itertools.combinations(labs, 2):
-                if (data[x] == data[y]).all():
-                    to_remove.add(y)
-            for lab in to_remove:
-                labs.remove(lab)
-            self.training_labs[shortname] = labs
-            if len(labs) == 0:
-                raise RuntimeError('Error: all training records were identical')
-        else:
-            assert shortname in self.training_labs, (shortname, str(self.training_labs.keys()))
-            labs = self.training_labs[shortname]
-            for lab in labs:
-                assert lab in data, "Column %s in training data, but not in test (%s)" % (lab, shortname)
-        for lab in labs:
-            assert not np.isnan(data[lab]).any()
-        data_mat = data[labs].values
-        assert not np.isinf(data_mat).any() and not np.isnan(data_mat).any()
-        return data_mat, np.array(data['id']), np.array(data['mapq']), np.array(data['correct']), labs
 
     @staticmethod
     def _subsample(x_train, mapq_orig_train, y_train, sample_fraction):
@@ -75,22 +150,6 @@ class MapqFit:
             y_train = y_train[sample_indexes, ]
             mapq_orig_train = mapq_orig_train[sample_indexes, ]
         return x_train, mapq_orig_train, y_train
-
-    @staticmethod
-    def clamp_predictions(pcor, min_pcor=0.0, max_pcor=0.999999):
-        return np.maximum(np.minimum(pcor, max_pcor), min_pcor)
-
-    @staticmethod
-    def postprocess_predictions(pcor_test, dataset_name, max_pcor=0.999999, log=logging):
-        """ Deal with pcors equal to 1.0, which cause infinite MAPQs """
-        mn, mx = min(pcor_test), max(pcor_test)
-        if mx >= 1.0:
-            if mn == mx:
-                log.warning('All data points for %s are predicted correct; results unreliable' % dataset_name)
-                pcor_test = [max_pcor] * len(pcor_test)
-            max_noninf_pcor_test = max(filter(lambda x: x < 1.0, pcor_test))
-            pcor_test = [max_noninf_pcor_test + 1e-6 if p >= 1.0 else p for p in pcor_test]
-        return MapqFit.clamp_predictions(pcor_test, 0.0, max_pcor)
 
     def _fit_and_possibly_reweight_and_refit(self, predictor, x_train, y_train,
                                              reweight_ratio=1.0,
@@ -107,7 +166,7 @@ class MapqFit:
             predictor.fit(x_train, y_train, y_pred)
         elif reweight_mapq:
             assert reweight_mapq_offset >= 0
-            y_pred = pcor_to_mapq_np(MapqFit.clamp_predictions(predictor.predict(x_train)))
+            y_pred = pcor_to_mapq_np(_clamp_predictions(predictor.predict(x_train)))
             predictor.fit(x_train, y_train, y_pred + reweight_mapq_offset)
 
     def _crossval_fit(self, mf_gen, x_train, y_train, dataset_shortname, use_oob=True, log=logging,
@@ -168,8 +227,8 @@ class MapqFit:
                                 'can correctly resolve point of origin for all reads.  Treat '
                                 'results circumspectly.' % train['correct'][0])
             # extract features, convert to matrix
-            x_train, _, mapq_orig_train, y_train, self.col_names[ds] =\
-                self._df_to_mat(train, ds, True, log=log, include_mapq=include_mapq)
+            x_train, _, mapq_orig_train, y_train, self.col_names[ds] = \
+                _df_to_mat(train, ds, True, self.training_labs, log=logging, include_mapq=False)
             assert x_train.shape[0] == y_train.shape[0]
             assert x_train.shape[1] > 0
             # optionally subsample
@@ -197,51 +256,15 @@ class MapqFit:
             if heap_profiler is not None:
                 print(heap_profiler.heap(), file=sys.stderr)
 
-    def prediction_worker(self, my_chunki, my_test_chunk, training, ds, ds_long, dedup, pred_overall,
-                          pred_per_category, log=logging, keep_per_category=False, keep_data=False,
-                          multiprocess=True, include_mapq=False):
-        gc.collect()
-        log.info('  PID %d making predictions for %s %s chunk, %d rows (peak mem=%0.2fGB)' %
-                 (os.getpid(), 'training' if training else 'test', ds_long, my_test_chunk.shape[0], _get_peak_gb()))
-        log.info('    Loading data')
-        x_test, ids, mapq_orig_test, y_test, col_names = \
-            self._df_to_mat(my_test_chunk, ds, False, log=log, include_mapq=include_mapq)
-        del my_test_chunk
-        gc.collect()
-        if dedup:
-            log.info('    Done loading data; collapsing and making predictions')
-            idxs, invs = _np_deduping_indexes(x_test)
-            log.info('    Collapsed %d rows to %d distinct rows (%0.2f%%)' %
-                     (len(invs), len(idxs), 100.0 * len(idxs) / len(invs)))
-            pcor = self.trained_models[ds].predict(x_test[idxs])[invs]  # make predictions
-        else:
-            log.info('    Done loading data; making predictions')
-            pcor = self.trained_models[ds].predict(x_test)  # make predictions
-        data = x_test.tolist() if keep_data else None
-        del x_test
-        gc.collect()
-        log.info('    Done making predictions; about to postprocess (peak mem=%0.2fGB)' % _get_peak_gb())
-        pcor = np.array(self.postprocess_predictions(pcor, ds_long))
-        log.info('    Done postprocessing; adding to tally (peak mem=%0.2fGB)' % _get_peak_gb())
-        if multiprocess:
-            self.q.put((my_chunki, (pcor, ids, ds, mapq_orig_test, data, y_test)))
-        else:
-            for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
-                    prd.add(pcor, ids, ds, mapq_orig=mapq_orig_test, data=data, correct=y_test)
-        log.info('    Done; peak mem usage so far = %0.2fGB' %
-                 (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)))
-
-    def prediction_worker_init(self, q, log):
-        #import signal
-        #signal.signal(signal.SIGINT, signal.SIG_IGN)
-        log.info('  Initializing worker process with PID %d' % (os.getpid()))
-        self.q = q
-
     def predict(self, dfs, temp_man,
                 keep_data=False, keep_per_category=False, log=logging,
                 dedup=False, training=False, calc_summaries=False, prediction_mem_limit=10000000,
                 heap_profiler=None, include_mapq=False,
-                multiprocess=True, n_multi=8):
+                multiprocess=False, n_multi=8):
+
+        global _prediction_worker_trained_models
+        global _prediction_worker_pred_overall
+        global _prediction_worker_log
 
         name = '_'.join(['overall', 'training' if training else 'test'])
         pred_overall = MapqPredictions(temp_man, name, calc_summaries=calc_summaries,
@@ -249,14 +272,14 @@ class MapqFit:
         pred_per_category = {}
         log.info('  Created overall MapqPredictions (peak mem=%0.2fGB)' % _get_peak_gb())
 
-        p, q = None, None
-        methodcaller = None
+        _prediction_worker_trained_models = self.trained_models
+        _prediction_worker_pred_overall = pred_overall
+        _prediction_worker_log = log
+
+        p = None
         if multiprocess:
             assert n_multi is None or n_multi > 0
-            import multiprocessing as mp
-            from operator import methodcaller
-            q = mp.Queue()
-            p = mp.Pool(n_multi, methodcaller('prediction_worker_init', q, log)(self), maxtasksperchild=2)
+            p = multiprocessing.Pool(n_multi, _prediction_worker_init, (log,))
 
         for ds, ds_long, paired in self.datasets:  # outer loop over alignment types
             if ds not in dfs:
@@ -267,44 +290,48 @@ class MapqFit:
                                                         prediction_mem_limit=prediction_mem_limit)
                 log.info('  Created %s MapqPredictions (peak mem=%0.2fGB)' % (name, _get_peak_gb()))
 
+            # assert type(training) is BooleanType
+            # assert isinstance(self.trained_models[ds], object)
+            # assert type(self.training_labs) is DictType
+            # assert type(ds) is StringType
+            # assert type(ds_long) is StringType
+            # assert isinstance(pred_overall, MapqPredictions)
+            # assert type(pred_per_category) is DictType
+            # assert type(dedup) is BooleanType
+            # assert isinstance(log, object)
+            # assert type(keep_per_category) is BooleanType
+            # assert type(keep_data) is BooleanType
+            # assert type(include_mapq) is BooleanType
+
             if multiprocess:
                 try:
-                    chunki = 0
-                    for test_chunk in dfs.dataset_iter(ds):
-                        log.info('  Starting multiprocessing job %d' % chunki)
-                        p.apply_async(methodcaller('prediction_worker', chunki, test_chunk, training, ds,
-                                      ds_long, dedup, pred_overall, pred_per_category, log, keep_per_category,
-                                      keep_data, multiprocess, include_mapq)(self))
-                        chunki += 1
-                    log.info('  PID %d finished starting multiprocessing jobs' % os.getpid())
-
-                    def handle_tup(tup):
+                    r = itertools.repeat
+                    for tup in p.imap(_prediction_worker_star,
+                                      zip(dfs.dataset_iter(ds),
+                                                     r(training),
+                                                     r(self.training_labs),
+                                                     r(ds),
+                                                     r(ds_long),
+                                                     r(pred_per_category),
+                                                     r(dedup),
+                                                     r(keep_per_category),
+                                                     r(keep_data),
+                                                     r(True),
+                                                     r(include_mapq))):
                         pcor, ids, ds, mapq_orig_test, data, y_test = tup
                         for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
                             prd.add(pcor, ids, ds, mapq_orig=mapq_orig_test, data=data, correct=y_test)
 
-                    nexti = 0
-                    buffered_results = {}
-                    while nexti < chunki:
-                        log.info('  Trying to get output from job %d' % nexti)
-                        i, tup = q.get()
-                        if i == nexti:
-                            handle_tup(tup)
-                            nexti += 1
-                            while nexti in buffered_results:
-                                handle_tup(buffered_results[nexti])
-                                nexti += 1
-                        else:
-                            buffered_results[i] = tup
                 except KeyboardInterrupt:
                     p.terminate()
                     p.join()
                     raise
             else:
-                for chunki, test_chunk in enumerate(dfs.dataset_iter(ds)):
-                    self.prediction_worker(chunki, test_chunk, training, ds, ds_long, dedup, pred_overall,
-                          pred_per_category, log=log, keep_per_category=keep_per_category, keep_data=keep_data,
-                          multiprocess=multiprocess, include_mapq=include_mapq)
+                for test_chunk in dfs.dataset_iter(ds):
+                    _prediction_worker(test_chunk, training, self.training_labs,
+                                       ds, ds_long, pred_per_category, dedup,
+                                       keep_per_category=keep_per_category, keep_data=keep_data,
+                                       multiprocess=False, include_mapq=include_mapq)
 
         log.info('Finalizing results for overall %s data (%d alignments)' %
                  ('training' if training else 'test', len(pred_overall.pcor)))

@@ -84,8 +84,8 @@ class ModelFamily(object):
         return self.best_translated_params, self.new_predictor(self.best_translated_params)
 
 
-def random_forest_models(random_seed, min_separation, num_trees_str, max_features_str,
-                         max_leaf_nodes_str):
+def random_forest_models(random_seed, n_jobs, min_separation, num_trees_str,
+                         max_features_str, max_leaf_nodes_str):
     def _gen(params):
         return RandomForestRegressor(
             n_estimators=int(round(params[0])),
@@ -93,19 +93,20 @@ def random_forest_models(random_seed, min_separation, num_trees_str, max_feature
             max_features=params[1],
             max_leaf_nodes=int(round(params[2])),
             oob_score=True,
-            bootstrap=True)
-    num_trees = map(float, num_trees_str.split(','))
-    max_features = map(float if '.' in max_features_str else int, max_features_str.split(','))
+            bootstrap=True,
+            n_jobs=n_jobs)
+    num_trees = list(map(float, num_trees_str.split(',')))
+    max_features = list(map(float if '.' in max_features_str else int, max_features_str.split(',')))
     max_leaf_nodes = [None]
     if max_leaf_nodes_str != 'None':
-        max_leaf_nodes = map(int, max_leaf_nodes_str.split(','))
+        max_leaf_nodes = list(map(int, max_leaf_nodes_str.split(',')))
     return lambda: ModelFamily('RandomForestRegressor',
                                _gen, [num_trees, max_features, max_leaf_nodes],
                                min_separation=min_separation)
 
 
-def extra_trees_models(random_seed, min_separation, num_trees_str, max_features_str,
-                       max_leaf_nodes_str):
+def extra_trees_models(random_seed, n_jobs, min_separation, num_trees_str,
+                       max_features_str, max_leaf_nodes_str):
     def _gen(params):
         return ExtraTreesRegressor(
             n_estimators=int(round(params[0])),
@@ -113,19 +114,20 @@ def extra_trees_models(random_seed, min_separation, num_trees_str, max_features_
             max_features=params[1],
             max_leaf_nodes=int(round(params[2])),
             oob_score=True,
-            bootstrap=True)
-    num_trees = map(float, num_trees_str.split(','))
-    max_features = map(float if '.' in max_features_str else int, max_features_str.split(','))
+            bootstrap=True,
+            n_jobs=n_jobs)
+    num_trees = list(map(float, num_trees_str.split(',')))
+    max_features = list(map(float if '.' in max_features_str else int, max_features_str.split(',')))
     max_leaf_nodes = [None]
     if max_leaf_nodes_str != 'None':
-        max_leaf_nodes = map(int, max_leaf_nodes_str.split(','))
+        max_leaf_nodes = list(map(int, max_leaf_nodes_str.split(',')))
     return lambda: ModelFamily('ExtraTreesRegressor',
                                _gen, [num_trees, max_features, max_leaf_nodes],
                                min_separation=min_separation)
 
 
-def gradient_boosting_models(random_seed, min_separation, num_trees_str, max_features_str,
-                             max_leaf_nodes_str, learning_rate_str):
+def gradient_boosting_models(random_seed, n_jobs, min_separation, num_trees_str,
+                             max_features_str, max_leaf_nodes_str, learning_rate_str):
     def _gen(params):
         return GradientBoostingRegressor(
             n_estimators=int(round(params[0])),
@@ -133,13 +135,14 @@ def gradient_boosting_models(random_seed, min_separation, num_trees_str, max_fea
             max_leaf_nodes=int(round(params[2])),
             learning_rate=params[3],
             random_state=random_seed,
-            loss='ls')
-    num_trees = map(float, num_trees_str.split(','))
-    max_features = map(float if '.' in max_features_str else int, max_features_str.split(','))
+            loss='ls',
+            n_jobs=n_jobs)
+    num_trees = list(map(float, num_trees_str.split(',')))
+    max_features = list(map(float if '.' in max_features_str else int, max_features_str.split(',')))
     max_leaf_nodes = [None]
     if max_leaf_nodes_str != 'None':
-        max_leaf_nodes = map(int, max_leaf_nodes_str.split(','))
-    learning_rate = map(float, learning_rate_str.split(','))
+        max_leaf_nodes = list(map(int, max_leaf_nodes_str.split(',')))
+    learning_rate = list(map(float, learning_rate_str.split(',')))
     return lambda: ModelFamily('GradientBoostingRegressor',
                                _gen, [num_trees, max_features, max_leaf_nodes, learning_rate],
                                min_separation=min_separation, calculates_oob=False)
@@ -179,15 +182,18 @@ def add_args(parser):
 def model_family(args, random_seed):
     """ Given command-line arguments, return appropriate model family """
     if args['model_family'] == 'RandomForest':
-        return random_forest_models(random_seed, args['optimization_tolerance'],
+        return random_forest_models(random_seed, args['threads'],
+                                    args['optimization_tolerance'],
                                     args['num_trees'], args['max_features'],
                                     args['max_leaf_nodes'])
     elif args['model_family'] == 'ExtraTrees':
-        return extra_trees_models(random_seed, args['optimization_tolerance'],
+        return extra_trees_models(random_seed, args['threads'],
+                                  args['optimization_tolerance'],
                                   args['num_trees'], args['max_features'],
                                   args['max_leaf_nodes'])
     elif args['model_family'] == 'GradientBoosting':
-        return gradient_boosting_models(random_seed, args['optimization_tolerance'],
+        return gradient_boosting_models(random_seed, args['threads'],
+                                        args['optimization_tolerance'],
                                         args['num_trees'], args['max_features'],
                                         args['max_leaf_nodes'], args['learning_rate'])
     else:
