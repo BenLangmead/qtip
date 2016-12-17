@@ -182,17 +182,17 @@ def add_args(parser):
 def model_family(args, random_seed):
     """ Given command-line arguments, return appropriate model family """
     if args['model_family'] == 'RandomForest':
-        return random_forest_models(random_seed, args['threads'],
+        return random_forest_models(random_seed, 1,  #args['threads'],
                                     args['optimization_tolerance'],
                                     args['num_trees'], args['max_features'],
                                     args['max_leaf_nodes'])
     elif args['model_family'] == 'ExtraTrees':
-        return extra_trees_models(random_seed, args['threads'],
+        return extra_trees_models(random_seed, 1,  #args['threads'],
                                   args['optimization_tolerance'],
                                   args['num_trees'], args['max_features'],
                                   args['max_leaf_nodes'])
     elif args['model_family'] == 'GradientBoosting':
-        return gradient_boosting_models(random_seed, args['threads'],
+        return gradient_boosting_models(random_seed, 1,  #args['threads'],
                                         args['optimization_tolerance'],
                                         args['num_trees'], args['max_features'],
                                         args['max_leaf_nodes'], args['learning_rate'])

@@ -561,7 +561,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 pred = fit.predict(tab, temp_man, dedup=not args['no_collapse'], training=not is_input,
                                    calc_summaries=args['assess_accuracy'], prediction_mem_limit=args['assess_limit'],
                                    heap_profiler=hp, include_mapq=include_mapq, keep_data=args['assess_accuracy'],
-                                   multiprocess=False, n_multi=args['threads'])
+                                   multiprocess=args['threads'] > 1, n_multi=args['threads'])
                 if not vanilla and pred.can_assess():
                     logging.info('  writing accuracy measures')
                     mkdir_quiet(join(*subdir))
@@ -619,8 +619,6 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                         _odir.append('mapq_excluded')
                     if len(fractions) > 1:
                         logging.info('  trying sampling fraction %0.02f%%' % (100.0 * fraction))
-                    #for i in range(args['trials']):
-                    #nt = args['trials']
                     nt = 1
                     for i in range(nt):
                         if nt > 1:
