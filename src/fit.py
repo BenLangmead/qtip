@@ -11,7 +11,7 @@ import sys
 import multiprocessing
 from predictions import MapqPredictions
 from sklearn import cross_validation
-from mapq import pcor_to_mapq_np
+from mapq import pcor_to_mapq_np, mapq_to_pcor_np
 try:
     import itertools.izip as zip
 except ImportError:
@@ -79,7 +79,8 @@ def _df_to_mat(data, shortname, training, training_labs, log=logging, include_ma
         assert not np.isnan(data[lab]).any()
     data_mat = data[labs].values
     assert not np.isinf(data_mat).any() and not np.isnan(data_mat).any()
-    return data_mat, np.array(data['id']), np.array(data['mapq']), np.array(data['correct']), labs
+    correct = np.array(data['correct'], dtype=int)
+    return data_mat, np.array(data['id'], dtype=int), np.array(data['mapq'], dtype=int), correct, labs
 
 
 _prediction_worker_queue = multiprocessing.Queue()
@@ -100,7 +101,8 @@ def _prediction_worker(my_test_chunk, training, training_labs, ds,
              (os.getpid(), 'training' if training else 'test', ds_long, my_test_chunk.shape[0], _get_peak_gb()))
     log.info('    Loading data')
     x_test, ids, mapq_orig_test, y_test, col_names = \
-        _df_to_mat(my_test_chunk, ds, False, training_labs, log=log, include_mapq=include_mapq)
+        _df_to_mat(my_test_chunk, ds, False, training_labs,
+                   log=log, include_mapq=include_mapq)
     del my_test_chunk
     gc.collect()
     if dedup:
@@ -112,17 +114,24 @@ def _prediction_worker(my_test_chunk, training, training_labs, ds,
     else:
         log.info('    Done loading data; making predictions')
         pcor = trained_model.predict(x_test)  # make predictions
-    data = x_test.tolist() if keep_data else None
+    # TODO: figure out how to make this efficient
+    #data = [';'.join(map(str, row)) for row in x_test] if keep_data else None
+    data = None
     del x_test
     gc.collect()
     log.info('    Done making predictions; about to postprocess (peak mem=%0.2fGB)' % _get_peak_gb())
     pcor = np.array(postprocess_predictions(pcor, ds_long))
     log.info('    Done postprocessing; adding to tally (peak mem=%0.2fGB)' % _get_peak_gb())
+    pred_df = pandas.DataFrame.from_dict({'pcor': pcor, 'mapq': pcor_to_mapq_np(pcor),
+                                          'ids': ids, 'category': ds,
+                                          'mapq_orig': mapq_orig_test,
+                                          'pcor_orig': mapq_to_pcor_np(mapq_orig_test),
+                                          'data': data, 'correct': y_test})
     if multiprocess:
-        return pcor, ids, ds, mapq_orig_test, data, y_test
+        return pred_df
     else:
         for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
-                prd.add(pcor, ids, ds, mapq_orig=mapq_orig_test, data=data, correct=y_test)
+            prd.add(pred_df)
     log.info('    Done; peak mem usage so far = %0.2fGB' %
              (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)))
 
@@ -290,23 +299,10 @@ class MapqFit:
                                                         prediction_mem_limit=prediction_mem_limit)
                 log.info('  Created %s MapqPredictions (peak mem=%0.2fGB)' % (name, _get_peak_gb()))
 
-            # assert type(training) is BooleanType
-            # assert isinstance(self.trained_models[ds], object)
-            # assert type(self.training_labs) is DictType
-            # assert type(ds) is StringType
-            # assert type(ds_long) is StringType
-            # assert isinstance(pred_overall, MapqPredictions)
-            # assert type(pred_per_category) is DictType
-            # assert type(dedup) is BooleanType
-            # assert isinstance(log, object)
-            # assert type(keep_per_category) is BooleanType
-            # assert type(keep_data) is BooleanType
-            # assert type(include_mapq) is BooleanType
-
             if multiprocess:
                 try:
                     r = itertools.repeat
-                    for tup in p.imap(_prediction_worker_star,
+                    for tups in p.imap(_prediction_worker_star,
                                       zip(dfs.dataset_iter(ds),
                                                      r(training),
                                                      r(self.training_labs),
@@ -318,9 +314,8 @@ class MapqFit:
                                                      r(keep_data),
                                                      r(True),
                                                      r(include_mapq))):
-                        pcor, ids, ds, mapq_orig_test, data, y_test = tup
                         for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
-                            prd.add(pcor, ids, ds, mapq_orig=mapq_orig_test, data=data, correct=y_test)
+                            prd.add(tups)
 
                 except KeyboardInterrupt:
                     p.terminate()
@@ -334,7 +329,7 @@ class MapqFit:
                                        multiprocess=False, include_mapq=include_mapq)
 
         log.info('Finalizing results for overall %s data (%d alignments)' %
-                 ('training' if training else 'test', len(pred_overall.pcor)))
+                 ('training' if training else 'test', pred_overall.npredictions))
         pred_overall.finalize()
         if len(pred_per_category) > 1:
             for ds, pred in pred_per_category.items():

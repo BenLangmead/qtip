@@ -565,12 +565,9 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 if not vanilla and pred.can_assess():
                     logging.info('  writing accuracy measures')
                     mkdir_quiet(join(*subdir))
-                    assert pred.ordered_by == 'pcor', pred.ordered_by
                     pred.write_rocs(join(*(subdir + ['roc'])))
                     pred.write_top_incorrect(join(*(subdir + ['top_incorrect.csv'])))
                     pred.write_summary_measures(join(*(subdir + ['summary.csv'])))
-                    pred.order_by_ids()
-                    assert pred.ordered_by == 'id', pred.ordered_by
                     logging.info('  writing predictions')
                     pred.write_predictions(join(*(subdir + ['predictions.csv'])))
                 if is_input:
@@ -794,7 +791,6 @@ def add_args(parser):
 
     # Prediction
     import model_fam
-    import multiprocessing
     model_fam.add_args(parser)
     parser.add_argument('--serial', action='store_const', const=True, default=False,
                         help='Do not use multiprocessing when making predictions')
@@ -849,11 +845,17 @@ def add_args(parser):
 
 
 def go_profile(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
+    pr = None
     if args['profile']:
         import cProfile
-        cProfile.run('go(args, aligner_args, aligner_unpaired_args, aligner_paired_args)')
-    else:
-        go(args, aligner_args, aligner_unpaired_args, aligner_paired_args)
+        import pstats
+        pr = cProfile.Profile()
+        pr.enable()
+    go(args, aligner_args, aligner_unpaired_args, aligner_paired_args)
+    if args['profile']:
+        pr.disable()
+        sortby = 'tottime'
+        pstats.Stats(pr).sort_stats(sortby).print_stats(30)
 
 
 def parse_aligner_parameters_from_argv(argv):

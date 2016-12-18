@@ -2,6 +2,7 @@ import os
 import pandas
 import warnings
 import math
+import csv
 import numpy as np
 try:
     from itertools import imap
@@ -61,11 +62,17 @@ class FeatureTableReader(object):
                     def gen_new_iterator(_fn, _chunksize):
                         def _new_iterator():
                             if os.path.exists(_fn):
-                                return pandas.io.parsers.read_csv(_fn, quoting=2, chunksize=_chunksize)
+                                return pandas.io.parsers.read_csv(_fn, quoting=csv.QUOTE_NONE,
+                                                                  chunksize=_chunksize,
+                                                                  encoding='utf-8')
                             elif os.path.exists(_fn + '.gz'):
-                                return pandas.io.parsers.read_csv(_fn + '.gz', quoting=2, chunksize=_chunksize, compression='gzip')
+                                return pandas.io.parsers.read_csv(_fn + '.gz', quoting=csv.QUOTE_NONE,
+                                                                  chunksize=_chunksize, compression='gzip',
+                                                                  encoding='utf-8')
                             elif os.path.exists(_fn + '.bz2'):
-                                return pandas.io.parsers.read_csv(_fn + '.bz2', quoting=2, chunksize=_chunksize, compression='bz2')
+                                return pandas.io.parsers.read_csv(_fn + '.bz2', quoting=csv.QUOTE_NONE,
+                                                                  chunksize=_chunksize, compression='bz2',
+                                                                  encoding='utf-8')
                             else:
                                 raise RuntimeError('No such file: "%s"' % _fn)
 
@@ -90,7 +97,6 @@ class FeatureTableReader(object):
                     assert len(w) == 1
                     assert issubclass(w[0].category, RuntimeWarning)
                     _df[nm] = _df[nm].fillna(0)
-            assert not any([math.isnan(x) for x in _df[nm]])
 
         if df.shape[0] == 0:
             return

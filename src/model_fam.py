@@ -135,8 +135,7 @@ def gradient_boosting_models(random_seed, n_jobs, min_separation, num_trees_str,
             max_leaf_nodes=int(round(params[2])),
             learning_rate=params[3],
             random_state=random_seed,
-            loss='ls',
-            n_jobs=n_jobs)
+            loss='ls')
     num_trees = list(map(float, num_trees_str.split(',')))
     max_features = list(map(float if '.' in max_features_str else int, max_features_str.split(',')))
     max_leaf_nodes = [None]
@@ -182,17 +181,17 @@ def add_args(parser):
 def model_family(args, random_seed):
     """ Given command-line arguments, return appropriate model family """
     if args['model_family'] == 'RandomForest':
-        return random_forest_models(random_seed, 1,  #args['threads'],
+        return random_forest_models(random_seed, 1,  # args['threads'],
                                     args['optimization_tolerance'],
                                     args['num_trees'], args['max_features'],
                                     args['max_leaf_nodes'])
     elif args['model_family'] == 'ExtraTrees':
-        return extra_trees_models(random_seed, 1,  #args['threads'],
+        return extra_trees_models(random_seed, 1,  # args['threads'],
                                   args['optimization_tolerance'],
                                   args['num_trees'], args['max_features'],
                                   args['max_leaf_nodes'])
     elif args['model_family'] == 'GradientBoosting':
-        return gradient_boosting_models(random_seed, 1,  #args['threads'],
+        return gradient_boosting_models(random_seed, 1,  # args['threads'],
                                         args['optimization_tolerance'],
                                         args['num_trees'], args['max_features'],
                                         args['max_leaf_nodes'], args['learning_rate'])
