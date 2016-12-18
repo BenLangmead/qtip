@@ -44,14 +44,16 @@ const static size_t BUFSZ = 65536;
 
 /**
  * Read next prediction from the prediction file and popular line and mapq out
- * paramters appropriately.
+ * parameters appropriately.
  */
 static bool next_prediction(FILE *fh, size_t& line, float& mapq) {
 	char linebuf[BUFSZ];
 	static size_t last_line = 0;
-	if(fgets(linebuf, BUFSZ, fh) == NULL) {
-		return false; // done
-	}
+	do {
+        if(fgets(linebuf, BUFSZ, fh) == NULL) {
+            return false; // done
+        }
+	} while(strncmp(linebuf, "ids,mapq", 8) == 0);
 	sscanf(linebuf, "%llu,%f", (unsigned long long*)&line, &mapq);
 	assert(last_line == 0 || line > last_line);
 	last_line = line;
