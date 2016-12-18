@@ -1,5 +1,6 @@
 import pandas
 import numpy
+from collections import defaultdict, Counter
 from mapq import mapq_to_pcor_np, pcor_to_mapq_np
 
 
@@ -10,6 +11,12 @@ class Roc(object):
     """
 
     def __init__(self, tally, mapq_strata=True):
+        if isinstance(tally, Counter):
+            dct = defaultdict(lambda: [0, 0])
+            for k, v in tally.items():
+                assert k[1] == 0 or k[1] == 1
+                dct[k[0]][k[1]] = v
+            tally = dct
         mapqs, tups = zip(*sorted(tally.items(), reverse=True))
         mapqs = numpy.array(mapqs)
         if mapq_strata:
@@ -98,9 +105,25 @@ if __name__ == "__main__":
             self.assertEqual(list(roc.tab['cum_cor']), [1, 2, 3])
             self.assertEqual(list(roc.tab['n']), [2, 3, 2])
 
+        def test_roc_counter_1(self):
+            cnt = Counter([(2, 0), (2, 1), (1, 0), (1, 1), (1, 1), (0, 0), (0, 1)])
+            roc = Roc(cnt)
+            self.assertEqual(list(roc.tab['cum']), [2, 5, 7])
+            self.assertEqual(list(roc.tab['cum_incor']), [1, 3, 4])
+            self.assertEqual(list(roc.tab['cum_cor']), [1, 2, 3])
+            self.assertEqual(list(roc.tab['n']), [2, 3, 2])
+
         def test_roc_2(self):
             roc = Roc({0.0: [1, 1],
                        1.0: [1, 2]}, mapq_strata=False)
+            self.assertEqual(list(roc.tab['cum']), [3, 5])
+            self.assertEqual(list(roc.tab['se']), [2.0, 1.0])
+            self.assertEqual(list(roc.tab['cum_se']), [2.0, 3.0])
+            self.assertEqual(list(roc.tab['n']), [3, 2])
+
+        def test_roc_counter_2(self):
+            cnt = Counter([(0.0, 0), (0.0, 1), (1.0, 0), (1.0, 1), (1.0, 1)])
+            roc = Roc(cnt, mapq_strata=False)
             self.assertEqual(list(roc.tab['cum']), [3, 5])
             self.assertEqual(list(roc.tab['se']), [2.0, 1.0])
             self.assertEqual(list(roc.tab['cum_se']), [2.0, 3.0])
