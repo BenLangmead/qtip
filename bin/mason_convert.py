@@ -9,6 +9,7 @@ python mason_convert.py --in1 *.fastq [--in2 *.fastq] \
                         --out1 out1.fastq [--out2 out2.fastq]
 """
 
+from __future__ import print_function
 import re
 import gzip
 import sys
@@ -122,13 +123,13 @@ def go():
                         for ln in [seq, ln3, ln4]:
                             ofh1.write(ln)
                         idx += 1
-    print >> sys.stderr, 'ref id mismatch: %d (%0.4f%%)' % (n_ref_id_mismatch,
-                                                            100.0 * n_ref_id_mismatch / n_tot)
-    print >> sys.stderr, 'strands match: %d (%0.4f%%)' % (n_strands_match,
-                                                          100.0 * n_strands_match / n_tot)
-    print >> sys.stderr, 'strands not compat: %d (%0.4f%%)' % (n_strands_not_compat,
-                                                               100.0 * n_strands_not_compat / n_tot)
-    print >> sys.stderr, 'reads converted: %d (%0.4f%%)' % (n_tot - n_discarded,
-                                                            100.0 * (n_tot - n_discarded) / n_tot)
+    print('ref id mismatch: %d (%0.4f%%)' %
+          (n_ref_id_mismatch, 100.0 * n_ref_id_mismatch / n_tot), file=sys.stderr)
+    print('strands match: %d (%0.4f%%)' %
+          (n_strands_match, 100.0 * n_strands_match / n_tot), file=sys.stderr)
+    print('strands not compat: %d (%0.4f%%)' %
+          (n_strands_not_compat, 100.0 * n_strands_not_compat / n_tot), file=sys.stderr)
+    print('reads converted: %d (%0.4f%%)' %
+          (n_tot - n_discarded, 100.0 * (n_tot - n_discarded) / n_tot), file=sys.stderr)
 
 go()
