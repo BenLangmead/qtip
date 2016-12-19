@@ -70,15 +70,15 @@ class FeatureTableReader(object):
                             if os.path.exists(_fn):
                                 return pandas.io.parsers.read_csv(_fn, quoting=csv.QUOTE_NONE,
                                                                   chunksize=_chunksize,
-                                                                  encoding='utf-8')
+                                                                  encoding='utf-8', dtype={'rname':'str'})
                             elif os.path.exists(_fn + '.gz'):
                                 return pandas.io.parsers.read_csv(_fn + '.gz', quoting=csv.QUOTE_NONE,
                                                                   chunksize=_chunksize, compression='gzip',
-                                                                  encoding='utf-8')
+                                                                  encoding='utf-8', dtype={'rname':'str'})
                             elif os.path.exists(_fn + '.bz2'):
                                 return pandas.io.parsers.read_csv(_fn + '.bz2', quoting=csv.QUOTE_NONE,
                                                                   chunksize=_chunksize, compression='bz2',
-                                                                  encoding='utf-8')
+                                                                  encoding='utf-8', dtype={'rname':'str'})
                             else:
                                 raise RuntimeError('No such file: "%s"' % _fn)
 
