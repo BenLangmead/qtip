@@ -4,6 +4,7 @@ BT2_DIR=../../software/bowtie2
 BT2=$(BT2_DIR)/bowtie2
 MASON_CONVERT=python ../../bin/mason_convert.py
 TOOL=qtip
+NTHREADS=4
 
 all: full_e2e/final.sam extra_e2e/final.sam final_full_e2e.sam test_random_forest test_gradient_boost test_reweight_mapq test_reweight_ratio test_max_leaf_nodes
 
@@ -18,7 +19,7 @@ final_full_e2e.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--vanilla-output $@ \
 		--write-orig-mapq \
 		--write-precise-mapq \
-		-- -p 8
+		-- -p $(NTHREADS)
 
 full_e2e/final.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
 	python ../$(TOOL) \
@@ -34,7 +35,7 @@ full_e2e/final.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--write-orig-mapq \
 		--write-precise-mapq \
 		--assess-accuracy \
-		--threads 8 -- -p 8
+		--threads $(NTHREADS) -- -p
 
 extra_e2e/final.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
 	python ../$(TOOL) \
@@ -55,7 +56,7 @@ extra_e2e/final.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(
 		--write-precise-mapq \
 		--assess-accuracy \
 		--no-collapse \
-		-- -p 8
+		-- -p $(NTHREADS)
 
 #
 # Try a few different machine learning models
@@ -79,7 +80,7 @@ test_random_forest: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--write-precise-mapq \
 		--assess-accuracy \
 		--model-family RandomForest \
-		--threads 8 -- -p 8
+		--threads $(NTHREADS) -- -p $(NTHREADS)
 
 test_max_leaf_nodes: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
 	python ../$(TOOL) \
@@ -93,7 +94,7 @@ test_max_leaf_nodes: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(
 		--output-directory $@ \
 		--model-family RandomForest \
 		--max-leaf-nodes 20 \
-		--threads 8 -- -p 8
+		--threads $(NTHREADS) -- -p $(NTHREADS)
 
 test_reweight_mapq: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
 	python ../$(TOOL) \
@@ -109,7 +110,7 @@ test_reweight_mapq: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--reweight-mapq \
 		--assess-accuracy \
 		--model-family RandomForest \
-		--threads 8 -- -p 8
+		--threads $(NTHREADS) -- -p $(NTHREADS)
 
 test_reweight_ratio: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
 	python ../$(TOOL) \
@@ -124,7 +125,7 @@ test_reweight_ratio: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(
 		--reweight-ratio 10.0 \
 		--assess-accuracy \
 		--model-family RandomForest \
-		--threads 8 -- -p 8
+		--threads $(NTHREADS) -- -p $(NTHREADS)
 
 test_gradient_boost: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
 	python ../$(TOOL) \
@@ -146,7 +147,7 @@ test_gradient_boost: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(
 		--assess-accuracy \
 		--model-family GradientBoosting \
 		--verbose \
-		--threads 8 -- -p 8
+		--threads $(NTHREADS) -- -p $(NTHREADS)
 
 .r_1.fastq: .rtmp_1.fastq
 	$(MASON_CONVERT) --in1 $< --in2 $(<:_1.fastq=_2.fastq) --out1 $@ --out2 $(@:_1.fastq=_2.fastq)
