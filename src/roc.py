@@ -15,7 +15,7 @@ class Roc(object):
             dct = defaultdict(lambda: [0, 0])
             for k, v in tally.items():
                 assert k[1] == 0 or k[1] == 1
-                dct[k[0]][k[1]] = v
+                dct[k[0]][1 - k[1]] = v
             tally = dct
         mapqs, tups = zip(*sorted(tally.items(), reverse=True))
         mapqs = numpy.array(mapqs)
