@@ -76,9 +76,12 @@ class MapqPredictions:
         if self.npredictions > self.prediction_mem_limit:
             raise RuntimeError('Request to load %d predictions into memory exceeds limit (%d)' %
                                (self.npredictions, self.prediction_mem_limit))
-        df = pandas.io.parsers.read_csv(self.pred_fns[0], header=0, quoting=3, encoding='utf-8')
+        df = pandas.io.parsers.read_csv(self.pred_fns[0], header=0,
+                                        quoting=csv.QUOTE_NONE, encoding='utf-8')
         for pred_fn in self.pred_fns[1:]:
-            df = df.append(pandas.io.parsers.read_csv(pred_fn, header=0, quoting=3, encoding='utf-8'), ignore_index=True)
+            df = df.append(pandas.io.parsers.read_csv(pred_fn, header=0,
+                                                      quoting=csv.QUOTE_NONE, encoding='utf-8'),
+                           ignore_index=True)
         self.df = df
 
     def can_assess(self):
@@ -133,7 +136,7 @@ class MapqPredictions:
                 for chunk in pandas.io.parsers.read_csv(
                         self.pred_fns[0], quoting=3, chunksize=100000, encoding='utf-8'):
                     chunk.to_csv(ofh, sep=',', index=False, columns=['ids', 'mapq'],
-                                 header=False, encoding='utf-8')
+                                 header=False, float_format='%0.3f', encoding='utf-8')
         else:
             if True:
                 # 4th column: ids, 5th column: mapqs
