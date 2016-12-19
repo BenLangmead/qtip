@@ -116,7 +116,7 @@ def _prediction_worker(my_test_chunk, training, training_labs, ds,
         pcor = trained_model.predict(x_test)  # make predictions
     # TODO: figure out how to make this efficient
     #data = [';'.join(map(str, row)) for row in x_test] if keep_data else None
-    data = None
+    data = ''
     del x_test
     gc.collect()
     log.info('    Done making predictions; about to postprocess (peak mem=%0.2fGB)' % _get_peak_gb())
