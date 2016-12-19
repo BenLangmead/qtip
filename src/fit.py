@@ -89,10 +89,11 @@ _prediction_worker_pred_overall = None
 _prediction_worker_log = None
 
 
-def _prediction_worker(my_test_chunk, training, training_labs, ds,
+def _prediction_worker(my_test_chunk_tup, training, training_labs, ds,
                        ds_long, pred_per_category, dedup,
                        keep_per_category=False, keep_data=False,
                        multiprocess=True, include_mapq=False):
+    i, my_test_chunk = my_test_chunk_tup
     gc.collect()
     log = _prediction_worker_log
     trained_model = _prediction_worker_trained_models[ds]
@@ -128,7 +129,7 @@ def _prediction_worker(my_test_chunk, training, training_labs, ds,
                                           'pcor_orig': mapq_to_pcor_np(mapq_orig_test),
                                           'data': data, 'correct': y_test})
     if multiprocess:
-        return pred_df
+        return i, pred_df
     else:
         for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
             prd.add(pred_df)
@@ -301,28 +302,45 @@ class MapqFit:
 
             if multiprocess:
                 try:
+                    nexti = 0
+                    jobs = {}
                     r = itertools.repeat
-                    for tups in p.imap(_prediction_worker_star,
-                                      zip(dfs.dataset_iter(ds),
-                                                     r(training),
-                                                     r(self.training_labs),
-                                                     r(ds),
-                                                     r(ds_long),
-                                                     r(pred_per_category),
-                                                     r(dedup),
-                                                     r(keep_per_category),
-                                                     r(keep_data),
-                                                     r(True),
-                                                     r(include_mapq))):
+
+                    def _handle(tups):
                         for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
                             prd.add(tups)
+
+                    for i, tups in p.imap_unordered(_prediction_worker_star,
+                                       zip(enumerate(dfs.dataset_iter(ds)),
+                                           r(training),
+                                           r(self.training_labs),
+                                           r(ds),
+                                           r(ds_long),
+                                           r(pred_per_category),
+                                           r(dedup),
+                                           r(keep_per_category),
+                                           r(keep_data),
+                                           r(True),
+                                           r(include_mapq))):
+                        if i == nexti:
+                            _handle(tups)
+                            nexti += 1
+                            while nexti in jobs:
+                                _handle(jobs[nexti])
+                                del jobs[nexti]
+                                nexti += 1
+                                gc.collect()
+                        else:
+                            jobs[i] = tups
+
+                    assert len(jobs) == 0
 
                 except KeyboardInterrupt:
                     p.terminate()
                     p.join()
                     raise
             else:
-                for test_chunk in dfs.dataset_iter(ds):
+                for test_chunk in enumerate(dfs.dataset_iter(ds)):
                     _prediction_worker(test_chunk, training, self.training_labs,
                                        ds, ds_long, pred_per_category, dedup,
                                        keep_per_category=keep_per_category, keep_data=keep_data,
