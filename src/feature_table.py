@@ -1,3 +1,9 @@
+"""
+Copyright 2016, Ben Langmead <langmea@cs.jhu.edu>
+
+FeatureTableReader
+"""
+
 import os
 import pandas
 import warnings
@@ -46,7 +52,7 @@ class FeatureTableReader(object):
                 ('c',         '_rec_c.csv'),
                 ('b',         '_rec_b.csv')]
 
-    def __init__(self, prefix, chunksize=50000):
+    def __init__(self, prefix, chunksize=100000):
         self.prefix = prefix
         self.dfs = {}
         self.readers = {}

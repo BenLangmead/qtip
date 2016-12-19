@@ -1,3 +1,10 @@
+"""
+Copyright 2016, Ben Langmead <langmea@cs.jhu.edu>
+
+TemporaryFileManager for maintaining and measuring a set of related
+temporary files.
+"""
+
 import os
 import tempfile
 import errno

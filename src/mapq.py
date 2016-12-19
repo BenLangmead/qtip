@@ -1,3 +1,9 @@
+"""
+Copyright 2016, Ben Langmead <langmea@cs.jhu.edu>
+
+Functions for manipulating and converting mapping qualities & probabilities.
+"""
+
 import math
 import numpy as np
 

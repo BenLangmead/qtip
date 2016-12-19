@@ -1,6 +1,14 @@
+"""
+Copyright 2016, Ben Langmead <langmea@cs.jhu.edu>
+
+Roc class for maintaining a ROC table and calculating summaries.
+"""
+
 import pandas
 import numpy
 from collections import defaultdict, Counter
+
+# qtip imports
 from mapq import mapq_to_pcor_np, pcor_to_mapq_np
 
 

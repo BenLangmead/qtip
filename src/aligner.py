@@ -1,5 +1,5 @@
 """
-aligner.py
+Copyright 2016, Ben Langmead <langmea@cs.jhu.edu>
 
 Encapsulates an aligner.  Classes for specific aligners inherit from
 this class and override the constructor and these three member

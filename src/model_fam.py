@@ -1,3 +1,9 @@
+"""
+Copyright 2016, Ben Langmead <langmea@cs.jhu.edu>
+
+ModelFamily class and related functionality for instantiating models.
+"""
+
 import copy
 from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor, GradientBoostingRegressor
 

@@ -1,3 +1,9 @@
+"""
+Copyright 2016, Ben Langmead <langmea@cs.jhu.edu>
+
+Concrete subclass for Bowtie 2 aligner.
+"""
+
 import os
 import logging
 import sys
