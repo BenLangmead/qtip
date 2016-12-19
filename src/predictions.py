@@ -1,15 +1,22 @@
+"""
+Copyright 2016, Ben Langmead <langmea@cs.jhu.edu>
+
+MapqPredictions class for storing and analyzing predictions.
+"""
+
 import os
 import pandas
 import logging
 import csv
-from mapq import pcor_to_mapq, mapq_to_pcor
 from collections import Counter
-from roc import Roc
 try:
     from itertools import izip
 except ImportError:
     izip = zip
 
+from roc import Roc
+
+# qtip imports
 __author__ = 'langmead'
 
 
@@ -54,16 +61,23 @@ class MapqPredictions:
             return
         first_id = recs.ids[0]
         self.has_correct = recs.correct.max() > -1
+
+        # Open new csv if we got a discontiguous chunk. Requires merging later.
         if self.last_id is not None and first_id < self.last_id:
             self.temp_next_fn = '_'.join([self.pred_fn_prefix, str(len(self.pred_fns))])
             self.pred_fns.append(self.temp_man.get_file(self.temp_next_fn, group=self.temp_group_name))
             self.pred_fh_new = True
+
+        # This is performance-critical
         recs.to_csv(self.pred_fns[-1], header=self.pred_fh_new, sep=',', index=False,
                     quoting=csv.QUOTE_NONE, mode='wt' if self.pred_fh_new else 'at',
-                    encoding='utf-8')
+                    encoding='utf-8', chunksize=500000, float_format='%.3f',
+                    columns=['ids', 'mapq', 'category', 'mapq_orig', 'correct', 'data'])
         self.pred_fh_new = False
         self.npredictions += len(recs)
         self.last_id = recs.ids.iloc[-1]
+
+        # Update tallies if possible
         if self.has_correct:
             self.tally.update(zip(recs.mapq.round(decimals=self.mapq_precision), recs.correct))
             self.tally_orig.update(zip(recs.mapq_orig, recs.correct))
@@ -93,13 +107,13 @@ class MapqPredictions:
         """ Return indexes of in correct alignments in order
             from highest to lowest predicted pcor """
         assert self.df.correct.max() > -1
-        assert pandas.algos.is_monotonic_float64(self.df.pcor.values, True)
+        assert pandas.algos.is_monotonic_float64(self.df.mapq.values, True)
         return self.df.correct[self.df.correct == 0].index[::-1].tolist()
 
     def summarize_incorrect(self, n=50):
         """ Return a DataFrame summarizing information about """
         assert self.df.correct.max() > -1
-        assert pandas.algos.is_monotonic_float64(self.df.pcor.values, True)
+        assert pandas.algos.is_monotonic_float64(self.df.mapq.values, True)
         cols = ['category', 'mapq', 'mapq_orig', 'data', 'correct']
         return self.df.loc[self.incorrect_indexes()[:n], cols]
 
@@ -131,54 +145,16 @@ class MapqPredictions:
     def write_predictions(self, fn):
         """ Write all predictions, in order by the line number of the original
             alignment in the input SAM, to the provided filename. """
+        sort_cmd = "sort -t',' -m -n -k 1,1 -S 20M"
+        cut_cmd = "cut -d',' -f1,2"
         if len(self.pred_fns) == 1:
-            with open(fn, 'w') as ofh:
-                for chunk in pandas.io.parsers.read_csv(
-                        self.pred_fns[0], quoting=3, chunksize=100000, encoding='utf-8'):
-                    chunk.to_csv(ofh, sep=',', index=False, columns=['ids', 'mapq'],
-                                 header=False, float_format='%0.3f', encoding='utf-8')
+            ret = os.system(' '.join([cut_cmd, '<', self.pred_fns[0], '>', fn]))
+            if ret != 0:
+                raise RuntimeError('cut command returned %d' % ret)
         else:
-            if True:
-                # 4th column: ids, 5th column: mapqs
-                sort_cmd = "sort -t',' -m -n -k 4,4 -S 20M"
-                cut_cmd = "cut -d',' -f4,5"
-                ret = os.system(' '.join([sort_cmd] + self.pred_fns + ['|', cut_cmd, '>', fn]))
-                if ret != 0:
-                    raise RuntimeError('sort & cut command returned %d' % ret)
-            else:
-                # have to merge!  more complex
-                raise RuntimeError('not implemented yet')
-                pred_fhs = list(map(lambda x: open(x, 'rb'), self.pred_fns))
-                recs = [None] * len(pred_fhs)
-                done = [False] * len(pred_fhs)
-                nmerged = 0
-                last_min_rec = -1
-                with open(fn, 'wb') as ofh:
-                    while True:
-                        min_rec = (None, float('inf'))
-                        min_i = -1
-                        for i, pred_fh in enumerate(pred_fhs):
-                            if recs[i] is None and not done[i]:
-                                ln = pred_fh.readline()
-                                if len(ln) == 0:
-                                    recs[i] = None
-                                    done[i] = True
-                                else:
-                                    pcor, ident = ln.rstrip().split(','.encode('utf-8'))[:2]
-                                    recs[i] = (pcor, int(ident))
-                            if recs[i] is not None and recs[i][1] < min_rec[1]:
-                                min_rec, min_i = recs[i], i
-                        if min_i == -1:
-                            assert all(done)
-                            break
-                        nmerged += 1
-                        assert min_rec[1] > last_min_rec, "%d,%d:%s" % (min_rec[1], last_min_rec, str(self.pred_fns))
-                        last_min_rec = min_rec[1]
-                        ofh.write(('%d,%0.3f\n' % (min_rec[1], pcor_to_mapq(float(min_rec[0])))).encode('utf-8'))
-                        recs[min_i] = None
-                assert nmerged == self.npredictions, (nmerged, self.npredictions)
-                for fh in pred_fhs:
-                    fh.close()
+            ret = os.system(' '.join([sort_cmd] + self.pred_fns + ['|', cut_cmd, '>', fn]))
+            if ret != 0:
+                raise RuntimeError('sort & cut command returned %d' % ret)
 
     def purge_temporaries(self):
         self.temp_man.remove_group(self.temp_group_name)
@@ -202,7 +178,7 @@ class MapqPredictions:
             assert isinstance(self.df, pandas.DataFrame)
 
             log.info('  Reordering')
-            self.df.sort_values('pcor', ascending=False, inplace=True)
+            self.df.sort_values('mapq', ascending=False, inplace=True)
 
             log.info('  Calculating AUC')
             auc_orig = self.roc_orig.area_under_cumulative_incorrect()

@@ -1,3 +1,9 @@
+"""
+Copyright 2016, Ben Langmead <langmea@cs.jhu.edu>
+
+MapqFit class and routines for fitting and making predictions using the model.
+"""
+
 from __future__ import print_function
 import random
 import logging
@@ -9,28 +15,33 @@ import gc
 import os
 import sys
 import multiprocessing
-from predictions import MapqPredictions
 from sklearn import cross_validation
-from mapq import pcor_to_mapq_np, mapq_to_pcor_np
 try:
     import itertools.izip as zip
 except ImportError:
     pass
 
+# qtip imports
+from predictions import MapqPredictions
+from mapq import pcor_to_mapq_np, mapq_to_pcor_np
+
 __author__ = 'langmead'
 
 
 def _np_deduping_indexes(m):
+    """ Return mapping & inverse mapping for de-duping rows of given matrix. """
     b = np.ascontiguousarray(m).view(np.dtype((np.void, m.dtype.itemsize * m.shape[1])))
     _, idx, inv = np.unique(b, return_index=True, return_inverse=True)
     return idx, inv
 
 
 def _get_peak_gb():
+    """ Return peak RSS in GB.  Seems spuriously high on the Mac. """
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)
 
 
 def _clamp_predictions(pcor, min_pcor=0.0, max_pcor=0.999999):
+    """ Clamp numpy array of pcor predictions between 0 and 1 - 1e-6 """
     return np.maximum(np.minimum(pcor, max_pcor), min_pcor)
 
 
@@ -123,11 +134,12 @@ def _prediction_worker(my_test_chunk_tup, training, training_labs, ds,
     log.info('    Done making predictions; about to postprocess (peak mem=%0.2fGB)' % _get_peak_gb())
     pcor = np.array(postprocess_predictions(pcor, ds_long))
     log.info('    Done postprocessing; adding to tally (peak mem=%0.2fGB)' % _get_peak_gb())
-    pred_df = pandas.DataFrame.from_dict({'pcor': pcor, 'mapq': pcor_to_mapq_np(pcor),
-                                          'ids': ids, 'category': ds,
-                                          'mapq_orig': mapq_orig_test,
-                                          'pcor_orig': mapq_to_pcor_np(mapq_orig_test),
-                                          'data': data, 'correct': y_test})
+    pred_df = pandas.DataFrame({'mapq': pandas.Series(pcor_to_mapq_np(pcor), dtype='float32'),
+                                'ids': pandas.Series(ids, dtype='int64'),
+                                'category': ds,
+                                'mapq_orig': pandas.Series(mapq_orig_test, dtype='int16'),
+                                'data': data,
+                                'correct': pandas.Series(y_test, dtype='int8')})
     if multiprocess:
         return i, pred_df
     else:
