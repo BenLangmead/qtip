@@ -35,7 +35,7 @@ full_e2e/final.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--write-orig-mapq \
 		--write-precise-mapq \
 		--assess-accuracy \
-		--threads $(NTHREADS) -- -p
+		--threads $(NTHREADS) -- -p $(NTHREADS)
 
 extra_e2e/final.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
 	python ../$(TOOL) \
