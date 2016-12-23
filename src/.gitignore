@@ -4,3 +4,7 @@ qsim-*
 *.dSYM
 Xcode
 *.pyc
+VERSION
+qtip-parse
+qtip-rewrite
+__pycache__
