@@ -55,7 +55,7 @@ extra_e2e/final.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(
 		--write-orig-mapq \
 		--write-precise-mapq \
 		--assess-accuracy \
-		--no-collapse \
+		--collapse \
 		-- -p $(NTHREADS)
 
 #
