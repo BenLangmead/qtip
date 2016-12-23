@@ -19,18 +19,18 @@ VERSION:
 	git describe --tags --long > $@
 
 $(TOOL)-parse: $(PARSE_DEPS)
-	g++ -O3 -o $@ $^
+	g++ -O3 $(EXTRA_FLAGS) -o $@ $^
 
 # note, on some JHU systems I have to use -gdwarf-3
 $(TOOL)-parse-debug: $(PARSE_DEPS)
-	g++ -g -O0 -o $@ $^
+	g++ -g -O0 $(EXTRA_FLAGS) -o $@ $^
 
 $(TOOL)-rewrite: $(REWRITE_DEPS)
-	g++ -O3 -o $@ $^
+	g++ -O3 $(EXTRA_FLAGS) -o $@ $^
 
 # note, on some JHU systems I have to use -gdwarf-3
 $(TOOL)-rewrite-debug: $(REWRITE_DEPS)
-	g++ -g -O0 -o $@ $^
+	g++ -g -O0 $(EXTRA_FLAGS) -o $@ $^
 
 .PHONY: clean
 clean:

@@ -7,7 +7,6 @@ MapqPredictions class for storing and analyzing predictions.
 import os
 import pandas
 import logging
-import csv
 from collections import Counter
 try:
     from itertools import izip
@@ -15,6 +14,7 @@ except ImportError:
     izip = zip
 
 from roc import Roc
+from metamat import MetaMat
 
 # qtip imports
 __author__ = 'langmead'
@@ -30,10 +30,13 @@ class MapqPredictions:
         self.temp_man = temp_man
         self.temp_group_name = 'MAPQ predictions %s' % name
 
-        self.pred_fns = []
-        self.pred_fn_prefix = 'predictions_' + name
-        self.temp_next_fn = '_'.join([self.pred_fn_prefix, str(len(self.pred_fns))])
-        self.pred_fns.append(temp_man.get_file(self.temp_next_fn, group=self.temp_group_name))
+        self.pred_fn_prefix = prefix = 'predictions_' + name
+        pred_fn = '_'.join([prefix, '0.npy'])
+        pred_meta_fn = '_'.join([prefix, '0.meta'])
+        self.pred_fns = [temp_man.get_file(pred_fn, group=self.temp_group_name)]
+        self.pred_fhs = [open(self.pred_fns[-1], 'wb')]
+        self.pred_meta_fns = [temp_man.get_file(pred_meta_fn, group=self.temp_group_name)]
+        self.pred_nrow = [0]
         self.pred_fh_new = True
         self.last_id = None
 
@@ -55,33 +58,34 @@ class MapqPredictions:
         self.mse_diff_pct = None
         self.mse_diff_round_pct = None
 
-    def add(self, recs):
+    def add(self, recs, first_id, last_id, mapq=None, mapq_orig=None, correct=None):
         """ Add a new batch of predictions. """
         if recs.shape[0] == 0:
             return
-        first_id = recs.ids[0]
-        self.has_correct = recs.correct.max() > -1
 
         # Open new csv if we got a discontiguous chunk. Requires merging later.
         if self.last_id is not None and first_id < self.last_id:
-            self.temp_next_fn = '_'.join([self.pred_fn_prefix, str(len(self.pred_fns))])
-            self.pred_fns.append(self.temp_man.get_file(self.temp_next_fn, group=self.temp_group_name))
-            self.pred_fh_new = True
+            pred_fn = '_'.join([self.pred_fn_prefix, str(len(self.pred_fns)) + '.npy'])
+            pred_meta_fn = '_'.join([self.pred_fn_prefix, str(len(self.pred_fns)) + '.meta'])
+            self.pred_fns.append(self.temp_man.get_file(pred_fn, group=self.temp_group_name))
+            self.pred_meta_fns.append(self.temp_man.get_file(pred_meta_fn, group=self.temp_group_name))
+            self.pred_fhs.append(open(self.pred_fns[-1], 'wb'))
+            self.pred_nrow.append(0)
 
         # This is performance-critical
-        recs.to_csv(self.pred_fns[-1], header=self.pred_fh_new, sep=',', index=False,
-                    quoting=csv.QUOTE_NONE, mode='wt' if self.pred_fh_new else 'at',
-                    encoding='utf-8', chunksize=500000, float_format='%.3f',
-                    columns=['ids', 'mapq', 'category', 'mapq_orig', 'correct', 'data'])
-        self.pred_fh_new = False
-        self.npredictions += len(recs)
-        self.last_id = recs.ids.iloc[-1]
+        recs.values.tofile(self.pred_fhs[-1], sep='')
+        self.npredictions += recs.shape[0]
+        self.pred_nrow[-1] += recs.shape[0]
+        self.last_id = last_id
 
         # Update tallies if possible
+        self.has_correct = mapq is not None
         if self.has_correct:
-            self.tally.update(zip(recs.mapq.round(decimals=self.mapq_precision), recs.correct))
-            self.tally_orig.update(zip(recs.mapq_orig, recs.correct))
-            self.tally_rounded.update(zip(recs.mapq.round(decimals=0), recs.correct))
+            assert mapq_orig is not None
+            assert correct is not None
+            self.tally.update(zip(mapq.round(decimals=self.mapq_precision), correct))
+            self.tally_orig.update(zip(mapq_orig, correct))
+            self.tally_rounded.update(zip(mapq.round(decimals=0), correct))
 
     def _load_predictions(self):
         """ Load all the predictions added with the 'add' member function into
@@ -90,13 +94,11 @@ class MapqPredictions:
         if self.npredictions > self.prediction_mem_limit:
             raise RuntimeError('Request to load %d predictions into memory exceeds limit (%d)' %
                                (self.npredictions, self.prediction_mem_limit))
-        df = pandas.io.parsers.read_csv(self.pred_fns[0], header=0,
-                                        quoting=csv.QUOTE_NONE, encoding='utf-8')
-        for pred_fn in self.pred_fns[1:]:
-            df = df.append(pandas.io.parsers.read_csv(pred_fn, header=0,
-                                                      quoting=csv.QUOTE_NONE, encoding='utf-8'),
-                           ignore_index=True)
-        self.df = df
+        dfs = []
+        for fn in self.pred_fns:
+            assert fn.endswith('.npy')
+            dfs.append(MetaMat(fn[:-4], chunk_size=-1).next())
+        self.df = pandas.concat(dfs)
 
     def can_assess(self):
         """ Return true iff we have the data and the flags needed to do an
@@ -145,16 +147,19 @@ class MapqPredictions:
     def write_predictions(self, fn):
         """ Write all predictions, in order by the line number of the original
             alignment in the input SAM, to the provided filename. """
-        sort_cmd = "sort -t',' -m -n -k 1,1 -S 20M"
-        cut_cmd = "cut -d',' -f1,2"
-        if len(self.pred_fns) == 1:
-            ret = os.system(' '.join([cut_cmd, '<', self.pred_fns[0], '>', fn]))
-            if ret != 0:
-                raise RuntimeError('cut command returned %d' % ret)
-        else:
-            ret = os.system(' '.join([sort_cmd] + self.pred_fns + ['|', cut_cmd, '>', fn]))
-            if ret != 0:
-                raise RuntimeError('sort & cut command returned %d' % ret)
+        # TODO: qtip-rewrite must now handle the merging
+        return
+
+        #sort_cmd = "sort -t',' -m -n -k 1,1 -S 20M"
+        #cut_cmd = "cut -d',' -f1,2"
+        #if len(self.pred_fns) == 1:
+        #    ret = os.system(' '.join([cut_cmd, '<', self.pred_fns[0], '>', fn]))
+        #    if ret != 0:
+        #        raise RuntimeError('cut command returned %d' % ret)
+        #else:
+        #    ret = os.system(' '.join([sort_cmd] + self.pred_fns + ['|', cut_cmd, '>', fn]))
+        #    if ret != 0:
+        #        raise RuntimeError('sort & cut command returned %d' % ret)
 
     def purge_temporaries(self):
         self.temp_man.remove_group(self.temp_group_name)
@@ -162,6 +167,18 @@ class MapqPredictions:
     def finalize(self, log=logging):
         """ Close prediction file handle.  If we have the information and flags
             needed for accuracy assessment, then do that too. """
+
+        # Finish writing numpy files
+        for fh in self.pred_fhs:
+            fh.close()
+
+        # Write metadata for prediction files
+        columns = ['ids', 'mapq', 'category', 'mapq_orig', 'correct']
+        for fn, n_row in zip(self.pred_meta_fns, self.pred_nrow):
+            with open(fn, 'wb') as fh:
+                fh.write(b','.join(map(lambda x: x.encode(), columns)))
+                fh.write(b',')
+                fh.write(str(n_row).encode())
 
         log.info('  %d records written to %d files' % (self.npredictions, len(self.pred_fns)))
 
@@ -176,6 +193,12 @@ class MapqPredictions:
             self._load_predictions()
             assert self.df is not None
             assert isinstance(self.df, pandas.DataFrame)
+            assert 'mapq' in self.df
+            assert 'mapq_orig' in self.df
+            assert 'correct' in self.df
+            self.df.mapq_orig = self.df.mapq_orig.astype(int)
+            self.df.mapq_orig = self.df.mapq_orig.astype(int)
+            self.df.correct = self.df.correct.astype(int)
 
             log.info('  Reordering')
             self.df.sort_values('mapq', ascending=False, inplace=True)

@@ -558,7 +558,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                              FeatureTableReader(pass2_prefix, chunksize=args['max_rows'])
 
             def _do_predict(fit, tab, subdir, is_input, include_mapq=False):
-                pred = fit.predict(tab, temp_man, dedup=not args['no_collapse'], training=not is_input,
+                pred = fit.predict(tab, temp_man, dedup=args['collapse'], training=not is_input,
                                    calc_summaries=args['assess_accuracy'], prediction_mem_limit=args['assess_limit'],
                                    heap_profiler=hp, include_mapq=include_mapq, keep_data=args['assess_accuracy'],
                                    multiprocess=args['threads'] > 1, n_multi=args['threads'])
@@ -805,8 +805,8 @@ def add_args(parser):
                         help='When fitting, reweigh samples according to initially-predicted mapq')
     parser.add_argument('--reweight-mapq-offset', type=float, default=10.0, required=False,
                         help='Add this to every MAPQ before reweighting')
-    parser.add_argument('--no-collapse', action='store_const', const=True, default=False,
-                        help='Don\'t remove redundant rows just before prediction')
+    parser.add_argument('--collapse', action='store_const', const=True, default=False,
+                        help='Remove redundant rows just before prediction.  Usually not a net win.')
     parser.add_argument('--try-include-mapq', action='store_const', const=True, default=False,
                         help='Try both with and without including the tool-predicted MAPQ as a feature; '
                              'default: doesn\'t include it')

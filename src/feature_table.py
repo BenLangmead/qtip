@@ -5,52 +5,31 @@ FeatureTableReader
 """
 
 import os
-import pandas
 import warnings
 import math
-import csv
 import numpy as np
 try:
     from itertools import imap
 except ImportError:
     imap = map
 
+# qtip imports
+from metamat import MetaMat
+
 
 __author__ = 'langmead'
 
 
-def _exists_and_nonempty(fn):
-    return os.path.exists(fn) and os.stat(fn).st_size > 0
-
-
 class FeatureTableReader(object):
-
     """ Reads a table of information describing alignments.  These are tables
-        output by qtip.  Tables might describe training or test alignments.
+        output by qtip.  Tables might describe training or test alignments. """
 
-        The trickiest issue here is whether and how to normalize certain
-        features, like alignment scores.  The goal would be to make scores
-        more comparable across reads of different lengths.  A read of length
-        1000 with alignment score 80 should probably not be considered "close
-        to" a read of length 100 with alignment score 80.
-
-        If we know the minimum and maximum possible alignment score (which
-        depend on the alignment tool's scoring function, which might in turn
-        depend on read length), we can standardize to that interval.  We can't
-        generally expect to have that information, though.  Even if we had it,
-        we might have to pass a different interval for each read, since they
-        can vary in length.
-
-        To avoid these issues, we simply add read length as a feature.  This
-        has no effect for uniform-length data, since we also remove zero-
-        variance features.
-    """
-
-    #            short name   suffix
-    datasets = [('u',         '_rec_u.csv'),
-                ('d',         '_rec_d.csv'),
-                ('c',         '_rec_c.csv'),
-                ('b',         '_rec_b.csv')]
+    #            short
+    #            name   suffix
+    datasets = [('u',   '_rec_u'),
+                ('d',   '_rec_d'),
+                ('c',   '_rec_c'),
+                ('b',   '_rec_b')]
 
     def __init__(self, prefix, chunksize=100000):
         self.prefix = prefix
@@ -61,35 +40,12 @@ class FeatureTableReader(object):
         for sn, suf in self.datasets:
             fn = self.prefix + suf
             fns.append(fn)
-            for fnex in [fn, fn + '.gz', fn + '.bz2']:
-                if _exists_and_nonempty(fnex):
-                    nonempty = True
-
-                    def gen_new_iterator(_fn, _chunksize):
-                        def _new_iterator():
-                            if os.path.exists(_fn):
-                                return pandas.io.parsers.read_csv(_fn, quoting=csv.QUOTE_NONE,
-                                                                  chunksize=_chunksize,
-                                                                  encoding='utf-8', dtype={'rname':'str'})
-                            elif os.path.exists(_fn + '.gz'):
-                                return pandas.io.parsers.read_csv(_fn + '.gz', quoting=csv.QUOTE_NONE,
-                                                                  chunksize=_chunksize, compression='gzip',
-                                                                  encoding='utf-8', dtype={'rname':'str'})
-                            elif os.path.exists(_fn + '.bz2'):
-                                return pandas.io.parsers.read_csv(_fn + '.bz2', quoting=csv.QUOTE_NONE,
-                                                                  chunksize=_chunksize, compression='bz2',
-                                                                  encoding='utf-8', dtype={'rname':'str'})
-                            else:
-                                raise RuntimeError('No such file: "%s"' % _fn)
-
-                        return _new_iterator
-
-                    self.readers[sn] = gen_new_iterator(fn, chunksize)
-                    break
+            if os.path.exists(fn + '.npy') and os.stat(fn + '.npy').st_size > 0:
+                nonempty = True
+                self.readers[sn] = MetaMat(fn, chunksize)
 
         if not nonempty:
             raise RuntimeError('No non-empty input files with names like: ' + str(fns))
-
 
     @staticmethod
     def _postprocess_data_frame(df):
@@ -117,7 +73,7 @@ class FeatureTableReader(object):
     def dataset_iter(self, sn):
         """ Return an iterator over chunks of rows from the data frame. """
         assert sn in self.readers
-        return imap(lambda x: self._postprocess_data_frame(x), self.readers[sn]())
+        return imap(lambda x: self._postprocess_data_frame(x), self.readers[sn])
 
     def __contains__(self, o):
         return o in self.readers

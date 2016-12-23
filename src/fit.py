@@ -113,8 +113,7 @@ def _prediction_worker(my_test_chunk_tup, training, training_labs, ds,
              (os.getpid(), 'training' if training else 'test', ds_long, my_test_chunk.shape[0], _get_peak_gb()))
     log.info('    Loading data')
     x_test, ids, mapq_orig_test, y_test, col_names = \
-        _df_to_mat(my_test_chunk, ds, False, training_labs,
-                   log=log, include_mapq=include_mapq)
+        _df_to_mat(my_test_chunk, ds, False, training_labs, log=log, include_mapq=include_mapq)
     del my_test_chunk
     gc.collect()
     if dedup:
@@ -134,17 +133,28 @@ def _prediction_worker(my_test_chunk_tup, training, training_labs, ds,
     log.info('    Done making predictions; about to postprocess (peak mem=%0.2fGB)' % _get_peak_gb())
     pcor = np.array(postprocess_predictions(pcor, ds_long))
     log.info('    Done postprocessing; adding to tally (peak mem=%0.2fGB)' % _get_peak_gb())
+    # convert category data to doubles
+    ds = {'u': 1.0, 'b': 2.0, 'c': 3.0, 'd': 4.0}.get(ds)
     pred_df = pandas.DataFrame({'mapq': pandas.Series(pcor_to_mapq_np(pcor), dtype='float32'),
                                 'ids': pandas.Series(ids, dtype='int64'),
                                 'category': ds,
                                 'mapq_orig': pandas.Series(mapq_orig_test, dtype='int16'),
-                                'data': data,
+                                #'data': data,
                                 'correct': pandas.Series(y_test, dtype='int8')})
+    has_correct = pred_df.correct.max() >= 0
     if multiprocess:
-        return i, pred_df
+        if has_correct:
+            return (i, pred_df, pred_df.ids[0], pred_df.ids.iloc[-1],
+                    pred_df.mapq, pred_df.mapq_orig, pred_df.correct)
+        else:
+            return i, pred_df, pred_df.ids[0], pred_df.ids.iloc[-1]
     else:
         for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
-            prd.add(pred_df)
+            if has_correct:
+                prd.add(pred_df, pred_df.ids[0], pred_df.ids.iloc[-1],
+                        pred_df.mapq, pred_df.mapq_orig, pred_df.correct)
+            else:
+                prd.add(pred_df, pred_df.ids[0], pred_df.ids.iloc[-1])
     log.info('    Done; peak mem usage so far = %0.2fGB' %
              (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)))
 
@@ -242,6 +252,8 @@ class MapqFit:
             train = pandas.concat([x for x in dfs.dataset_iter(ds)])
             if train.shape[0] == 0:
                 continue  # empty
+            train.correct = train.correct.astype(int)
+            train.mapq = train.mapq.astype(int)
             if train['correct'].nunique() == 1:
                 logging.warning('Warning: All training data has correct=%d.  This might mean '
                                 'the qtip software is making a mistake.  It could also '
@@ -318,11 +330,12 @@ class MapqFit:
                     jobs = {}
                     r = itertools.repeat
 
-                    def _handle(tups):
+                    def _handle(recs, first_id, last_id, mapq, mapq_orig, correct):
                         for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
-                            prd.add(tups)
+                            # first_id, last_id, mapq=None, mapq_orig=None, correct=None
+                            prd.add(recs, first_id, last_id, mapq, mapq_orig, correct)
 
-                    for i, tups in p.imap_unordered(_prediction_worker_star,
+                    for tup in p.imap_unordered(_prediction_worker_star,
                                        zip(enumerate(dfs.dataset_iter(ds)),
                                            r(training),
                                            r(self.training_labs),
@@ -334,16 +347,18 @@ class MapqFit:
                                            r(keep_data),
                                            r(True),
                                            r(include_mapq))):
+                        i, recs, first_id, last_id, mapq, mapq_orig, correct = tup
                         if i == nexti:
-                            _handle(tups)
+                            _handle(recs, first_id, last_id, mapq, mapq_orig, correct)
                             nexti += 1
                             while nexti in jobs:
-                                _handle(jobs[nexti])
+                                i, recs, first_id, last_id, mapq, mapq_orig, correct = jobs[nexti]
+                                _handle(i, recs, first_id, last_id, mapq, mapq_orig, correct)
                                 del jobs[nexti]
                                 nexti += 1
                                 gc.collect()
                         else:
-                            jobs[i] = tups
+                            jobs[i] = tup
 
                     assert len(jobs) == 0
 
