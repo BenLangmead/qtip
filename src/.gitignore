@@ -4,7 +4,10 @@ qsim-*
 *.dSYM
 Xcode
 *.pyc
-VERSION
 qtip-parse
 qtip-rewrite
+qtip-parse-debug
+qtip-rewrite-debug
+qtip-fasta-test
+qtip-predmerge-test
 __pycache__
