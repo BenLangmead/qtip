@@ -6,11 +6,11 @@ TOOL=qtip
 all: $(TOOL)-parse $(TOOL)-rewrite VERSION
 
 .PHONY: allall
-allall: all $(TOOL)-parse-debug $(TOOL)-rewrite-debug
+allall: all $(TOOL)-parse-debug $(TOOL)-rewrite-debug $(TOOL)-predmerge-test $(TOOL)-fasta-test
 
 PARSE_DEPS = $(TOOL)_parse.cpp simplesim.cpp input_model.cpp ranlib.cpp rnglib.cpp fasta.cpp
 
-REWRITE_DEPS = $(TOOL)_rewrite.cpp
+REWRITE_DEPS = $(TOOL)_rewrite.cpp predmerge.cpp
 
 # http://programmers.stackexchange.com/questions/141973/how-do-you-achieve-a-numeric-versioning-scheme-with-git
 # git tag -a v1.4.1 -m 'Version 1.4.1'
@@ -31,6 +31,12 @@ $(TOOL)-rewrite: $(REWRITE_DEPS)
 # note, on some JHU systems I have to use -gdwarf-3
 $(TOOL)-rewrite-debug: $(REWRITE_DEPS)
 	g++ -g -O0 $(EXTRA_FLAGS) -o $@ $^
+
+$(TOOL)-predmerge-test: predmerge.cpp predmerge.h
+	g++ -g -O0 -DPREDMERGE_MAIN -o $@ $<
+
+$(TOOL)-fasta-test: fasta.cpp fasta.h
+	g++ -g -O0 -DFASTA_MAIN -o $@ $<
 
 .PHONY: clean
 clean:

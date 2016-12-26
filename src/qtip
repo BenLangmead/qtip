@@ -19,6 +19,7 @@ import time
 import logging
 import resource
 import datetime
+import glob
 
 __author__ = "Ben Langmead"
 __email__ = "langmea@cs.jhu.edu"
@@ -246,13 +247,13 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
 
     def _get_predictions_fn(trial_multi, triali):
         if args['keep_intermediates']:
-            return join(_get_trial_subdir(trial_multi, triali), 'predictions.csv'), _nop
+            return join(_get_trial_subdir(trial_multi, triali), 'predictions'), _nop
         else:
             dr = temp_man.get_dir('predictions')
 
             def _purge():
                 temp_man.remove_group('predictions')
-            return join(dr, 'predictions.csv'), _purge
+            return join(dr, 'predictions'), _purge
 
     def _get_final_prefix(trial_multi, triali):
         if vanilla:
@@ -544,10 +545,9 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             _do_parse_tandem_alignments()
 
         # ##################################################
-        # 5. Predict
-        # ##################################################
+        # 5. Predictpurge_predictions
 
-        predictions_fn, purge_predictions = _get_predictions_fn(trial_multi, triali)
+        predictions_fn_prefix, purge_predictions = _get_predictions_fn(trial_multi, triali)
 
         def _do_predictions():
             tim.start_timer('Make MAPQ predictions')
@@ -558,9 +558,10 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                              FeatureTableReader(pass2_prefix, chunksize=args['max_rows'])
 
             def _do_predict(fit, tab, subdir, is_input, include_mapq=False):
-                pred = fit.predict(tab, temp_man, dedup=args['collapse'], training=not is_input,
+                pred = fit.predict(tab, predictions_fn_prefix,
+                                   dedup=args['collapse'], training=not is_input,
                                    calc_summaries=args['assess_accuracy'], prediction_mem_limit=args['assess_limit'],
-                                   heap_profiler=hp, include_mapq=include_mapq, keep_data=args['assess_accuracy'],
+                                   heap_profiler=hp, include_mapq=include_mapq,
                                    multiprocess=args['threads'] > 1, n_multi=args['threads'])
                 if not vanilla and pred.can_assess():
                     logging.info('  writing accuracy measures')
@@ -568,12 +569,6 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                     pred.write_rocs(join(*(subdir + ['roc'])))
                     pred.write_top_incorrect(join(*(subdir + ['top_incorrect.csv'])))
                     pred.write_summary_measures(join(*(subdir + ['summary.csv'])))
-                    logging.info('  writing predictions')
-                    pred.write_predictions(join(*(subdir + ['predictions.csv'])))
-                if is_input:
-                    logging.info('  writing predictions')
-                    pred.write_predictions(predictions_fn)
-                pred.purge_temporaries()  # purge temporary files generated during prediction
                 if args['profile_memory']:
                     print(hp.heap(), file=sys.stderr)
                 return pred
@@ -644,11 +639,13 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 print(hp.heap(), file=sys.stderr)
 
         def _do_predictions_is_done():
-            return _exists_and_nonempty(predictions_fn)
+            return len(glob.glob(predictions_fn_prefix + '.*.npy')) > 0
 
         if not vanilla and _do_predictions_is_done():
             assert skipped_all  # doesn't make sense to run one step then skip a later step
-            logging.info('Skipping prediction because prediction file "%s" exists' % predictions_fn)
+            # Actually do the prefix check
+            logging.info('Skipping prediction because at least one prediction file with prefix "%s" exists' %
+                         predictions_fn_prefix)
         else:
             _do_predictions()
             skipped_all = False
@@ -664,7 +661,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             tim.start_timer('Rewrite SAM file')
             sanity_check_binary(rewrite_exe)
             cmd = "%s %s -- %s -- %s -- %s" % \
-                  (rewrite_exe, _get_passthrough_args(rewrite_exe), input_sam_fn, predictions_fn, final_pref)
+                  (rewrite_exe, _get_passthrough_args(rewrite_exe), input_sam_fn,
+                   ' '.join(glob.glob(predictions_fn_prefix + '.*.npy')), final_pref)
             logging.info('  running "%s"' % cmd)
             ret = os.system(cmd)
             if ret != 0:

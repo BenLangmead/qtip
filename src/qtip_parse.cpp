@@ -858,7 +858,7 @@ static int print_unpaired(
 	}
 	
 	if(fh_recs != NULL) {
-#ifndef QTIP_METAMAT
+#ifdef QTIP_CSV
 		// Output information relevant to MAPQ model
 		fprintf(fh_recs, "%s,%llu,%u,%u,%u,%u,%u",
 				al.rname,
@@ -928,7 +928,7 @@ static int print_unpaired(
 	return 0;
 }
 
-#ifndef QTIP_METAMAT
+#ifdef QTIP_CSV
 EList<char *> ztz1_buf;
 EList<char *> ztz2_buf;
 #else
@@ -986,7 +986,7 @@ static int print_paired_helper(
 		// Mate 1
 		//
 
-#ifndef QTIP_METAMAT
+#ifdef QTIP_CSV
 		fprintf(fh_recs, "%s,%llu,%u,%u,%u,%u",
 		        al1.rname,
 		        (unsigned long long)al1.line,
@@ -1052,7 +1052,7 @@ static int print_paired_helper(
 		// Mate 2
 		//
 
-#ifndef QTIP_METAMAT
+#ifdef QTIP_CSV
 		// Output information relevant to input model
 		fprintf(fh_recs, ",%u,%u,%u,%u,%u",
 		        (unsigned)al2.len,
@@ -1298,12 +1298,12 @@ static size_t infer_read_length(const char *rest_of_line) {
  * Print column headers for an unpaired file of feature records.
  */
 static void print_unpaired_header(FILE *fh, int n_ztz_fields
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
                                   , unsigned long long nrow
 #endif
                                  )
 {
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 	fprintf(fh, "id,len,clip,alqual,clipqual,olen");
 #else
 	fprintf(fh, "rname,id,len,clip,alqual,clipqual,olen");
@@ -1311,7 +1311,7 @@ static void print_unpaired_header(FILE *fh, int n_ztz_fields
 	for(int i = 0; i < n_ztz_fields; i++) {
 		fprintf(fh, ",ztz%d", i);
 	}
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 	fprintf(fh, ",mapq,correct,%llu\n", nrow);
 #else
 	fprintf(fh, ",mapq,correct\n");
@@ -1322,15 +1322,15 @@ static void print_unpaired_header(FILE *fh, int n_ztz_fields
  * Print column headers for a paired-end file of feature records.
  */
 static void print_paired_header(FILE *fh, int n_ztz_fields
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
                                 , unsigned long long nrow
 #endif
                                )
 {
-#ifdef QTIP_METAMAT
-	fprintf(fh, "id,len,clip,alqual,clipqual");
-#else
+#ifdef QTIP_CSV
 	fprintf(fh, "rname,id,len,clip,alqual,clipqual");
+#else
+	fprintf(fh, "id,len,clip,alqual,clipqual");
 #endif
 	for(int i = 0; i < n_ztz_fields; i++) {
 		fprintf(fh, ",ztz_%d", i);
@@ -1339,10 +1339,10 @@ static void print_paired_header(FILE *fh, int n_ztz_fields
 	for(int i = 0; i < n_ztz_fields; i++) {
 		fprintf(fh, ",oztz_%d", i);
 	}
-#ifdef QTIP_METAMAT
-	fprintf(fh, ",mapq,correct,%llu\n", nrow);
-#else
+#ifdef QTIP_CSV
 	fprintf(fh, ",mapq,correct\n");
+#else
+	fprintf(fh, ",mapq,correct,%llu\n", nrow);
 #endif
 }
 
@@ -1353,22 +1353,22 @@ static void print_paired_header(FILE *fh, int n_ztz_fields
 static int sam_pass1(
 	FILE *fh,
 	const string& orec_u_fn, FILE *orec_u_fh,
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 	const string& orec_u_meta_fn, FILE *orec_u_meta_fh,
 #endif
 	const string& omod_u_fn, FILE *omod_u_fh,
 	const string& orec_b_fn, FILE *orec_b_fh,
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 	const string& orec_b_meta_fn, FILE *orec_b_meta_fh,
 #endif
 	const string& omod_b_fn, FILE *omod_b_fh,
 	const string& orec_c_fn, FILE *orec_c_fh,
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 	const string& orec_c_meta_fn, FILE *orec_c_meta_fh,
 #endif
 	const string& omod_c_fn, FILE *omod_c_fh,
 	const string& orec_d_fn, FILE *orec_d_fh,
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 	const string& orec_d_meta_fn, FILE *orec_d_meta_fh,
 #endif
 	const string& omod_d_fn, FILE *omod_d_fh,
@@ -1381,7 +1381,7 @@ static int sam_pass1(
 	/* Advise the kernel of our access pattern.  */
 	/* posix_fadvise(fd, 0, 0, 1); */ /* FDADVICE_SEQUENTIAL */
 
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
     bool c_head = false, d_head = false, u_head = false, b_head = false;
     size_t c_nztz = 0, d_nztz = 0, u_nztz = 0, b_nztz = 0;
 #endif
@@ -1474,7 +1474,7 @@ static int sam_pass1(
 				// If this is the first alignment, determine number of ZT:Z
 				// fields and write a header line to the record output file
 				if(nunp_al == 0 && orec_u_fh != NULL) {
-#ifndef QTIP_METAMAT
+#ifdef QTIP_CSV
 					print_unpaired_header(orec_u_fh, infer_num_ztzs(al_cur.rest_of_line));
 #else
                     u_head = true;
@@ -1512,7 +1512,7 @@ static int sam_pass1(
 					// If this is the first alignment, determine number of ZT:Z
 					// fields and write a header line to the record output file
 					if(npair_badend == 0 && orec_b_fh != NULL) {
-#ifndef QTIP_METAMAT
+#ifdef QTIP_CSV
 						print_unpaired_header(orec_b_fh,
 											  infer_num_ztzs(alm.rest_of_line));
 #else
@@ -1544,7 +1544,7 @@ static int sam_pass1(
 				if(mate1->is_concordant()) {
 					if(mate1->typ == NULL || mate1->typ[0] == 'c') {
 						if(npair_conc == 0 && orec_c_fh != NULL) {
-#ifndef QTIP_METAMAT
+#ifdef QTIP_CSV
 							print_paired_header(orec_c_fh,
 												infer_num_ztzs(mate1->rest_of_line));
 #else
@@ -1571,7 +1571,7 @@ static int sam_pass1(
 				else {
 					if(mate1->typ == NULL || mate1->typ[0] == 'd') {
 						if(npair_disc == 0 && orec_d_fh != NULL) {
-#ifndef QTIP_METAMAT
+#ifdef QTIP_CSV
 							print_paired_header(orec_d_fh, infer_num_ztzs(mate1->rest_of_line));
 #else
                             d_head = true;
@@ -1600,7 +1600,7 @@ static int sam_pass1(
 		}
 	}
 
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
     // Write metadata
     if(u_head) {
 		print_unpaired_header(orec_u_meta_fh, u_nztz, nunp_al);
@@ -1677,7 +1677,7 @@ int main(int argc, char **argv) {
 	string orec_b_fn, omod_b_fn, oread1_b_fn, oread2_b_fn;
 	string orec_c_fn, omod_c_fn, oread1_c_fn, oread2_c_fn;
 	string orec_d_fn, omod_d_fn, oread1_d_fn, oread2_d_fn;
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
     string orec_u_meta_fn;
     string orec_b_meta_fn;
     string orec_c_meta_fn;
@@ -1786,7 +1786,7 @@ int main(int argc, char **argv) {
 				prefix = argv[i];
 				prefix_set++;
 				
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 				// double matrices; input records for prediction
 				orec_u_fn = prefix + string("_rec_u.npy");
 				orec_b_fn = prefix + string("_rec_b.npy");
@@ -1854,22 +1854,22 @@ int main(int argc, char **argv) {
 	}
 
 	FILEDEC(orec_u_fn, orec_u_fh, orec_u_buf, "feature", do_features);
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 	FILEDEC(orec_u_meta_fn, orec_u_meta_fh, orec_u_meta_buf, "feature", do_features);
 #endif
 	FILEDEC(omod_u_fn, omod_u_fh, omod_u_buf, "template record", false);
 	FILEDEC(orec_b_fn, orec_b_fh, orec_b_buf, "feature", do_features);
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 	FILEDEC(orec_b_meta_fn, orec_b_meta_fh, orec_b_meta_buf, "feature", do_features);
 #endif
 	FILEDEC(omod_b_fn, omod_b_fh, omod_b_buf, "template record", false);
 	FILEDEC(orec_c_fn, orec_c_fh, orec_c_buf, "feature", do_features);
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 	FILEDEC(orec_c_meta_fn, orec_c_meta_fh, orec_c_meta_buf, "feature", do_features);
 #endif
 	FILEDEC(omod_c_fn, omod_c_fh, omod_c_buf, "template record", false);
 	FILEDEC(orec_d_fn, orec_d_fh, orec_d_buf, "feature", do_features);
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 	FILEDEC(orec_d_meta_fn, orec_d_meta_fh, orec_d_meta_buf, "feature", do_features);
 #endif
 	FILEDEC(omod_d_fn, omod_d_fh, omod_d_buf, "template record", false);
@@ -1890,22 +1890,22 @@ int main(int argc, char **argv) {
 			setvbuf(fh, buf_input_sam, _IOFBF, BUFSZ);
 			sam_pass1(fh,
 					  orec_u_fn, orec_u_fh,
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 					  orec_u_meta_fn, orec_u_meta_fh,
 #endif
 					  omod_u_fn, omod_u_fh,
 					  orec_b_fn, orec_b_fh,
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 					  orec_b_meta_fn, orec_b_meta_fh,
 #endif
 					  omod_b_fn, omod_b_fh,
 					  orec_c_fn, orec_c_fh,
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 					  orec_c_meta_fn, orec_c_meta_fh,
 #endif
 					  omod_c_fn, omod_c_fh,
 					  orec_d_fn, orec_d_fh,
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 					  orec_d_meta_fn, orec_d_meta_fh,
 #endif
 					  omod_d_fn, omod_d_fh,
@@ -1920,22 +1920,22 @@ int main(int argc, char **argv) {
 
 	if(omod_u_fh != NULL) fclose(omod_u_fh);
 	if(orec_u_fh != NULL) fclose(orec_u_fh);
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 	if(orec_u_meta_fh != NULL) fclose(orec_u_meta_fh);
 #endif
 	if(omod_b_fh != NULL) fclose(omod_b_fh);
 	if(orec_b_fh != NULL) fclose(orec_b_fh);
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 	if(orec_b_meta_fh != NULL) fclose(orec_b_meta_fh);
 #endif
 	if(omod_c_fh != NULL) fclose(omod_c_fh);
 	if(orec_c_fh != NULL) fclose(orec_c_fh);
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 	if(orec_c_meta_fh != NULL) fclose(orec_c_meta_fh);
 #endif
 	if(omod_d_fh != NULL) fclose(omod_d_fh);
 	if(orec_d_fh != NULL) fclose(orec_d_fh);
-#ifdef QTIP_METAMAT
+#ifndef QTIP_CSV
 	if(orec_d_meta_fh != NULL) fclose(orec_d_meta_fh);
 #endif
 	cerr << "Finished parsing SAM" << endl;

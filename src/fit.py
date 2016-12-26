@@ -91,7 +91,7 @@ def _df_to_mat(data, shortname, training, training_labs, log=logging, include_ma
     data_mat = data[labs].values
     assert not np.isinf(data_mat).any() and not np.isnan(data_mat).any()
     correct = np.array(data['correct'], dtype=int)
-    return data_mat, np.array(data['id'], dtype=int), np.array(data['mapq'], dtype=int), correct, labs
+    return data_mat, data['id'], np.array(data['mapq'], dtype=int), correct, labs
 
 
 _prediction_worker_queue = multiprocessing.Queue()
@@ -101,9 +101,7 @@ _prediction_worker_log = None
 
 
 def _prediction_worker(my_test_chunk_tup, training, training_labs, ds,
-                       ds_long, pred_per_category, dedup,
-                       keep_per_category=False, keep_data=False,
-                       multiprocess=True, include_mapq=False):
+                       ds_long, dedup, multiprocess=True, include_mapq=False):
     i, my_test_chunk = my_test_chunk_tup
     gc.collect()
     log = _prediction_worker_log
@@ -125,9 +123,6 @@ def _prediction_worker(my_test_chunk_tup, training, training_labs, ds,
     else:
         log.info('    Done loading data; making predictions')
         pcor = trained_model.predict(x_test)  # make predictions
-    # TODO: figure out how to make this efficient
-    #data = [';'.join(map(str, row)) for row in x_test] if keep_data else None
-    data = ''
     del x_test
     gc.collect()
     log.info('    Done making predictions; about to postprocess (peak mem=%0.2fGB)' % _get_peak_gb())
@@ -136,10 +131,9 @@ def _prediction_worker(my_test_chunk_tup, training, training_labs, ds,
     # convert category data to doubles
     ds = {'u': 1.0, 'b': 2.0, 'c': 3.0, 'd': 4.0}.get(ds)
     pred_df = pandas.DataFrame({'mapq': pandas.Series(pcor_to_mapq_np(pcor), dtype='float32'),
-                                'ids': pandas.Series(ids, dtype='int64'),
+                                'ids': pandas.Series(ids, dtype='float64'),
                                 'category': ds,
                                 'mapq_orig': pandas.Series(mapq_orig_test, dtype='int16'),
-                                #'data': data,
                                 'correct': pandas.Series(y_test, dtype='int8')})
     has_correct = pred_df.correct.max() >= 0
     if multiprocess:
@@ -149,12 +143,11 @@ def _prediction_worker(my_test_chunk_tup, training, training_labs, ds,
         else:
             return i, pred_df, pred_df.ids[0], pred_df.ids.iloc[-1]
     else:
-        for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
-            if has_correct:
-                prd.add(pred_df, pred_df.ids[0], pred_df.ids.iloc[-1],
-                        pred_df.mapq, pred_df.mapq_orig, pred_df.correct)
-            else:
-                prd.add(pred_df, pred_df.ids[0], pred_df.ids.iloc[-1])
+        if has_correct:
+            pred_overall.add(pred_df, pred_df.ids[0], pred_df.ids.iloc[-1],
+                             pred_df.mapq, pred_df.mapq_orig, pred_df.correct)
+        else:
+            pred_overall.add(pred_df, pred_df.ids[0], pred_df.ids.iloc[-1])
     log.info('    Done; peak mem usage so far = %0.2fGB' %
              (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)))
 
@@ -290,10 +283,9 @@ class MapqFit:
             if heap_profiler is not None:
                 print(heap_profiler.heap(), file=sys.stderr)
 
-    def predict(self, dfs, temp_man,
-                keep_data=False, keep_per_category=False, log=logging,
-                dedup=False, training=False, calc_summaries=False, prediction_mem_limit=10000000,
-                heap_profiler=None, include_mapq=False,
+    def predict(self, dfs, predictions_fn_prefix,
+                log=logging, dedup=False, training=False, calc_summaries=False,
+                prediction_mem_limit=10000000, heap_profiler=None, include_mapq=False,
                 multiprocess=False, n_multi=8):
 
         global _prediction_worker_trained_models
@@ -301,9 +293,9 @@ class MapqFit:
         global _prediction_worker_log
 
         name = '_'.join(['overall', 'training' if training else 'test'])
-        pred_overall = MapqPredictions(temp_man, name, calc_summaries=calc_summaries,
+        pred_overall = MapqPredictions(name, predictions_fn_prefix,
+                                       calc_summaries=calc_summaries,
                                        prediction_mem_limit=prediction_mem_limit)
-        pred_per_category = {}
         log.info('  Created overall MapqPredictions (peak mem=%0.2fGB)' % _get_peak_gb())
 
         _prediction_worker_trained_models = self.trained_models
@@ -318,11 +310,6 @@ class MapqFit:
         for ds, ds_long, paired in self.datasets:  # outer loop over alignment types
             if ds not in dfs:
                 continue
-            if keep_per_category:
-                name = '_'.join([ds_long, 'training' if training else 'test'])
-                pred_per_category[ds] = MapqPredictions(temp_man, name, calc_summaries=calc_summaries,
-                                                        prediction_mem_limit=prediction_mem_limit)
-                log.info('  Created %s MapqPredictions (peak mem=%0.2fGB)' % (name, _get_peak_gb()))
 
             if multiprocess:
                 try:
@@ -331,9 +318,8 @@ class MapqFit:
                     r = itertools.repeat
 
                     def _handle(recs, first_id, last_id, mapq, mapq_orig, correct):
-                        for prd in [pred_overall, pred_per_category[ds]] if keep_per_category else [pred_overall]:
-                            # first_id, last_id, mapq=None, mapq_orig=None, correct=None
-                            prd.add(recs, first_id, last_id, mapq, mapq_orig, correct)
+                        # first_id, last_id, mapq=None, mapq_orig=None, correct=None
+                        pred_overall.add(recs, first_id, last_id, mapq, mapq_orig, correct)
 
                     for tup in p.imap_unordered(_prediction_worker_star,
                                        zip(enumerate(dfs.dataset_iter(ds)),
@@ -341,10 +327,7 @@ class MapqFit:
                                            r(self.training_labs),
                                            r(ds),
                                            r(ds_long),
-                                           r(pred_per_category),
                                            r(dedup),
-                                           r(keep_per_category),
-                                           r(keep_data),
                                            r(True),
                                            r(include_mapq))):
                         i, recs, first_id, last_id, mapq, mapq_orig, correct = tup
@@ -353,7 +336,7 @@ class MapqFit:
                             nexti += 1
                             while nexti in jobs:
                                 i, recs, first_id, last_id, mapq, mapq_orig, correct = jobs[nexti]
-                                _handle(i, recs, first_id, last_id, mapq, mapq_orig, correct)
+                                _handle(recs, first_id, last_id, mapq, mapq_orig, correct)
                                 del jobs[nexti]
                                 nexti += 1
                                 gc.collect()
@@ -369,24 +352,15 @@ class MapqFit:
             else:
                 for test_chunk in enumerate(dfs.dataset_iter(ds)):
                     _prediction_worker(test_chunk, training, self.training_labs,
-                                       ds, ds_long, pred_per_category, dedup,
-                                       keep_per_category=keep_per_category, keep_data=keep_data,
+                                       ds, ds_long, dedup,
                                        multiprocess=False, include_mapq=include_mapq)
 
         log.info('Finalizing results for overall %s data (%d alignments)' %
                  ('training' if training else 'test', pred_overall.npredictions))
         pred_overall.finalize()
-        if len(pred_per_category) > 1:
-            for ds, pred in pred_per_category.items():
-                log.info('Finalizing results for "%s" %s data (%d alignments)' %
-                         (ds, 'training' if training else 'test', len(pred.pcor)))
-                pred.finalize()
         log.info('Done')
 
-        if keep_per_category:
-            return pred_overall, pred_per_category
-        else:
-            return pred_overall
+        return pred_overall
 
     def write_feature_importances(self, prefix):
         """
