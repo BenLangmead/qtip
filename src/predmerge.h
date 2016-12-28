@@ -2,7 +2,6 @@
 #include <vector>
 #include <string>
 #include <limits>
-#include <cstdint>
 
 /**
  * A single MAPQ prediction and associated line number
@@ -12,18 +11,18 @@ struct Prediction {
         reset();
     }
 
-    Prediction(uint64_t _line, double _mapq) : line(_line), mapq(_mapq) { }
+    Prediction(unsigned long long _line, double _mapq) : line(_line), mapq(_mapq) { }
 	
 	void reset() {
-        line = std::numeric_limits<uint64_t>::max();
+        line = std::numeric_limits<unsigned long long>::max();
         mapq = 0.0;
 	}
 
     bool valid() const {
-        return line != std::numeric_limits<uint64_t>::max();
+        return line != std::numeric_limits<unsigned long long>::max();
     }
 
-    uint64_t line;
+    unsigned long long line;
     double mapq;
 };
 

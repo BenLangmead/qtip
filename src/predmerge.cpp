@@ -58,13 +58,13 @@ Prediction PredictionMerger::next() {
     } else {
         // Next file not known; have to check
         assert(next_ == -1);
-        uint64_t min_line = numeric_limits<uint64_t>::max();
+        unsigned long long min_line = numeric_limits<unsigned long long>::max();
         int argmin = -1;
         const size_t insz = in_.size();
         for(size_t i = 0; i < insz; i++) {
             if(!done_[i]) {
                 assert(preds_[i].valid());
-                assert(preds_[i].line != numeric_limits<uint64_t>::max());
+                assert(preds_[i].line != numeric_limits<unsigned long long>::max());
                 assert(preds_[i].line != min_line);
                 if(preds_[i].line < min_line) {
                     argmin = (int)i;
@@ -111,7 +111,7 @@ bool PredictionMerger::advanceFile(size_t i) {
         cerr << "Could not read MAPQ from prediction file \"" << in_fns_[i] << "\"; read " << ret << " items" << endl;
         throw 1;
     }
-    preds_[i].line = (uint64_t)line;
+    preds_[i].line = (unsigned long long)line;
     preds_[i].mapq = mapq;
     assert(mapq >= 0.0);
     assert(mapq <= 100.0);
