@@ -3,7 +3,7 @@
 #
 
 USER=BenLangmead
-VER=2.2.9
+VER=2.3.0
 NM=bowtie2
 NMVER=$(NM)-$(VER)
 AR=$(NMVER)-source.zip
@@ -27,7 +27,6 @@ $(NM)-dir/bowtie2-align-s: $(NM)-dir
 $(NM)-dir: $(AR)
 	unzip $<
 	mv $(NMVER) $@
-	cd $@ && patch -p1 < ../bowtie2_$(VER)_mapq.diff
 
 $(AR):
 	wget $(URL)
