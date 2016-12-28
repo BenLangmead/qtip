@@ -57,7 +57,10 @@ class MetaMat(object):
         self.done = row_f == self.nrow
         self.cur = row_f
         nelt = (row_f - row_i) * len(self.cols)
-        m = numpy.fromfile(self.fh, dtype='float64', count=nelt, sep='')
+        assert self.fh.tell() == row_i * 8 * len(self.cols)
+        m = numpy.fromfile(self.fh, dtype=numpy.float64, count=nelt, sep='')
+        expected_pos = row_f * 8 * len(self.cols)
+        assert self.fh.tell() == expected_pos
         assert m.size == nelt, (row_i, row_f, len(self.cols), m.size, nelt)
         m = m.reshape((row_f - row_i, len(self.cols)))
         return pandas.DataFrame(data=m, columns=self.cols)
