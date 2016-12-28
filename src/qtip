@@ -615,7 +615,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             _do_parse_tandem_alignments()
 
         # ##################################################
-        # 5. Predictpurge_predictions
+        # 5. Predict
+        # ##################################################
 
         def _do_predictions():
             tim.start_timer('Make MAPQ predictions')
