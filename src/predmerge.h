@@ -2,6 +2,7 @@
 #include <vector>
 #include <string>
 #include <limits>
+#include <cstdint>
 
 /**
  * A single MAPQ prediction and associated line number
