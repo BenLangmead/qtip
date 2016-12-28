@@ -1,6 +1,7 @@
 #include "predmerge.h"
 #include <iostream>
 #include <cassert>
+#include <stdio.h>
 
 using namespace std;
 
