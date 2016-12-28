@@ -658,7 +658,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                               no_oob=args['no_oob'])
                 if not vanilla:
                     logging.info('  writing feature importances')
-                    od = _compose(triali, sampdir, include_mapq, None)
+                    od = _compose(triali if trial_multi else None, sampdir, include_mapq, None)
                     mkdir_quiet(od)
                     fit.write_feature_importances(join(od, 'featimport'))
                     fit.write_parameters(join(od, 'params'))
@@ -671,7 +671,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 logging.info('  fitting to tandem alignments')
                 fit = _do_fit(fraction, sampdir, fam, include_mapq)
                 logging.info('Making predictions for input alignments (peak=%0.2fGB)' % _get_peak_gb())
-                _do_predict(fit, sampdir, include_mapq, True)
+                _do_predict(fit, sampdir, include_mapq, True if args['predict_for_training'] else None)
                 if args['predict_for_training']:
                     logging.info('Making predictions for tandem (training) alignments')
                     _do_predict(fit, sampdir, include_mapq, False)
