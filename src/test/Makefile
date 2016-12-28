@@ -4,7 +4,7 @@ BT2_DIR=../../software/bowtie2
 BT2=$(BT2_DIR)/bowtie2
 MASON_CONVERT=python ../../bin/mason_convert.py
 TOOL=qtip
-NTHREADS=4
+NTHREADS=1
 
 all: full_e2e/final.sam \
      extra_e2e/trial0/final.sam \
