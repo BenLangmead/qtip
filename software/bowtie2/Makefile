@@ -2,12 +2,12 @@
 # bowtie2
 #
 
-USER=BenLangmead
 VER=2.3.0
 NM=bowtie2
 NMVER=$(NM)-$(VER)
 AR=$(NMVER)-source.zip
-URL=https://github.com/$(USER)/$(NM)/releases/download/v$(VER)/$(AR)
+SF_PROJ=bowtie-bio
+URL=http://downloads.sourceforge.net/project/$(SF_PROJ)/$(NM)/$(VER)/$(AR)
 
 .PHONY: all
 all: $(NM) $(NM)-build
