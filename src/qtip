@@ -254,7 +254,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         if join_with is None:
             return join(*subdirs)
         else:
-            join_with.join(subdirs)
+            return join_with.join(subdirs)
 
     class FileDispenser(object):
         __metaclass__ = abc.ABCMeta
