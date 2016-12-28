@@ -85,6 +85,7 @@ class MapqPredictions:
             self.pred_fhs.append(open(self.pred_fns[-1], 'wb'))
             self.pred_nrow.append(0)
             if self.calc_summaries:
+                assert mapq is not None
                 npy_assess_fn, meta_assess_fn = self.get_assessments_fns(i)
                 self.assess_fns.append(npy_assess_fn)
                 self.assess_fhs.append(open(self.assess_fns[-1], 'wb'))
@@ -96,6 +97,7 @@ class MapqPredictions:
         self.npredictions += recs.shape[0]
         self.pred_nrow[-1] += recs.shape[0]
         if self.calc_summaries:
+            assert mapq is not None
             if self.assess_columns is None:
                 self.assess_columns = list(recs.columns)
             else:
@@ -178,7 +180,7 @@ class MapqPredictions:
             needed for accuracy assessment, then do that too. """
 
         # Finish writing numpy files
-        for fh in self.pred_fhs:
+        for fh in self.pred_fhs + self.assess_fhs:
             fh.close()
 
         # Write metadata for the prediction files
@@ -188,7 +190,7 @@ class MapqPredictions:
                 fh.write(b','.join(map(lambda x: x.encode(), columns)))
                 fh.write(b',')
                 fh.write(str(n_row).encode())
-        if self.can_assess():
+        if self.calc_summaries:
             # Write metadata for the assessment files
             for fn, n_row in zip(self.assess_meta_fns, self.assess_nrow):
                 with open(fn, 'wb') as fh:
