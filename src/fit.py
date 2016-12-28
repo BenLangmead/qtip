@@ -283,7 +283,7 @@ class MapqFit:
             if heap_profiler is not None:
                 print(heap_profiler.heap(), file=sys.stderr)
 
-    def predict(self, dfs, predictions_fn_prefix,
+    def predict(self, dfs, pred_prefix, assess_prefix,
                 log=logging, dedup=False, training=False, calc_summaries=False,
                 prediction_mem_limit=10000000, heap_profiler=None, include_mapq=False,
                 multiprocess=False, n_multi=8):
@@ -293,7 +293,7 @@ class MapqFit:
         global _prediction_worker_log
 
         name = '_'.join(['overall', 'training' if training else 'test'])
-        pred_overall = MapqPredictions(name, predictions_fn_prefix,
+        pred_overall = MapqPredictions(name, pred_prefix, assess_prefix,
                                        calc_summaries=calc_summaries,
                                        prediction_mem_limit=prediction_mem_limit)
         log.info('  Created overall MapqPredictions (peak mem=%0.2fGB)' % _get_peak_gb())

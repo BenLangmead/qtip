@@ -73,6 +73,7 @@ class FeatureTableReader(object):
     def dataset_iter(self, sn):
         """ Return an iterator over chunks of rows from the data frame. """
         assert sn in self.readers
+        self.readers[sn].reset()
         return imap(lambda x: self._postprocess_data_frame(x), self.readers[sn])
 
     def __contains__(self, o):

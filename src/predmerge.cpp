@@ -64,6 +64,7 @@ Prediction PredictionMerger::next() {
         for(size_t i = 0; i < insz; i++) {
             if(!done_[i]) {
                 assert(preds_[i].valid());
+                assert(preds_[i].line != numeric_limits<uint64_t>::max());
                 assert(preds_[i].line != min_line);
                 if(preds_[i].line < min_line) {
                     argmin = (int)i;

@@ -24,16 +24,16 @@ class MapqPredictions:
         associated correctness information, in which case this class also
         encapsulates performance results. """
 
-    def __init__(self, name, prefix, calc_summaries=True, prediction_mem_limit=10000000):
+    def __init__(self, name, pred_prefix, assess_prefix, calc_summaries=True, prediction_mem_limit=10000000):
         self.name = name
         self.calc_summaries = calc_summaries
         self.has_correct = False
 
         def _get_fns(i):
-            return prefix + '.%d.npy' % i, prefix + '.%d.meta' % i
+            return pred_prefix + '.%d.npy' % i, pred_prefix + '.%d.meta' % i
 
         def _get_assessment_fns(i):
-            return prefix + '_assess.%d.npy' % i, prefix + '_assess.%d.meta' % i
+            return assess_prefix + '.%d.npy' % i, assess_prefix + '.%d.meta' % i
 
         self.get_fns = _get_fns
         self.get_assessments_fns = _get_assessment_fns

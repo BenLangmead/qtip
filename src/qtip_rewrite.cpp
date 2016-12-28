@@ -123,15 +123,14 @@ int main(int argc, char **argv) {
 	}
 
 	string fn;
-	string prefix;
+	string outfn;
 	string sam;           // handle 1 SAM file per invocation
 	vector<string> preds; // might handle many prediction files; need merging
-	string osam_fn;
-	
+
 	// All arguments except last are SAM files to parse.  Final argument is
-	// prefix for output files.
+	// output file.
 	{
-		int section = 0, prefix_set = 0;
+		int section = 0, outfn_set = 0;
 		for(int i = 1; i < argc; i++) {
 			if(strcmp(argv[i], "--") == 0) {
 				section++;
@@ -162,21 +161,20 @@ int main(int argc, char **argv) {
 			} else if(section == 2) {
 				preds.push_back(string(argv[i]));
 			} else {
-				prefix = argv[i];
-				prefix_set++;
-				osam_fn = prefix + string(".sam");
+				outfn = argv[i];
+				outfn_set++;
 			}
-			if(prefix_set > 1) {
-				cerr << "Warning: More than output prefix specified; using last one: \"" << prefix << "\"" << endl;
+			if(outfn_set > 1) {
+				cerr << "Warning: More than output file specified; using last one: \"" << outfn << "\"" << endl;
 			}
 		}
-		if(sam.empty() || !prefix_set) {
+		if(sam.empty() || !outfn_set) {
 			cerr << "Usage: qtip_rewrite" << endl;
 		}
 	}
 
 	// Output SAM file
-	FILEDEC(osam_fn, osam_fh, osam_buf, "SAM", true);
+	FILEDEC(outfn, osam_fh, osam_buf, "SAM", true);
 
 	char buf_input_sam[BUFSZ];
 

@@ -62,6 +62,13 @@ class MetaMat(object):
         m = m.reshape((row_f - row_i, len(self.cols)))
         return pandas.DataFrame(data=m, columns=self.cols)
 
+    def reset(self):
+        if self.fh is not None:
+            self.fh.close()
+        self.fh = open(self.data_fn, 'rb')
+        self.cur = 0
+        self.done = False
+
     @staticmethod
     def write_metamat(prefix, col_names, floats=None, append=False):
         """ Caution: this doesn't use numpy tofile, and so is slow for writing
