@@ -23,7 +23,7 @@ except ImportError:
 
 # qtip imports
 from predictions import MapqPredictions
-from mapq import pcor_to_mapq_np, mapq_to_pcor_np
+from mapq import pcor_to_mapq_np
 
 __author__ = 'langmead'
 
@@ -130,11 +130,11 @@ def _prediction_worker(my_test_chunk_tup, training, training_labs, ds,
     log.info('    Done postprocessing; adding to tally (peak mem=%0.2fGB)' % _get_peak_gb())
     # convert category data to doubles
     ds = {'u': 1.0, 'b': 2.0, 'c': 3.0, 'd': 4.0}.get(ds)
-    pred_df = pandas.DataFrame({'mapq': pandas.Series(pcor_to_mapq_np(pcor), dtype='float32'),
-                                'ids': pandas.Series(ids, dtype='float64'),
+    pred_df = pandas.DataFrame({'mapq': pandas.Series(pcor_to_mapq_np(pcor), dtype=np.float32),
+                                'ids': pandas.Series(ids, dtype=np.float64),
                                 'category': ds,
-                                'mapq_orig': pandas.Series(mapq_orig_test, dtype='int16'),
-                                'correct': pandas.Series(y_test, dtype='int8')})
+                                'mapq_orig': pandas.Series(mapq_orig_test, dtype=np.int16),
+                                'correct': pandas.Series(y_test, dtype=np.int8)})
     has_correct = pred_df.correct.max() >= 0
     if multiprocess:
         if has_correct:
@@ -176,7 +176,8 @@ class MapqFit:
             mapq_orig_train = mapq_orig_train[sample_indexes, ]
         return x_train, mapq_orig_train, y_train
 
-    def _fit_and_possibly_reweight_and_refit(self, predictor, x_train, y_train,
+    @staticmethod
+    def _fit_and_possibly_reweight_and_refit(predictor, x_train, y_train,
                                              reweight_ratio=1.0,
                                              reweight_mapq=False,
                                              reweight_mapq_offset=10.0):
@@ -367,22 +368,19 @@ class MapqFit:
         Write feature importances for each model to an appropriately-named
         file with given prefix.
         """
-        fi_colnames, fi_vals = [], []
         for ds, model in sorted(self.trained_models.items()):
             with open(prefix + '_' + ds + '.csv', 'w') as fh:
                 assert len(self.col_names[ds]) == len(model.feature_importances_)
-                ranks = np.argsort(model.feature_importances_)[::-1] + 1
-                inv_ranks = [0] * len(ranks)
-                for i, r in enumerate(ranks):
-                    assert inv_ranks[r-1] == 0
-                    inv_ranks[r-1] = i+1
+                ranks = np.argsort(model.feature_importances_)[::-1]
+                inv_ranks = [0] * ranks.shape[0]
+                for i, r in enumerate(np.nditer(ranks)):
+                    assert inv_ranks[r] == 0
+                    inv_ranks[r] = i+1
                 assert min(inv_ranks) == 1
-                assert max(inv_ranks) == len(ranks)
+                assert max(inv_ranks) == ranks.shape[0]
                 i = 0
                 fh.write('feature,importance,rank\n')
                 for im, r in zip(model.feature_importances_, inv_ranks):
-                    fi_colnames.append(ds + '_' + self.col_names[ds][i])
-                    fi_vals.append(im)
                     fh.write('%s,%0.4f,%d\n' % (self.col_names[ds][i], im, r))
                     i += 1
 
