@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+#include <limits>
 #include "ds.h"
 #include "template.h"
 #include "input_model.h"
@@ -805,6 +806,8 @@ int sim_conc_min = 30000;
 int sim_disc_min = 10000;
 int sim_bad_end_min = 10000;
 
+vector<double> write_buf;
+
 /**
  * No guarantee about state of strtok upon return.
  */
@@ -858,83 +861,68 @@ static int print_unpaired(
 	}
 	
 	if(fh_recs != NULL) {
-#ifdef QTIP_CSV
 		// Output information relevant to MAPQ model
-		fprintf(fh_recs, "%s,%llu,%u,%u,%u,%u,%u",
-				al.rname,
-				(unsigned long long)al.line,
-				(unsigned)al.len,
-				al.left_clip + al.right_clip,
-				(unsigned)(al.tot_aligned_qual),
-				(unsigned)(al.tot_clipped_qual),
-				(unsigned)ordlen);
-		
-		// ... including all the ZT:Z fields
-		while(ztz_tok != NULL) {
-			size_t toklen = strlen(ztz_tok);
-			/* remove trailing whitespace */
-			while(ztz_tok[toklen-1] == '\n' || ztz_tok[toklen-1] == '\r') {
-				ztz_tok[toklen-1] = '\0';
-				toklen--;
-			}
-			fprintf(fh_recs, ",%s", ztz_tok);
-			ztz_tok = strtok(NULL, ",");
-		}
-		fprintf(fh_recs, ",%d,%d\n", al.mapq, al.correct);
-#else
-		// Output information relevant to MAPQ model
-        size_t n_written = 0;
-        const double line_d = (double)al.line;
-        const double len_d = (double)al.len;
-        const double clip_d = (double)(al.left_clip + al.right_clip);
-        const double alqual_d = (double)al.tot_aligned_qual;
-        const double clipqual_d = (double)al.tot_clipped_qual;
-        const double ordlen_d = (double)ordlen;
-        n_written += fwrite(&line_d, 1, 8, fh_recs);
-        n_written += fwrite(&len_d, 1, 8, fh_recs);
-        n_written += fwrite(&clip_d, 1, 8, fh_recs);
-        n_written += fwrite(&alqual_d, 1, 8, fh_recs);
-        n_written += fwrite(&clipqual_d, 1, 8, fh_recs);
-        n_written += fwrite(&ordlen_d, 1, 8, fh_recs);
-        if(n_written != 8 * 6) {
-            fprintf(stderr, "Could not write all initial fields for record \"%s\"\n", al.rname);
-            return -1;
-        }
+		write_buf.push_back((double)al.line);
+		write_buf.push_back((double)al.len);
+		write_buf.push_back((double)(al.left_clip + al.right_clip));
+		write_buf.push_back((double)al.tot_aligned_qual);
+		write_buf.push_back((double)al.tot_clipped_qual);
+		write_buf.push_back((double)ordlen);
 
 		// ... including all the ZT:Z fields
 		while(ztz_tok != NULL) {
-		    double ztz = 0.0;
-		    sscanf(ztz_tok, "%lf", &ztz);
-            n_written = fwrite(&ztz, 1, 8, fh_recs);
-            if(n_written != 8) {
-                fprintf(stderr, "Could not write all ZTZ fields for record \"%s\"\n", al.rname);
-                return -1;
-            }
+			const char *buf = ztz_tok;
+			if(*buf == 'N') {
+				// Handle NA
+				assert(*(++buf) == 'A');
+				write_buf.push_back(std::numeric_limits<double>::quiet_NaN());
+			} else {
+				bool neg = false;
+				bool added = false;
+				int ztz_i = 0;
+				if(*buf == '-') {
+					neg = true;
+					buf++;
+				}
+				while(*buf != '\0' && *buf != '\r' && *buf != '\n') {
+					assert((*buf >= '0' && *buf <= '9') || *buf == '.');
+					if(*buf != '.') {
+						// Avoid sscanf if it's just an int
+						ztz_i *= 10.0;
+						ztz_i += ((*buf) - '0');
+					} else {
+						double ztz_d;
+						sscanf(ztz_tok, "%lf", &ztz_d);
+						write_buf.push_back(ztz_d);
+						added = true;
+						break;
+					}
+					buf++;
+				}
+				if(!added) {
+					write_buf.push_back((double)(neg ? (-ztz_i) : ztz_i));
+				}
+			}
 			ztz_tok = strtok(NULL, ",");
 		}
 
 		// ... and finish with MAPQ and correct
-		n_written = 0;
-		const double mapq_d = (double)al.mapq;
-		const double correct_d = (double)al.correct;
-        n_written += fwrite(&mapq_d, 1, 8, fh_recs);
-        n_written += fwrite(&correct_d, 1, 8, fh_recs);
-        if(n_written != 8 * 2) {
-            fprintf(stderr, "Could not write the MAPQ and correct fields for record \"%s\"\n", al.rname);
-            return -1;
-        }
-#endif
+		write_buf.push_back((double)al.mapq);
+		write_buf.push_back((double)al.correct);
+		size_t nwritten = fwrite(&(write_buf.front()), 8,
+			write_buf.size(), fh_recs);
+		if(nwritten != write_buf.size()) {
+			cerr << "Could not write all " << write_buf.size()
+				 << " doubles to record file" << endl;
+			return -1;
+		}
+		write_buf.clear();
 	}
 	return 0;
 }
 
-#ifdef QTIP_CSV
-EList<char *> ztz1_buf;
-EList<char *> ztz2_buf;
-#else
 EList<double> ztz1_buf;
 EList<double> ztz2_buf;
-#endif
 
 /**
  * No guarantee about state of strtok upon return.
@@ -986,28 +974,6 @@ static int print_paired_helper(
 		// Mate 1
 		//
 
-#ifdef QTIP_CSV
-		fprintf(fh_recs, "%s,%llu,%u,%u,%u,%u",
-		        al1.rname,
-		        (unsigned long long)al1.line,
-		        (unsigned)al1.len,
-		        al1.left_clip + al1.right_clip,
-		        (unsigned)(al1.tot_aligned_qual),
-		        (unsigned)(al1.tot_clipped_qual));
-
-		// ... including all the ZT:Z fields
-		while(ztz_tok1 != NULL) {
-			size_t toklen = strlen(ztz_tok1);
-			/* remove trailing whitespace */
-			while(ztz_tok1[toklen-1] == '\n' || ztz_tok1[toklen-1] == '\r') {
-				ztz_tok1[toklen-1] = '\0';
-				toklen--;
-			}
-			fprintf(fh_recs, ",%s", ztz_tok1);
-			ztz1_buf.push_back(ztz_tok1);
-			ztz_tok1 = strtok(NULL, ",");
-		}
-#else
 		// Output information relevant to MAPQ model
         size_t n_written = 0;
         line1_d = (double)al1.line;
@@ -1037,7 +1003,6 @@ static int print_paired_helper(
 			ztz1_buf.push_back(ztz);
 			ztz_tok1 = strtok(NULL, ",");
 		}
-#endif
 	}
 	
 	char *ztz_tok2 = strtok(ztz2, ",");
@@ -1052,55 +1017,6 @@ static int print_paired_helper(
 		// Mate 2
 		//
 
-#ifdef QTIP_CSV
-		// Output information relevant to input model
-		fprintf(fh_recs, ",%u,%u,%u,%u,%u",
-		        (unsigned)al2.len,
-		        al2.left_clip + al2.right_clip,
-		        (unsigned)(al2.tot_aligned_qual),
-		        (unsigned)(al2.tot_clipped_qual),
-		        (unsigned)fraglen);
-		// ... including all the ZT:Z fields
-		while(ztz_tok2 != NULL) {
-			size_t toklen = strlen(ztz_tok2);
-			// remove trailing whitespace
-			while(ztz_tok2[toklen-1] == '\n' || ztz_tok2[toklen-1] == '\r') {
-				ztz_tok2[toklen-1] = '\0';
-				toklen--;
-			}
-			fprintf(fh_recs, ",%s", ztz_tok2);
-			ztz2_buf.push_back(ztz_tok2);
-			ztz_tok2 = strtok(NULL, ",");
-		}
-		// Now aligner-predicted MAPQ and correctness
-		fprintf(fh_recs, ",%d,%d\n", al1.mapq, al1.correct);
-		
-		//
-		// Now mate 2 again
-		//
-		fprintf(fh_recs, "%s,%llu,%u,%u,%u,%u",
-		        al2.rname,
-		        (unsigned long long)al2.line,
-		        (unsigned)al2.len,
-		        al2.left_clip + al2.right_clip,
-		        (unsigned)(al2.tot_aligned_qual),
-		        (unsigned)(al2.tot_clipped_qual));
-		for(size_t i = 0; i < ztz2_buf.size(); i++) {
-			fprintf(fh_recs, ",%s", ztz2_buf[i]);
-		}
-		// Now mate 1 again
-		fprintf(fh_recs, ",%u,%u,%u,%u,%u",
-		        (unsigned)al1.len,
-		        al1.left_clip + al1.right_clip,
-		        (unsigned)(al1.tot_aligned_qual),
-		        (unsigned)(al1.tot_clipped_qual),
-		        (unsigned)fraglen);
-		for(size_t i = 0; i < ztz1_buf.size(); i++) {
-			fprintf(fh_recs, ",%s", ztz1_buf[i]);
-		}
-		// Now aligner-predicted MAPQ and correctness
-		fprintf(fh_recs, ",%d,%d\n", al2.mapq, al2.correct);
-#else
 		// Output information relevant to MAPQ model
         const double len2_d = (double)al2.len;
         const double clip2_d = (double)(al2.left_clip + al2.right_clip);
@@ -1185,7 +1101,6 @@ static int print_paired_helper(
             fprintf(stderr, "Could not write the MAPQ and correct fields for mate-2 record \"%s\"\n", al2.rname);
             return -1;
         }
-#endif
 	}
 
 	if(fh_model != NULL) {
@@ -1297,41 +1212,19 @@ static size_t infer_read_length(const char *rest_of_line) {
 /**
  * Print column headers for an unpaired file of feature records.
  */
-static void print_unpaired_header(FILE *fh, int n_ztz_fields
-#ifndef QTIP_CSV
-                                  , unsigned long long nrow
-#endif
-                                 )
-{
-#ifndef QTIP_CSV
+static void print_unpaired_header(FILE *fh, int n_ztz_fields, unsigned long long nrow) {
 	fprintf(fh, "id,len,clip,alqual,clipqual,olen");
-#else
-	fprintf(fh, "rname,id,len,clip,alqual,clipqual,olen");
-#endif
 	for(int i = 0; i < n_ztz_fields; i++) {
 		fprintf(fh, ",ztz%d", i);
 	}
-#ifndef QTIP_CSV
 	fprintf(fh, ",mapq,correct,%llu\n", nrow);
-#else
-	fprintf(fh, ",mapq,correct\n");
-#endif
 }
 
 /**
  * Print column headers for a paired-end file of feature records.
  */
-static void print_paired_header(FILE *fh, int n_ztz_fields
-#ifndef QTIP_CSV
-                                , unsigned long long nrow
-#endif
-                               )
-{
-#ifdef QTIP_CSV
-	fprintf(fh, "rname,id,len,clip,alqual,clipqual");
-#else
+static void print_paired_header(FILE *fh, int n_ztz_fields, unsigned long long nrow) {
 	fprintf(fh, "id,len,clip,alqual,clipqual");
-#endif
 	for(int i = 0; i < n_ztz_fields; i++) {
 		fprintf(fh, ",ztz_%d", i);
 	}
@@ -1339,11 +1232,7 @@ static void print_paired_header(FILE *fh, int n_ztz_fields
 	for(int i = 0; i < n_ztz_fields; i++) {
 		fprintf(fh, ",oztz_%d", i);
 	}
-#ifdef QTIP_CSV
-	fprintf(fh, ",mapq,correct\n");
-#else
 	fprintf(fh, ",mapq,correct,%llu\n", nrow);
-#endif
 }
 
 /**
@@ -1353,24 +1242,16 @@ static void print_paired_header(FILE *fh, int n_ztz_fields
 static int sam_pass1(
 	FILE *fh,
 	const string& orec_u_fn, FILE *orec_u_fh,
-#ifndef QTIP_CSV
 	const string& orec_u_meta_fn, FILE *orec_u_meta_fh,
-#endif
 	const string& omod_u_fn, FILE *omod_u_fh,
 	const string& orec_b_fn, FILE *orec_b_fh,
-#ifndef QTIP_CSV
 	const string& orec_b_meta_fn, FILE *orec_b_meta_fh,
-#endif
 	const string& omod_b_fn, FILE *omod_b_fh,
 	const string& orec_c_fn, FILE *orec_c_fh,
-#ifndef QTIP_CSV
 	const string& orec_c_meta_fn, FILE *orec_c_meta_fh,
-#endif
 	const string& omod_c_fn, FILE *omod_c_fh,
 	const string& orec_d_fn, FILE *orec_d_fh,
-#ifndef QTIP_CSV
 	const string& orec_d_meta_fn, FILE *orec_d_meta_fh,
-#endif
 	const string& omod_d_fn, FILE *omod_d_fh,
 	ReservoirSampledEList<TemplateUnpaired> *u_templates,
 	ReservoirSampledEList<TemplateUnpaired> *b_templates,
@@ -1381,10 +1262,8 @@ static int sam_pass1(
 	/* Advise the kernel of our access pattern.  */
 	/* posix_fadvise(fd, 0, 0, 1); */ /* FDADVICE_SEQUENTIAL */
 
-#ifndef QTIP_CSV
     bool c_head = false, d_head = false, u_head = false, b_head = false;
     size_t c_nztz = 0, d_nztz = 0, u_nztz = 0, b_nztz = 0;
-#endif
 
 	char linebuf1[BUFSZ], linebuf2[BUFSZ];
 	int line1 = 1;
@@ -1474,12 +1353,8 @@ static int sam_pass1(
 				// If this is the first alignment, determine number of ZT:Z
 				// fields and write a header line to the record output file
 				if(nunp_al == 0 && orec_u_fh != NULL) {
-#ifdef QTIP_CSV
-					print_unpaired_header(orec_u_fh, infer_num_ztzs(al_cur.rest_of_line));
-#else
                     u_head = true;
                     u_nztz = infer_num_ztzs(al_cur.rest_of_line);
-#endif
 				}
 
 				nunp_al++;
@@ -1512,13 +1387,8 @@ static int sam_pass1(
 					// If this is the first alignment, determine number of ZT:Z
 					// fields and write a header line to the record output file
 					if(npair_badend == 0 && orec_b_fh != NULL) {
-#ifdef QTIP_CSV
-						print_unpaired_header(orec_b_fh,
-											  infer_num_ztzs(alm.rest_of_line));
-#else
                         b_head = true;
                         b_nztz = infer_num_ztzs(alm.rest_of_line);
-#endif
 					}
 
 					npair_badend++;
@@ -1544,13 +1414,8 @@ static int sam_pass1(
 				if(mate1->is_concordant()) {
 					if(mate1->typ == NULL || mate1->typ[0] == 'c') {
 						if(npair_conc == 0 && orec_c_fh != NULL) {
-#ifdef QTIP_CSV
-							print_paired_header(orec_c_fh,
-												infer_num_ztzs(mate1->rest_of_line));
-#else
                             c_head = true;
                             c_nztz = infer_num_ztzs(mate1->rest_of_line);
-#endif
 						}
 
 						// Case 6: Current read is paired and both mates
@@ -1571,12 +1436,8 @@ static int sam_pass1(
 				else {
 					if(mate1->typ == NULL || mate1->typ[0] == 'd') {
 						if(npair_disc == 0 && orec_d_fh != NULL) {
-#ifdef QTIP_CSV
-							print_paired_header(orec_d_fh, infer_num_ztzs(mate1->rest_of_line));
-#else
                             d_head = true;
                             d_nztz = infer_num_ztzs(mate1->rest_of_line);
-#endif
 						}
 
 						// Case 7: Current read is paired and both mates aligned, not condordantly
@@ -1600,7 +1461,6 @@ static int sam_pass1(
 		}
 	}
 
-#ifndef QTIP_CSV
     // Write metadata
     if(u_head) {
 		print_unpaired_header(orec_u_meta_fh, u_nztz, nunp_al);
@@ -1614,7 +1474,6 @@ static int sam_pass1(
     if(d_head) {
 		print_paired_header(orec_d_meta_fh, d_nztz, npair_disc * 2);
     }
-#endif
 
 	if(!quiet) {
 		cerr << "  " << nline << " lines" << endl;
@@ -1677,12 +1536,10 @@ int main(int argc, char **argv) {
 	string orec_b_fn, omod_b_fn, oread1_b_fn, oread2_b_fn;
 	string orec_c_fn, omod_c_fn, oread1_c_fn, oread2_c_fn;
 	string orec_d_fn, omod_d_fn, oread1_d_fn, oread2_d_fn;
-#ifndef QTIP_CSV
     string orec_u_meta_fn;
     string orec_b_meta_fn;
     string orec_c_meta_fn;
     string orec_d_meta_fn;
-#endif
 	string prefix, mod_prefix;
 	vector<string> fastas, sams;
 	char buf_input_sam[BUFSZ];
@@ -1786,7 +1643,6 @@ int main(int argc, char **argv) {
 				prefix = argv[i];
 				prefix_set++;
 				
-#ifndef QTIP_CSV
 				// double matrices; input records for prediction
 				orec_u_fn = prefix + string("_rec_u.npy");
 				orec_b_fn = prefix + string("_rec_b.npy");
@@ -1798,13 +1654,6 @@ int main(int argc, char **argv) {
 				orec_b_meta_fn = prefix + string("_rec_b.meta");
 				orec_c_meta_fn = prefix + string("_rec_c.meta");
 				orec_d_meta_fn = prefix + string("_rec_d.meta");
-#else
-				// input records for prediction
-				orec_u_fn = prefix + string("_rec_u.csv");
-				orec_b_fn = prefix + string("_rec_b.csv");
-				orec_c_fn = prefix + string("_rec_c.csv");
-				orec_d_fn = prefix + string("_rec_d.csv");
-#endif
 			} else {
 				mod_prefix = argv[i];
 				mod_prefix_set++;
@@ -1854,24 +1703,16 @@ int main(int argc, char **argv) {
 	}
 
 	FILEDEC(orec_u_fn, orec_u_fh, orec_u_buf, "feature", do_features);
-#ifndef QTIP_CSV
 	FILEDEC(orec_u_meta_fn, orec_u_meta_fh, orec_u_meta_buf, "feature", do_features);
-#endif
 	FILEDEC(omod_u_fn, omod_u_fh, omod_u_buf, "template record", false);
 	FILEDEC(orec_b_fn, orec_b_fh, orec_b_buf, "feature", do_features);
-#ifndef QTIP_CSV
 	FILEDEC(orec_b_meta_fn, orec_b_meta_fh, orec_b_meta_buf, "feature", do_features);
-#endif
 	FILEDEC(omod_b_fn, omod_b_fh, omod_b_buf, "template record", false);
 	FILEDEC(orec_c_fn, orec_c_fh, orec_c_buf, "feature", do_features);
-#ifndef QTIP_CSV
 	FILEDEC(orec_c_meta_fn, orec_c_meta_fh, orec_c_meta_buf, "feature", do_features);
-#endif
 	FILEDEC(omod_c_fn, omod_c_fh, omod_c_buf, "template record", false);
 	FILEDEC(orec_d_fn, orec_d_fh, orec_d_buf, "feature", do_features);
-#ifndef QTIP_CSV
 	FILEDEC(orec_d_meta_fn, orec_d_meta_fh, orec_d_meta_buf, "feature", do_features);
-#endif
 	FILEDEC(omod_d_fn, omod_d_fh, omod_d_buf, "template record", false);
 
 	ReservoirSampledEList<TemplateUnpaired> u_templates(input_model_size);
@@ -1890,24 +1731,16 @@ int main(int argc, char **argv) {
 			setvbuf(fh, buf_input_sam, _IOFBF, BUFSZ);
 			sam_pass1(fh,
 					  orec_u_fn, orec_u_fh,
-#ifndef QTIP_CSV
 					  orec_u_meta_fn, orec_u_meta_fh,
-#endif
 					  omod_u_fn, omod_u_fh,
 					  orec_b_fn, orec_b_fh,
-#ifndef QTIP_CSV
 					  orec_b_meta_fn, orec_b_meta_fh,
-#endif
 					  omod_b_fn, omod_b_fh,
 					  orec_c_fn, orec_c_fh,
-#ifndef QTIP_CSV
 					  orec_c_meta_fn, orec_c_meta_fh,
-#endif
 					  omod_c_fn, omod_c_fh,
 					  orec_d_fn, orec_d_fh,
-#ifndef QTIP_CSV
 					  orec_d_meta_fn, orec_d_meta_fh,
-#endif
 					  omod_d_fn, omod_d_fh,
 					  keep_templates ? &u_templates : NULL,
 					  keep_templates ? &b_templates : NULL,
@@ -1920,24 +1753,16 @@ int main(int argc, char **argv) {
 
 	if(omod_u_fh != NULL) fclose(omod_u_fh);
 	if(orec_u_fh != NULL) fclose(orec_u_fh);
-#ifndef QTIP_CSV
 	if(orec_u_meta_fh != NULL) fclose(orec_u_meta_fh);
-#endif
 	if(omod_b_fh != NULL) fclose(omod_b_fh);
 	if(orec_b_fh != NULL) fclose(orec_b_fh);
-#ifndef QTIP_CSV
 	if(orec_b_meta_fh != NULL) fclose(orec_b_meta_fh);
-#endif
 	if(omod_c_fh != NULL) fclose(omod_c_fh);
 	if(orec_c_fh != NULL) fclose(orec_c_fh);
-#ifndef QTIP_CSV
 	if(orec_c_meta_fh != NULL) fclose(orec_c_meta_fh);
-#endif
 	if(omod_d_fh != NULL) fclose(omod_d_fh);
 	if(orec_d_fh != NULL) fclose(orec_d_fh);
-#ifndef QTIP_CSV
 	if(orec_d_meta_fh != NULL) fclose(orec_d_meta_fh);
-#endif
 	cerr << "Finished parsing SAM" << endl;
 
 	if(keep_templates) {
