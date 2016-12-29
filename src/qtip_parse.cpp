@@ -909,6 +909,8 @@ static int print_unpaired(
 		// ... and finish with MAPQ and correct
 		write_buf.push_back((double)al.mapq);
 		write_buf.push_back((double)al.correct);
+
+		// Flush output buffer
 		size_t nwritten = fwrite(&(write_buf.front()), 8,
 			write_buf.size(), fh_recs);
 		if(nwritten != write_buf.size()) {
@@ -921,8 +923,8 @@ static int print_unpaired(
 	return 0;
 }
 
-EList<double> ztz1_buf;
-EList<double> ztz2_buf;
+vector<double> ztz1_buf;
+vector<double> ztz2_buf;
 
 /**
  * No guarantee about state of strtok upon return.
@@ -961,7 +963,6 @@ static int print_paired_helper(
 	al1.best_score = atoi(ztz_tok1);
 	char fw_flag1 = al1.is_fw() ? 'T' : 'F';	
 
-	double line1_d;
     double len1_d;
     double clip1_d;
     double alqual1_d;
@@ -975,32 +976,54 @@ static int print_paired_helper(
 		//
 
 		// Output information relevant to MAPQ model
-        size_t n_written = 0;
-        line1_d = (double)al1.line;
-        len1_d = (double)al1.len;
-        clip1_d = (double)(al1.left_clip + al1.right_clip);
-        alqual1_d = (double)al1.tot_aligned_qual;
-        clipqual1_d = (double)al1.tot_clipped_qual;
-        n_written += fwrite(&line1_d, 1, 8, fh_recs);
-        n_written += fwrite(&len1_d, 1, 8, fh_recs);
-        n_written += fwrite(&clip1_d, 1, 8, fh_recs);
-        n_written += fwrite(&alqual1_d, 1, 8, fh_recs);
-        n_written += fwrite(&clipqual1_d, 1, 8, fh_recs);
-        if(n_written != 8 * 5) {
-            fprintf(stderr, "Could not write all initial fields for record \"%s\"\n", al1.rname);
-            return -1;
-        }
+		len1_d = (double)al1.len;
+		clip1_d = (double)al1.left_clip + al1.right_clip;
+		alqual1_d = (double)al1.tot_aligned_qual;
+		clipqual1_d = (double)(double)al1.tot_clipped_qual;
+		write_buf.push_back((double)al1.line);
+		write_buf.push_back(len1_d);
+		write_buf.push_back(clip1_d);
+		write_buf.push_back(alqual1_d);
+		write_buf.push_back(clipqual1_d);
 
 		// ... including all the ZT:Z fields
 		while(ztz_tok1 != NULL) {
-		    double ztz = 0.0;
-		    sscanf(ztz_tok1, "%lf", &ztz);
-            n_written = fwrite(&ztz, 1, 8, fh_recs);
-            if(n_written != 8) {
-                fprintf(stderr, "Could not write all ZTZ fields for record \"%s\"\n", al1.rname);
-                return -1;
-            }
-			ztz1_buf.push_back(ztz);
+			const char *buf = ztz_tok1;
+			if(*buf == 'N') {
+				// Handle NA
+				assert(*(++buf) == 'A');
+				write_buf.push_back(std::numeric_limits<double>::quiet_NaN());
+				ztz1_buf.push_back(std::numeric_limits<double>::quiet_NaN());
+			} else {
+				bool neg = false;
+				bool added = false;
+				int ztz_i = 0;
+				if(*buf == '-') {
+					neg = true;
+					buf++;
+				}
+				while(*buf != '\0' && *buf != '\r' && *buf != '\n') {
+					assert((*buf >= '0' && *buf <= '9') || *buf == '.');
+					if(*buf != '.') {
+						// Avoid sscanf if it's just an int
+						ztz_i *= 10.0;
+						ztz_i += ((*buf) - '0');
+					} else {
+						double ztz_d;
+						sscanf(ztz_tok1, "%lf", &ztz_d);
+						write_buf.push_back(ztz_d);
+						ztz1_buf.push_back(ztz_d);
+						added = true;
+						break;
+					}
+					buf++;
+				}
+				if(!added) {
+					double ztz_add = (double)(neg ? (-ztz_i) : ztz_i);
+					write_buf.push_back(ztz_add);
+					ztz1_buf.push_back(ztz_add);
+				}
+			}
 			ztz_tok1 = strtok(NULL, ",");
 		}
 	}
@@ -1022,85 +1045,85 @@ static int print_paired_helper(
         const double clip2_d = (double)(al2.left_clip + al2.right_clip);
         const double alqual2_d = (double)al2.tot_aligned_qual;
         const double clipqual2_d = (double)al2.tot_clipped_qual;
-        const double fraglen_d = (double)fraglen;
-        size_t n_written = 0;
-        n_written  = fwrite(&len2_d, 1, 8, fh_recs);
-        n_written += fwrite(&clip2_d, 1, 8, fh_recs);
-        n_written += fwrite(&alqual2_d, 1, 8, fh_recs);
-        n_written += fwrite(&clipqual2_d, 1, 8, fh_recs);
-        n_written += fwrite(&fraglen_d, 1, 8, fh_recs);
-        if(n_written != 8 * 5) {
-            fprintf(stderr, "Could not write all initial fields for mate-1 record \"%s\"\n", al1.rname);
-            return -1;
-        }
+		const double fraglen_d = (double)fraglen;
+		write_buf.push_back(len2_d);
+		write_buf.push_back(clip2_d);
+		write_buf.push_back(alqual2_d);
+		write_buf.push_back(clipqual2_d);
+		write_buf.push_back(fraglen_d);
 
 		// ... including all the ZT:Z fields
 		while(ztz_tok2 != NULL) {
-		    double ztz = 0.0;
-		    sscanf(ztz_tok2, "%lf", &ztz);
-            n_written = fwrite(&ztz, 1, 8, fh_recs);
-            if(n_written != 8) {
-                fprintf(stderr, "Could not write all ZTZ fields for mate-1 record \"%s\"\n", al1.rname);
-                return -1;
-            }
-			ztz2_buf.push_back(ztz);
+			const char *buf = ztz_tok2;
+			if(*buf == 'N') {
+				// Handle NA
+				assert(*(++buf) == 'A');
+				write_buf.push_back(std::numeric_limits<double>::quiet_NaN());
+				ztz2_buf.push_back(std::numeric_limits<double>::quiet_NaN());
+			} else {
+				bool neg = false;
+				bool added = false;
+				int ztz_i = 0;
+				if(*buf == '-') {
+					neg = true;
+					buf++;
+				}
+				while(*buf != '\0' && *buf != '\r' && *buf != '\n') {
+					assert((*buf >= '0' && *buf <= '9') || *buf == '.');
+					if(*buf != '.') {
+						// Avoid sscanf if it's just an int
+						ztz_i *= 10.0;
+						ztz_i += ((*buf) - '0');
+					} else {
+						double ztz_d;
+						sscanf(ztz_tok2, "%lf", &ztz_d);
+						write_buf.push_back(ztz_d);
+						ztz2_buf.push_back(ztz_d);
+						added = true;
+						break;
+					}
+					buf++;
+				}
+				if(!added) {
+					double ztz_add = (double)(neg ? (-ztz_i) : ztz_i);
+					write_buf.push_back(ztz_add);
+					ztz2_buf.push_back(ztz_add);
+				}
+			}
 			ztz_tok2 = strtok(NULL, ",");
 		}
 
 		// ... and finish with MAPQ and correct
-		const double mapq1_d = (double)al1.mapq;
-		const double correct1_d = (double)al1.correct;
-        n_written  = fwrite(&mapq1_d, 1, 8, fh_recs);
-        n_written += fwrite(&correct1_d, 1, 8, fh_recs);
-        if(n_written != 8 * 2) {
-            fprintf(stderr, "Could not write the MAPQ and correct fields for mate-1 record \"%s\"\n", al1.rname);
-            return -1;
-        }
+		write_buf.push_back((double)al1.mapq);
+		write_buf.push_back((double)al1.correct);
 
 		//
 		// Now mate 2 again
 		//
-        const double line2_d = (double)al2.line;
-        n_written  = fwrite(&line2_d, 1, 8, fh_recs);
-        n_written += fwrite(&len2_d, 1, 8, fh_recs);
-        n_written += fwrite(&clip2_d, 1, 8, fh_recs);
-        n_written += fwrite(&alqual2_d, 1, 8, fh_recs);
-        n_written += fwrite(&clipqual2_d, 1, 8, fh_recs);
-        if(n_written != 8 * 5) {
-            fprintf(stderr, "Could not write all initial fields for mate-2 record \"%s\"\n", al2.rname);
-            return -1;
-        }
-		for(size_t i = 0; i < ztz2_buf.size(); i++) {
-			n_written = fwrite(ztz2_buf.ptr() + i, 1, 8, fh_recs);
-            if(n_written != 8) {
-                fprintf(stderr, "Could not write all ZTZ2 fields for mate-2 record \"%s\"\n", al2.rname);
-                return -1;
-            }
+		write_buf.push_back((double)al2.line);
+		write_buf.push_back(len2_d);
+		write_buf.push_back(clip2_d);
+		write_buf.push_back(alqual2_d);
+		write_buf.push_back(clipqual2_d);
+		write_buf.insert(write_buf.end(), ztz2_buf.begin(), ztz2_buf.end());
+		write_buf.push_back(len1_d);
+		write_buf.push_back(clip1_d);
+		write_buf.push_back(alqual1_d);
+		write_buf.push_back(clipqual1_d);
+		write_buf.push_back(fraglen_d);
+		write_buf.insert(write_buf.end(), ztz1_buf.begin(), ztz1_buf.end());
+		write_buf.push_back((double)al2.mapq);
+		write_buf.push_back((double)al2.correct);
+		
+		// Flush output buffer
+		size_t nwritten = fwrite(&(write_buf.front()), 8,
+			write_buf.size(), fh_recs);
+		if(nwritten != write_buf.size()) {
+			cerr << "Could not write all " << write_buf.size()
+				 << " doubles to record file" << endl;
+			return -1;
 		}
-        n_written  = fwrite(&len1_d, 1, 8, fh_recs);
-        n_written += fwrite(&clip1_d, 1, 8, fh_recs);
-        n_written += fwrite(&alqual1_d, 1, 8, fh_recs);
-        n_written += fwrite(&clipqual1_d, 1, 8, fh_recs);
-        n_written += fwrite(&fraglen_d, 1, 8, fh_recs);
-        if(n_written != 8 * 5) {
-            fprintf(stderr, "Could not write all initial fields for mate-1 record \"%s\"\n", al1.rname);
-            return -1;
-        }
-		for(size_t i = 0; i < ztz1_buf.size(); i++) {
-			n_written = fwrite(ztz1_buf.ptr() + i, 1, 8, fh_recs);
-            if(n_written != 8) {
-                fprintf(stderr, "Could not write all ZTZ1 fields for mate-2 record \"%s\"\n", al2.rname);
-                return -1;
-            }
-		}
-		const double mapq2_d = (double)al2.mapq;
-		const double correct2_d = (double)al2.correct;
-        n_written  = fwrite(&mapq2_d, 1, 8, fh_recs);
-        n_written += fwrite(&correct2_d, 1, 8, fh_recs);
-        if(n_written != 8 * 2) {
-            fprintf(stderr, "Could not write the MAPQ and correct fields for mate-2 record \"%s\"\n", al2.rname);
-            return -1;
-        }
+		write_buf.clear();
 	}
 
 	if(fh_model != NULL) {
@@ -1263,7 +1286,7 @@ static int sam_pass1(
 	/* posix_fadvise(fd, 0, 0, 1); */ /* FDADVICE_SEQUENTIAL */
 
     bool c_head = false, d_head = false, u_head = false, b_head = false;
-    size_t c_nztz = 0, d_nztz = 0, u_nztz = 0, b_nztz = 0;
+    int c_nztz = 0, d_nztz = 0, u_nztz = 0, b_nztz = 0;
 
 	char linebuf1[BUFSZ], linebuf2[BUFSZ];
 	int line1 = 1;
