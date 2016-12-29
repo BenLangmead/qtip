@@ -107,9 +107,8 @@ def _prediction_worker(my_test_chunk_tup, training, training_labs, ds,
     log = _prediction_worker_log
     trained_model = _prediction_worker_trained_models[ds]
     pred_overall = _prediction_worker_pred_overall
-    log.info('  PID %d making predictions for %s %s chunk, %d rows (peak mem=%0.2fGB)' %
+    log.info('  PID %d predicting for %s %s chunk, %d rows (peak mem=%0.2fGB)' %
              (os.getpid(), 'training' if training else 'test', ds_long, my_test_chunk.shape[0], _get_peak_gb()))
-    log.info('    Loading data')
     x_test, ids, mapq_orig_test, y_test, col_names = \
         _df_to_mat(my_test_chunk, ds, False, training_labs, log=log, include_mapq=include_mapq)
     del my_test_chunk
@@ -125,9 +124,9 @@ def _prediction_worker(my_test_chunk_tup, training, training_labs, ds,
         pcor = trained_model.predict(x_test)  # make predictions
     del x_test
     gc.collect()
-    log.info('    Done making predictions; about to postprocess (peak mem=%0.2fGB)' % _get_peak_gb())
+    #log.info('    Done making predictions; about to postprocess (peak mem=%0.2fGB)' % _get_peak_gb())
     pcor = np.array(postprocess_predictions(pcor, ds_long))
-    log.info('    Done postprocessing; adding to tally (peak mem=%0.2fGB)' % _get_peak_gb())
+    #log.info('    Done postprocessing; adding to tally (peak mem=%0.2fGB)' % _get_peak_gb())
     # convert category data to doubles
     ds = {'u': 1.0, 'b': 2.0, 'c': 3.0, 'd': 4.0}.get(ds)
     pred_df = pandas.DataFrame({'mapq': pandas.Series(pcor_to_mapq_np(pcor), dtype=np.float32),
