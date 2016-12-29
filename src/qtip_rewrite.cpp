@@ -29,40 +29,7 @@ const char *precise_mapq_flag = "Zp:Z";
 
 bool keep_ztz = false;
 
-const static size_t BUFSZ = 65536;
-
-#define FILEDEC(fn, fh, buf, typ, do_open) \
-	char buf [BUFSZ]; \
-	FILE * fh = NULL; \
-	if(do_open) { \
-		fh = fopen( fn .c_str(), "wb"); \
-		if(fh == NULL) { \
-			cerr << "Could not open output " << typ << " file \"" << fn << "\"" << endl; \
-			return -1; \
-		} \
-		setvbuf(fh, buf, _IOFBF, BUFSZ); \
-	}
-
-#if 0
-/**
- * Read next prediction from the prediction file and popular line and mapq out
- * parameters appropriately.
- */
-static bool next_prediction(FILE *fh, size_t& line, float& mapq) {
-	char linebuf[BUFSZ];
-	static size_t last_line = 0;
-	do {
-        if(fgets(linebuf, BUFSZ, fh) == NULL) {
-            return false; // done
-        }
-	} while(strncmp(linebuf, "ids,mapq", 8) == 0);
-	sscanf(linebuf, "%llu,%f", (unsigned long long*)&line, &mapq);
-	assert(last_line == 0 || line > last_line);
-	last_line = line;
-	assert(mapq >= 0.0f);
-	return true;
-}
-#endif
+const static size_t BUFSZ = 262144;
 
 /**
  * Write a new line of SAM (buf) to output filehandle (osam_fh) replacing the
@@ -72,8 +39,10 @@ static void rewrite(FILE *fh, char *buf, double mapq) {
 	char orig[10];
 	char *orig_cur = orig;
 	for(int i = 0; i < 4; i++) {
-		while(*buf != '\t') fputc(*buf++, fh);
-		fputc(*buf++, fh);
+		while(*buf != '\t') {
+		    putc_unlocked(*buf++, fh);
+		}
+		putc_unlocked(*buf++, fh);
 	}
 	// Replace MAPQ with our new one
 	int mapq_rounded = (int)(mapq + 0.5);
@@ -98,7 +67,7 @@ static void rewrite(FILE *fh, char *buf, double mapq) {
 				break;
 			}
 		}
-		fputc(*buf, fh);
+		putc_unlocked(*buf, fh);
 		buf++;
 	}
 	if(write_orig_mapq) {
@@ -107,7 +76,7 @@ static void rewrite(FILE *fh, char *buf, double mapq) {
 	if(write_precise_mapq) {
 		fprintf(fh, "\t%s:%0.3lf", precise_mapq_flag, mapq);
 	}
-	fputc('\n', fh);
+	putc_unlocked('\n', fh);
 }
 
 int main(int argc, char **argv) {
@@ -174,25 +143,32 @@ int main(int argc, char **argv) {
 	}
 
 	// Output SAM file
-	FILEDEC(outfn, osam_fh, osam_buf, "SAM", true);
-
-	char buf_input_sam[BUFSZ];
+    char osam_buf[BUFSZ];
+	FILE *osam_fh = fopen(outfn.c_str(), "wb");
+	if(osam_fh == NULL) {
+	    cerr << "Could not open output SAM file \"" << outfn << "\"" << endl;
+		return -1;
+	}
+	setvbuf(osam_fh, osam_buf, _IOFBF, BUFSZ); \
 
 	// Input SAM file
-	cerr << "Parsing SAM file \"" << sam << "\"" << endl;
+	char buf_input_sam[BUFSZ];
 	FILE *fh_sam = fopen(sam.c_str(), "rb");
 	if(fh_sam == NULL) {
 		cerr << "Could not open input SAM file \"" << sam << "\"" << endl;
 		return -1;
 	}
 	setvbuf(fh_sam, buf_input_sam, _IOFBF, BUFSZ);
-	
+
+	cerr << "Parsing SAM file \"" << sam << "\"" << endl;
+
 	// Input prediction file
 	PredictionMerger m(preds);
 	bool done_with_predictions = false;
 	bool done_with_sam = false;
 	char linebuf[BUFSZ];
 	size_t nline = 0, nhead = 0;
+	size_t nskip = 0, nrewrite = 0;
 	while(!done_with_predictions || !done_with_sam) {
 		Prediction p = m.next();
 		done_with_predictions = !p.valid();
@@ -212,15 +188,21 @@ int main(int argc, char **argv) {
 			}
 			if(done_with_predictions || p.line > nline) {
 				fputs(linebuf, osam_fh); // no prediction for this line
+				nskip++;
 				continue;
 			}
 			assert(nline == p.line); // there is a prediction
 			rewrite(osam_fh, linebuf, p.mapq);
+			nrewrite++;
 			break; // get next prediction
 		}
 	}
 	assert(done_with_predictions && done_with_sam);
-	
 	fclose(fh_sam);
+
+	cerr << "Header lines:  " << nhead << endl;
+	cerr << "Skipped lines (did not rewrite MAPQ): " << nskip << endl;
+	cerr << "Lines with rewritten MAPQ: " << nrewrite << endl;
+
 	return 0;
 }
