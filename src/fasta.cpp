@@ -136,7 +136,7 @@ static void test1() {
 	string fn2 = ".test1.2.fa";
 	string fn3 = ".test1.3.fa";
 	
-	ofstream ofs1(fn1, ofstream::out);
+	ofstream ofs1(fn1.c_str(), ofstream::out);
 	ofs1 << ">record1 ok" << endl;
 	ofs1 << "AAAACCCCGGGG" << endl;
 	ofs1 << "TTTT" << endl;
@@ -147,13 +147,13 @@ static void test1() {
 	ofs1 << "A";
 	ofs1.close();
 
-	ofstream ofs2(fn2, ofstream::out);
+	ofstream ofs2(fn2.c_str(), ofstream::out);
 	ofs2 << "" << endl;
 	ofs2 << ">record4 ok" << endl;
 	ofs2 << "TG" << endl;
 	ofs2.close();
 
-	ofstream ofs3(fn3, ofstream::out);
+	ofstream ofs3(fn3.c_str(), ofstream::out);
 	ofs3 << "" << endl;
 	ofs3 << ">record5 ok" << endl;
 	ofs3 << "CA" << endl;
