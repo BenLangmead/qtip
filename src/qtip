@@ -597,12 +597,14 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 print(hp.heap(), file=sys.stderr)
 
         def _do_parse_tandem_alignments_is_done():
-            extensions = ['_rec_u.csv',
-                          '_rec_b.csv',
-                          '_rec_c.csv',
-                          '_rec_d.csv']
-            for ex in extensions:
-                if not os.path.exists(pass2_prefix + ex):
+            exts = ['_rec_u.',
+                    '_rec_b.',
+                    '_rec_c.',
+                    '_rec_d.']
+            for ex in exts:
+                if not os.path.exists(pass2_prefix + ex + 'npy'):
+                    return False
+                if not os.path.exists(pass2_prefix + ex + 'meta'):
                     return False
             return True
 
