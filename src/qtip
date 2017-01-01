@@ -474,12 +474,14 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 print(hp.heap(), file=sys.stderr)
 
         def _do_parse_input_sam_is_done():
-            exts = ['_rec_u.csv',
-                    '_rec_b.csv',
-                    '_rec_c.csv',
-                    '_rec_d.csv']
+            exts = ['_rec_u.',
+                    '_rec_b.',
+                    '_rec_c.',
+                    '_rec_d.']
             for ex in exts:
-                if not os.path.exists(pass1_prefix_inp + ex):
+                if not os.path.exists(pass1_prefix_inp + ex + 'npy'):
+                    return False
+                if not os.path.exists(pass1_prefix_inp + ex + 'meta'):
                     return False
             exts = ['_reads_u.fastq',
                     '_reads_b_1.fastq',
