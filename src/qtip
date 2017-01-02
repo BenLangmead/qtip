@@ -292,7 +292,8 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 pref = _compose(_triali, subsamp, incmapq, test, join_with='_')
                 ret_pred = join(self.temp_dir, '_'.join([pref, 'predictions']))
                 ret_assess = join(self.temp_dir, '_'.join([pref, 'predictions_assess']))
-            self.last_prefix = ret_pred
+            if test is None or test:
+                self.last_prefix = ret_pred
             return ret_pred, ret_assess
 
         def purge(self):
