@@ -2,4 +2,5 @@
 .pydevproject
 .idea
 journal.pages
-qsim.xcodeproj
+*.xcodeproj
+.DS_Store

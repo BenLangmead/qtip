@@ -1,3 +1,6 @@
 bowtie2
 bowtie2-align
 bowtie2-git
+bowtie2-build
+bowtie2-dir
+*.zip

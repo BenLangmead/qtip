@@ -1,6 +1,11 @@
 *.csv
 *.fastq
 *.sam
+.*.meta
+.*.npy
+*.meta
+*.npy
+test_*
 full_e2e
 lambda_virus.*
 extra_e2e
