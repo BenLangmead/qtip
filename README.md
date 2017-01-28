@@ -3,14 +3,13 @@ Qtip
 
 [![Build Status](https://travis-ci.org/BenLangmead/qtip.svg?branch=master)](https://travis-ci.org/BenLangmead/qtip)
 
-* [Qtip](#)
-    * [Background](#)
-    * [Dependencies](#)
-    * [Using Qtip](#)
-    * [Building Qtip](#)
-    * [Testing Qtip](#)
-    * [Running Qtip](#)
-    * [Qtip architecture](#)
+ * [Background](#background)
+ * [Dependencies](#dependencies)
+ * [Using Qtip](#using-qtip)
+ * [Building Qtip](#building-qtip)
+ * [Testing Qtip](#testing-qtip)
+ * [Running Qtip](#running-qtip)
+ * [Qtip architecture](#qtip-architecture)
 
 ### Background
 
