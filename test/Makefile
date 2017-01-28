@@ -1,8 +1,8 @@
-MASON_DIR=../../software/mason
+MASON_DIR=../software/mason
 MASON=$(MASON_DIR)/mason
-BT2_DIR=../../software/bowtie2
+BT2_DIR=../software/bowtie2
 BT2=$(BT2_DIR)/bowtie2
-MASON_CONVERT=python ../../scripts/mason_convert.py
+MASON_CONVERT=python ../scripts/mason_convert.py
 TOOL=qtip
 N_QTIP_THREADS=1
 N_ALIGN_THREADS=6
@@ -185,7 +185,7 @@ $(BT2):
 	$(MAKE) -C $(BT2_DIR)
 
 $(MASON):
-	$(MAKE) -C ../../software/mason
+	$(MAKE) -C ../software/mason
 
 lambda_virus.fa: $(BT2)
 	cp `find $(BT2_DIR) -name $@` .

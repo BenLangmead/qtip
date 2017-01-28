@@ -47,5 +47,5 @@ before_install:
 install:
   - conda install --yes numpy scipy pandas scikit-learn
 script:
-  - make -C src
-  - make -C src/test
+  - make -C src allall
+  - make -C test
