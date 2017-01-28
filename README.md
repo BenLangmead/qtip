@@ -10,6 +10,14 @@ Read alignment is the first step in most sequencing data analyses. It is also a 
 Qtip is an accurate, aligner-agnostic tool for predicting mapping qualities that works by simulating a set of _tandem_ reads, similar to the input reads in important ways, but for which the true point of origin is known. Alignments of tandem reads are used to build a model for predicting mapping quality, which is then applied to the input-read alignments.
 The model is automatically tailored to the alignment scenario at hand, allowing it to make accurate mapping-quality predictions across a range of read lengths, alignment parameters, genomes, and read aligners.
 
+### Dependencies
+
+* Python 2.7 or later
+    * Works with Python 3
+* Numpy
+* [Scikit-learn](http://scikit-learn.org/)
+* [Pandas](http://pandas.pydata.org)
+
 ### Using Qtip
 
 Qtip runs alongside an existing aligner, though the aligner requires modifications for Qtip to obtain the feature data it needs to make predictions.  We have already made these modifications for the popular Bowtie 2, BWA-MEM and SNAP tools.  See the `software` subdirectory for details.
