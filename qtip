@@ -50,7 +50,9 @@ class Timing(object):
 
 def sanity_check_binary(exe):
     if not os.path.exists(exe):
-        raise RuntimeError('Binary "%s" does not exist' % exe)
+        raise RuntimeError('Binary "%s" was not built; see Building Qtip '
+                           'section of README.md for instructions on building '
+                           'the Qtip binaries' % exe)
     else:
         if not os.access(exe, os.X_OK):
             raise RuntimeError('Binary "%s" exists but is not executable' % exe)
@@ -1046,9 +1048,9 @@ if __name__ == "__main__":
     import argparse
 
     _parser = argparse.ArgumentParser(
-        description='Align a collection of input reads, simulate a tandem'
-                    'dataset, align the tandem dataset, and emit both the'
-                    'input read alignments and the training data derived from'
+        description='Align a collection of input reads, simulate a tandem '
+                    'dataset, align the tandem dataset, and emit both the '
+                    'input read alignments and the training data derived from '
                     'the tandem read alignments.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
