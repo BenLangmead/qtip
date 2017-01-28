@@ -12,7 +12,7 @@ The model is automatically tailored to the alignment scenario at hand, allowing 
 
 ### Using Qtip
 
-Qtip runs alongside an existing aligner, though the aligner requires modifications for Qtip to obtain the feature data it needs to make predictions.  We have already made these modifications for the popular Bowtie 2, BWA-MEM and SNAP tools.
+Qtip runs alongside an existing aligner, though the aligner requires modifications for Qtip to obtain the feature data it needs to make predictions.  We have already made these modifications for the popular Bowtie 2, BWA-MEM and SNAP tools.  See the `software` subdirectory for details.
 
 ### Building Qtip
 
@@ -20,8 +20,16 @@ If Qtip was cloned/extracted to a directory `$QTIP_HOME`, then:
 
     make -C $QTIP_HOME/src
 
+### Testing Qtip
+
+    make -C $QTIP_HOME/test
+
 ### Running Qtip
 
-	$QTIP_HOME/src/qtip
+    $QTIP_HOME/qtip
+
+### Qtip architecture
+
+![Qtip flow diagram](images/qtip_flow.png)
 
 More extensive documentation is coming soon.  For now, please see the usage message for `qtip`
