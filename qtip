@@ -150,7 +150,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
 
     if args['U'] is not None and args['m1'] is not None:
         raise RuntimeError('Input must consist of only unpaired or only paired-end reads')
-    
+
     # Start building alignment command; right now we support Bowtie 2, BWA-MEM and SNAP
     from bowtie2 import Bowtie2
     from bwamem import BwaMem
@@ -639,7 +639,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                                    calc_summaries=args['assess_accuracy'],
                                    prediction_mem_limit=args['assess_limit'],
                                    heap_profiler=hp, include_mapq=include_mapq,
-                                   multiprocess=args['threads'] > 1, n_multi=args['threads'])
+                                   multiprocess=False, n_multi=1)
                 if not vanilla and pred.can_assess():
                     logging.info('  writing accuracy measures')
                     od = _compose(triali_or_none, sampdir, include_mapq, test_or_none)
@@ -816,127 +816,200 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
 def add_args(parser):
 
     # Overall arguments
-    parser.add_argument('--ref', metavar='path', type=str, nargs='+', required=True,
-                        help='FASTA file(s) containing reference genome sequences')
-    parser.add_argument('--U', metavar='path', type=str, nargs='+', help='Unpaired read files')
+    parser.add_argument('--ref', metavar='path', type=str, nargs='+',
+                        required=True,
+                        help='FASTA file, or many FASTAs separated by spaces, '
+                             'containing reference genome sequences')
+    parser.add_argument('--U', metavar='path', type=str, nargs='+',
+                        help='Unpaired read FASTQ file name, or many FASTQ '
+                             'file names separated by spaces')
     parser.add_argument('--m1', metavar='path', type=str, nargs='+',
-                        help='Mate 1 files; must be specified in same order as --m2')
+                        help='Mate 1 FASTQ file name, or many FASTQ file names '
+                             'separated by spaces; must be specified in same '
+                             'order as --m2')
     parser.add_argument('--m2', metavar='path', type=str, nargs='+',
-                        help='Mate 2 files; must be specified in same order as --m1')
-    parser.add_argument('--index', metavar='path', type=str, help='Index file to use (usually a prefix).')
-    parser.add_argument('--seed', metavar='int', type=int, default=99099, required=False,
+                        help='Mate 2 FASTQ file name, or many FASTQ file names '
+                             'separated by spaces; must be specified in same '
+                             'order as --m1')
+    parser.add_argument('--index', metavar='path', type=str,
+                        help='Index file to use; specify the appropriate '
+                             'prefix, e.g. Bowtie 2 index file name without '
+                             'the .X.bt2 suffix.')
+    parser.add_argument('--seed', metavar='int', type=int, default=99099,
+                        required=False,
                         help='Integer to initialize pseudo-random generator')
 
     # Qtip-parse: input model
-    parser.add_argument('--max-allowed-fraglen', metavar='int', type=int, default=100000, required=False,
-                        help='When simulating fragments, observed fragments longer than this will be'
+    parser.add_argument('--max-allowed-fraglen', metavar='int', type=int,
+                        default=100000, required=False,
+                        help='When simulating fragments, longer fragments are '
                              'truncated to this length')
-    parser.add_argument('--input-model-size', metavar='int', type=int, default=30000, required=False,
-                        help='Maximum # templates to keep when building an input model.  '
-                             'There are 4 separate models for each alignment category and this parameter '
-                             'governs the maximum for all 4.')
+    parser.add_argument('--input-model-size', metavar='int', type=int,
+                        default=30000, required=False,
+                        help='Maximum # templates to keep when building an '
+                             'input model. There are 4 separate models for '
+                             'each alignment category and this governs the '
+                             'maximum for all 4.')
 
     # Qtip-parse: simulator
-    parser.add_argument('--sim-unp-min', metavar='int', type=int, default=30000, required=False,
-                        help='Number of simulated unpaired reads will be no less than this number.')
-    parser.add_argument('--sim-conc-min', metavar='int', type=int, default=30000, required=False,
-                        help='Number of simulated concordant pairs will be no less than this number.')
-    parser.add_argument('--sim-disc-min', metavar='int', type=int, default=10000, required=False,
-                        help='Number of simulated discordant pairs will be no less than this number.')
-    parser.add_argument('--sim-bad-end-min', metavar='int', type=int, default=10000, required=False,
-                        help='Number of simulated pairs with-one-bad-end will be no less than this number.')
-    parser.add_argument('--sim-function', metavar='linear|sqrt', type=str, required=False, default='sqrt',
-                        help='Function to apply to number of input reads when determining number of '
-                             'tandem reads to simulate in a given category.  See also: --sim-factor.')
-    parser.add_argument('--sim-factor', metavar='fraction', type=float, default=45.0, required=False,
-                        help='This is multiplied with X (if --sim-function=linear) or sqrt(X) '
-                             '(if --sim-function=sqrt) to calculate number of tandem reads to '
-                             'simulate in a given category, where X is number of input reads '
-                             'in that category.')
+    parser.add_argument('--sim-unp-min', metavar='int', type=int,
+                        default=30000, required=False,
+                        help='If predictions for unpaired reads '
+                             'are needed, simulate at least this # of '
+                             'unpaired reads.')
+    parser.add_argument('--sim-conc-min', metavar='int', type=int,
+                        default=30000, required=False,
+                        help='If predictions for concordantly aligned reads '
+                             'are needed, simulate at least this # of '
+                             'concordant pairs.')
+    parser.add_argument('--sim-disc-min', metavar='int', type=int,
+                        default=10000, required=False,
+                        help='If predictions for discordantly aligned reads '
+                             'are needed, simulate at least this # of '
+                             'discordant pairs.')
+    parser.add_argument('--sim-bad-end-min', metavar='int', type=int,
+                        default=10000, required=False,
+                        help='If predictions for ends with an unaligned mate '
+                             'are needed, simulate at least this # of pairs '
+                             'with a bad end.')
+    parser.add_argument('--sim-function', metavar='linear|sqrt', type=str,
+                        required=False, default='sqrt',
+                        help='Function giving # of tandem reads to simulate '
+                             'in a category; parameter is the number of '
+                             'input reads.  See also: --sim-factor.')
+    parser.add_argument('--sim-factor', metavar='fraction', type=float,
+                        default=45.0, required=False,
+                        help='This is multiplied with X (if '
+                             '--sim-function=linear) or sqrt(X) '
+                             '(if --sim-function=sqrt) to calculate number of '
+                             'tandem reads to simulate in a given category, '
+                             'where X is # of input reads in that category.')
 
     # Qtip-parse: correctness
-    parser.add_argument('--wiggle', metavar='int', type=int, default=30, required=False,
-                        help='Wiggle room to allow in starting position when determining whether alignment is correct')
+    parser.add_argument('--wiggle', metavar='int', type=int, default=30,
+                        required=False,
+                        help='Wiggle room to allow in starting position when '
+                             'determining whether alignment is correct')
 
     # Aligner
-    parser.add_argument('--bt2-exe', metavar='path', type=str, help='Path to Bowtie 2 exe')
-    parser.add_argument('--bwa-exe', metavar='path', type=str, help='Path to BWA exe')
-    parser.add_argument('--snap-exe', metavar='path', type=str, help='Path to snap-aligner exe')
-    parser.add_argument('--aligner', metavar='name', default='bowtie2', type=str,
-                        help='bowtie2 | bwa-mem | snap')
+    parser.add_argument('--bt2-exe', metavar='path', type=str,
+                        help='Path to Bowtie 2 aligner exe, "bowtie2"')
+    parser.add_argument('--bwa-exe', metavar='path', type=str,
+                        help='Path to BWA-MEM aligner exe, "bwa"')
+    parser.add_argument('--snap-exe', metavar='path', type=str,
+                        help='Path to SNAP aligner exe, "snap-aligner"')
+    parser.add_argument('--aligner', metavar='name', default='bowtie2',
+                        type=str,
+                        help='Which aligner to use: bowtie2 | bwa-mem | snap')
 
     # SAM rewriting
-    parser.add_argument('--orig-mapq-flag', metavar='XX:X', type=str, default="Zm:Z", required=False,
-                        help='Extra field label for original MAPQ; see SAM spec for formatting')
-    parser.add_argument('--precise-mapq-flag', metavar='XX:X', type=str, default="Zp:Z", required=False,
-                        help='Extra field label for original MAPQ; see SAM spec for formatting')
-    parser.add_argument('--write-orig-mapq', action='store_const', const=True, default=False,
-                        help='Write original MAPQ as an extra field in output SAM')
-    parser.add_argument('--write-precise-mapq', action='store_const', const=True, default=False,
-                        help='Write a more precise MAPQ prediction as an extra field in output SAM')
-    parser.add_argument('--keep-ztz', action='store_const', const=True, default=False,
-                        help='Don\'t remove the ZT:Z flag from the final output SAM')
+    parser.add_argument('--write-orig-mapq', action='store_const',
+                        const=True, default=False,
+                        help='Write original MAPQ as an extra field in '
+                             'output SAM')
+    parser.add_argument('--write-precise-mapq', action='store_const',
+                        const=True, default=False,
+                        help='Write a more precise MAPQ prediction as an '
+                             'extra field in output SAM')
+    parser.add_argument('--orig-mapq-flag', metavar='XX:X', type=str,
+                        default="Zm:Z", required=False,
+                        help='If --write-orig-mapq is specified, store '
+                             'original MAPQ in this extra SAM field')
+    parser.add_argument('--precise-mapq-flag', metavar='XX:X', type=str,
+                        default="Zp:Z", required=False,
+                        help='If --write-precise-mapq is specified, store '
+                             'original MAPQ in this extra SAM field')
+    parser.add_argument('--keep-ztz', action='store_const',
+                        const=True, default=False,
+                        help='Don\'t remove ZT:Z field, with aligner-reported '
+                             'feature data, from the final output SAM')
 
     # Prediction
     import model_fam
     model_fam.add_args(parser)
-    parser.add_argument('--serial', action='store_const', const=True, default=False,
-                        help='Do not use multiprocessing when making predictions')
-    parser.add_argument('--threads', metavar='int', type=int, default=1,
-                        help='Number of simultaneous threads to use for prediction')
-    parser.add_argument('--reweight-ratio', metavar='float', type=float, default=1.0,
-                        help='When fitting, reweigh samples so weight of highest-mapq alignment has this times as '
-                             'much weight as lowest-mapq')
-    parser.add_argument('--reweight-mapq', action='store_const', const=True, default=False,
-                        help='When fitting, reweigh samples according to initially-predicted mapq')
-    parser.add_argument('--reweight-mapq-offset', type=float, default=10.0, required=False,
+    parser.add_argument('--reweight-ratio', metavar='float', type=float,
+                        default=1.0,
+                        help='When fitting, reweigh samples so weight of '
+                             'highest-mapq alignment has this times as '
+                             'much weight as lowest-mapq.')
+    parser.add_argument('--reweight-mapq', action='store_const', const=True,
+                        default=False,
+                        help='When fitting, reweigh samples according to '
+                             'initially-predicted mapq.  Higher predictions '
+                             'get more weight')
+    parser.add_argument('--reweight-mapq-offset', metavar='float', type=float,
+                        default=10.0,
                         help='Add this to every MAPQ before reweighting')
-    parser.add_argument('--collapse', action='store_const', const=True, default=False,
-                        help='Remove redundant rows just before prediction.  Usually not a net win.')
+    parser.add_argument('--collapse', action='store_const', const=True,
+                        default=False,
+                        help='Remove redundant rows just before prediction. '
+                             'Usually not a net win.')
     parser.add_argument('--max-rows', metavar='int', type=int, default=250000,
-                        help='Maximum number of rows (alignments) to feed at once to the prediction function')
-    parser.add_argument('--no-oob', action='store_const', const=True, default=False,
-                        help='Don\'t use out-of-bag score when choosing hyperparameters -- use cross validation '
-                             'instead.  No effect for models that don\'t calculate OOB score.')
-    parser.add_argument('--skip-rewrite', action='store_const', const=True, default=False,
-                        help='Skip the final SAM rewriting step; other results, including any fit and '
-                             'prediction assessments requested, are still written.')
+                        help='Maximum number of rows (alignments) to feed at '
+                             'once to the prediction function')
+    parser.add_argument('--no-oob', action='store_const', const=True,
+                        default=False,
+                        help='Don\'t use out-of-bag score when fitting '
+                             'hyperparameters -- use cross validation '
+                             'instead.  No effect for models that don\'t '
+                             'calculate OOB score.')
+    parser.add_argument('--skip-rewrite', action='store_const', const=True,
+                        default=False,
+                        help='Skip the final SAM rewriting step; other '
+                             'results, including any fit and '
+                             'prediction assessments requested, are still '
+                             'written.')
 
     # Profiling
-    parser.add_argument('--profile-prediction', action='store_const', const=True, default=False,
-                        help='Run a profiler for the duration of the prediction portion')
-    parser.add_argument('--profile-memory', action='store_const', const=True, default=False,
-                        help='Use guppy/heapy to profile memory and periodically print heap usage')
+    parser.add_argument('--profile-memory', action='store_const', const=True,
+                        default=False,
+                        help='Use guppy/heapy to profile memory and '
+                             'periodically print heap usage')
 
     # Parameters affecting the number of fits/predictions done per run
-    parser.add_argument('--predict-for-training', action='store_const', const=True, default=False,
-                        help='Make predictions (and associated plots/output files) for training (tandem) data')
-    parser.add_argument('--try-include-mapq', action='store_const', const=True, default=False,
-                        help='Try both with and without including the tool-predicted MAPQ as a feature; '
+    parser.add_argument('--predict-for-training', action='store_const',
+                        const=True, default=False,
+                        help='Make predictions and produce associated '
+                             'plots/output files for training (tandem) data')
+    parser.add_argument('--try-include-mapq', action='store_const',
+                        const=True, default=False,
+                        help='Try both with and without including the '
+                             'tool-predicted MAPQ as a feature; '
                              'default: does not include it')
-    parser.add_argument('--subsampling-series', metavar='floats', type=str, default='1.0',
-                        help='Comma separated list of subsampling fractions to try')
+    parser.add_argument('--subsampling-series', metavar='floats', type=str,
+                        default='1.0',
+                        help='Comma separated list of subsampling fractions '
+                             'to try')
     parser.add_argument('--trials', metavar='int', type=int, default=1,
                         help='Number of times to repeat fitting/prediction')
 
     # Assessment of prediction accuracy
-    parser.add_argument('--assess-accuracy', action='store_const', const=True, default=False,
-                        help='When correctness can be inferred from simulated read names, '
-                             'assess accuracy of old and new MAPQ predictions')
-    parser.add_argument('--assess-limit', metavar='int', type=int, default=100000000,
-                        help='The maximum number of alignments to assess when assessing accuracy')
+    parser.add_argument('--assess-accuracy', action='store_const', const=True,
+                        default=False,
+                        help='When correctness can be inferred from simulated '
+                             'read names, assess accuracy of old and new MAPQ '
+                             'predictions')
+    parser.add_argument('--assess-limit', metavar='int', type=int,
+                        default=100000000,
+                        help='The maximum number of alignments to assess '
+                             'when assessing accuracy')
 
     # Output file-related arguments
-    parser.add_argument('--temp-directory', metavar='path', type=str, required=False,
-                        help='Write temporary files to this directory; default: uses environment variables '
+    parser.add_argument('--temp-directory', metavar='path', type=str,
+                        required=False,
+                        help='Write temporary files to this directory; when '
+                             'None: uses environment variables '
                              'like TMPDIR, TEMP, etc')
     parser.add_argument('--output-directory', metavar='path', type=str,
                         help='Write outputs to this directory')
     parser.add_argument('--vanilla-output', metavar='path', type=str,
-                        help='Only write final SAM file; suppress all other output')
-    parser.add_argument('--keep-intermediates', action='store_const', const=True, default=False,
-                        help='Keep intermediates in output directory; if not specified, '
-                             'intermediates are written to a temporary directory then deleted')
+                        help='Only write final SAM file; suppress all other '
+                             'output')
+    parser.add_argument('--keep-intermediates', action='store_const',
+                        const=True, default=False,
+                        help='Keep intermediates in output directory; if '
+                             'False, intermediates are written to a temporary '
+                             'directory then deleted')
 
 
 def go_profile(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
@@ -969,14 +1042,15 @@ def parse_aligner_parameters_from_argv(argv):
 
 
 if __name__ == "__main__":
-    
+
     import argparse
 
     _parser = argparse.ArgumentParser(
         description='Align a collection of input reads, simulate a tandem'
                     'dataset, align the tandem dataset, and emit both the'
                     'input read alignments and the training data derived from'
-                    'the tandem read alignments.')
+                    'the tandem read alignments.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     if '--version' in sys.argv:
         print('Qtip' + open(join(bin_dir, 'VERSION')).read().rstrip())
@@ -985,9 +1059,12 @@ if __name__ == "__main__":
     add_args(_parser)
 
     # Some basic flags
-    _parser.add_argument('--profile', action='store_const', const=True, default=False, help='Print profiling info')
-    _parser.add_argument('--verbose', action='store_const', const=True, default=False, help='Be talkative')
-    _parser.add_argument('--version', action='store_const', const=True, default=False, help='Print version and quit')
+    _parser.add_argument('--profile', action='store_const', const=True,
+                         default=False, help='Print profiling info')
+    _parser.add_argument('--verbose', action='store_const', const=True,
+                         default=False, help='Be talkative')
+    _parser.add_argument('--version', action='store_const', const=True,
+                         default=False, help='Print version and quit')
 
     _argv, _aligner_args, _aligner_unpaired_args, _aligner_paired_args = parse_aligner_parameters_from_argv(sys.argv)
     _args = _parser.parse_args(_argv[1:])
