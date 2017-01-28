@@ -32,7 +32,7 @@ cat reads_1.fq | ../snap/snap-aligner single lambda_virus.snap -fastq - -o -sam 
 # Paired-end, separate files
 ../snap/snap-aligner paired lambda_virus.snap reads_1.fq reads_2.fq -o -sam pai1.sam
 
-python ../../../bin/fastq_interleave.py reads_1.fq reads_2.fq > reads_paired.fq
+python ../../../scripts/fastq_interleave.py reads_1.fq reads_2.fq > reads_paired.fq
 
 # Paired-end, interleaved file
 ../snap/snap-aligner paired lambda_virus.snap -pairedInterleavedFastq reads_paired.fq -o -sam pai2.sam
