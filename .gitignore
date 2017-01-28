@@ -3,4 +3,12 @@
 .idea
 journal.pages
 *.xcodeproj
+*.pyc
 .DS_Store
+VERSION
+qtip-parse
+qtip-rewrite
+qtip-parse-debug
+qtip-rewrite-debug
+qtip-fasta-test
+qtip-predmerge-test
