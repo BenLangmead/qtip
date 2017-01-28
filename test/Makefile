@@ -4,7 +4,6 @@ BT2_DIR=../software/bowtie2
 BT2=$(BT2_DIR)/bowtie2
 MASON_CONVERT=python ../scripts/mason_convert.py
 TOOL=qtip
-N_QTIP_THREADS=1
 N_ALIGN_THREADS=6
 
 all: full_e2e/final.sam \
@@ -43,7 +42,6 @@ full_e2e/final.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--write-orig-mapq \
 		--write-precise-mapq \
 		--assess-accuracy \
-		--threads $(N_QTIP_THREADS) \
 		-- -p $(N_ALIGN_THREADS) --reorder
 
 extra_e2e/trial0/final.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
@@ -89,7 +87,6 @@ test_random_forest: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--write-precise-mapq \
 		--assess-accuracy \
 		--model-family RandomForest \
-		--threads $(N_QTIP_THREADS) \
 		-- -p $(N_ALIGN_THREADS) --reorder
 
 test_max_leaf_nodes: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
@@ -104,7 +101,6 @@ test_max_leaf_nodes: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(
 		--output-directory $@ \
 		--model-family RandomForest \
 		--max-leaf-nodes 20 \
-		--threads $(N_QTIP_THREADS) \
 		-- -p $(N_ALIGN_THREADS) --reorder
 
 test_reweight_mapq: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
@@ -121,7 +117,6 @@ test_reweight_mapq: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--reweight-mapq \
 		--assess-accuracy \
 		--model-family RandomForest \
-		--threads $(N_QTIP_THREADS) \
 		-- -p $(N_ALIGN_THREADS) --reorder
 
 test_reweight_ratio: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
@@ -137,7 +132,6 @@ test_reweight_ratio: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(
 		--reweight-ratio 10.0 \
 		--assess-accuracy \
 		--model-family RandomForest \
-		--threads $(N_QTIP_THREADS) \
 		-- -p $(N_ALIGN_THREADS) --reorder
 
 test_gradient_boost: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(BT2)
@@ -160,7 +154,6 @@ test_gradient_boost: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(
 		--assess-accuracy \
 		--model-family GradientBoosting \
 		--verbose \
-		--threads $(N_QTIP_THREADS) \
 		-- -p $(N_ALIGN_THREADS) --reorder
 
 .r_1.fastq: .rtmp_1.fastq
