@@ -3,6 +3,15 @@ Qtip
 
 [![Build Status](https://travis-ci.org/BenLangmead/qtip.svg?branch=master)](https://travis-ci.org/BenLangmead/qtip)
 
+- [Qtip](#)
+		- [Background](#)
+		- [Dependencies](#)
+		- [Using Qtip](#)
+		- [Building Qtip](#)
+		- [Testing Qtip](#)
+		- [Running Qtip](#)
+		- [Qtip architecture](#)
+
 ### Background
 
 Read alignment is the first step in most sequencing data analyses. It is also a source of errors and interpretability problems. Repetitive genomes, algorithmic shortcuts, and genetic variation impede the aligner's ability to find a read's true point of origin. Aligners therefore report a mapping quality: the probability the reported point of origin for a read is incorrect.
