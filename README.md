@@ -21,10 +21,15 @@ The model is automatically tailored to the alignment scenario at hand, allowing 
 ### Dependencies
 
 * Python 2.7 or later
-    * Works with Python 3
 * Numpy
 * [Scikit-learn](http://scikit-learn.org/)
 * [Pandas](http://pandas.pydata.org)
+
+### Building Qtip
+
+If Qtip was cloned/extracted to a directory `$QTIP_HOME`, then:
+
+    make -C $QTIP_HOME/src
 
 ### Using Qtip
 
@@ -203,22 +208,19 @@ optional arguments:
   --version             Print version and quit (default: False)
 ```
 
-### Building Qtip
-
-If Qtip was cloned/extracted to a directory `$QTIP_HOME`, then:
-
-    make -C $QTIP_HOME/src
-
 ### Testing Qtip
 
     make -C $QTIP_HOME/test
-
-### Running Qtip
-
-    $QTIP_HOME/qtip
 
 ### Qtip architecture
 
 ![Qtip flow diagram](images/qtip_flow.png)
 
-More extensive documentation is coming soon.  For now, please see the usage message for `qtip`
+1. Input reads are aligned to the reference genome using the specified aligner and parameters.
+2. SAM alignments are parsed and an input model, capturing information about the input reads and their alignments, is built.
+3. Input model and reference genome are used to simulate a new set of reads, called tandem reads since they originate from tandem simulation.
+Each tandem read is from a random location in the genome and is labeled with its true point of origin.
+4. Tandem reads are aligned to the reference genome using the same aligner and parameters as in step 1.
+5. Alignments produced in step 4 are parsed and converted to training records.  Because the true point of origin is known, each training record can be labeled as correct or incorrect.
+6. A model is trained on the records from step 5
+7. SAM alignments from step 1 are parsed.  For each aligned read, a test record, like the training record from step 5, is constructed.  Based on the test record, the trained model is applied to predict mapping quality.  The alignment's SAM record is then re-written substituting the prediction in the MAPQ field.
