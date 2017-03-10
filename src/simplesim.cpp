@@ -170,8 +170,8 @@ void SimulatedRead::write_pair(
 }
 
 /**
- * Apply the specified function: max(minimum, factor * f(x)), where f might be
- * x or sqrt(x).
+ * Apply the specified function: max(minimum, f(x)), where f might be
+ * factor * x (linear), factor * sqrt(x) (sqrt) or factor (const).
  */
 size_t apply_function(float fraction, int function, size_t mn, size_t n) {
     if(n == 0) {
@@ -180,8 +180,10 @@ size_t apply_function(float fraction, int function, size_t mn, size_t n) {
     double nn = (double)n;
     if(function == FUNC_SQRT) {
         nn = sqrt(nn);
+    } else if(function == FUNC_LINEAR) {
+        nn *= fraction;
     }
-    return std::max((size_t)(fraction * nn), mn);
+    return std::max((size_t)nn, mn);
 }
 
 /**

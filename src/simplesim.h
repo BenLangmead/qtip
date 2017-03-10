@@ -196,7 +196,8 @@ protected:
 
 enum {
     FUNC_LINEAR = 1,
-    FUNC_SQRT = 2
+    FUNC_SQRT,
+    FUNC_CONST
 };
 
 /**

@@ -1635,6 +1635,8 @@ int main(int argc, char **argv) {
 					    sim_function = FUNC_SQRT;
 					} else if(strcmp(argv[i], "linear") == 0) {
 					    sim_function = FUNC_LINEAR;
+					} else if(strcmp(argv[i], "const") == 0) {
+					    sim_function = FUNC_CONST;
 					} else {
 						cerr << "Error: could not parse --sim-function argument: " << argv[i] << endl;
 						return -1;
