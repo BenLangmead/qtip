@@ -124,9 +124,7 @@ def _prediction_worker(my_test_chunk_tup, training, training_labs, ds,
         pcor = trained_model.predict(x_test)  # make predictions
     del x_test
     gc.collect()
-    #log.info('    Done making predictions; about to postprocess (peak mem=%0.2fGB)' % _get_peak_gb())
     pcor = np.array(postprocess_predictions(pcor, ds_long))
-    #log.info('    Done postprocessing; adding to tally (peak mem=%0.2fGB)' % _get_peak_gb())
     # convert category data to doubles
     ds = {'u': 1.0, 'b': 2.0, 'c': 3.0, 'd': 4.0}.get(ds)
     pred_df = pandas.DataFrame({'mapq': pandas.Series(pcor_to_mapq_np(pcor), dtype=np.float32),
@@ -134,15 +132,22 @@ def _prediction_worker(my_test_chunk_tup, training, training_labs, ds,
                                 'category': ds,
                                 'mapq_orig': pandas.Series(mapq_orig_test, dtype=np.int16),
                                 'correct': pandas.Series(y_test, dtype=np.int8)})
-    has_correct = pred_df.correct.max() >= 0
+    cor_mn, cor_mx = pred_df.correct.min(), pred_df.correct.max()
+    has_correct = cor_mx >= 0
     if multiprocess:
         if has_correct:
+            assert cor_mn in [0, 1], (cor_mn, cor_mx)
+            assert cor_mx in [0, 1], (cor_mn, cor_mx)
+            assert cor_mx >= cor_mn, (cor_mn, cor_mx)
             return (i, pred_df, pred_df.ids[0], pred_df.ids.iloc[-1],
                     pred_df.mapq, pred_df.mapq_orig, pred_df.correct)
         else:
             return i, pred_df, pred_df.ids[0], pred_df.ids.iloc[-1]
     else:
         if has_correct:
+            assert cor_mn in [0, 1], (cor_mn, cor_mx)
+            assert cor_mx in [0, 1], (cor_mn, cor_mx)
+            assert cor_mx >= cor_mn, (cor_mn, cor_mx)
             pred_overall.add(pred_df, pred_df.ids[0], pred_df.ids.iloc[-1],
                              pred_df.mapq, pred_df.mapq_orig, pred_df.correct)
         else:
