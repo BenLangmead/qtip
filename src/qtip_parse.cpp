@@ -644,7 +644,7 @@ struct Alignment {
 			for(size_t i = 0; i < qname_len; i++) {
 				if(qname[i] == '_') {
 					nund++;
-				} else if(qname[i] == ':') {
+				} else if(qname[i] == ':' && nund >= 3) {
 					ncolon++;
 				}
 			}
