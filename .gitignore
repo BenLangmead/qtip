@@ -4,6 +4,7 @@
 journal.pages
 *.xcodeproj
 *.pyc
+*.pyo
 .DS_Store
 VERSION
 qtip-parse
