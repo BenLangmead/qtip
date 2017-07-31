@@ -56,6 +56,7 @@ void SimulatedRead::mutate(const char *seq) {
 			seq_buf_[rdoff++] = draw_base();
 			rfoff++;
 		} else {
+			fprintf(stderr, "Unknown operation in edit transcript: '%c'\n", edit_xscript_[i]);
 			throw 1;
 		}
 	}
