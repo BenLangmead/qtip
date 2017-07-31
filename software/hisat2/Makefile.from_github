@@ -1,0 +1,23 @@
+#
+# hisat2
+#
+
+# Checks out BenLangmead's mapq branch of hisat2, as the emission of mapq features is
+# not yet available in the main repo.
+
+GIT=$(shell which git)
+
+hisat2: hisat2-git/hisat2-align-s
+	ln -s -f hisat2-git/hisat2 hisat2
+	ln -s -f hisat2-git/hisat2-build hisat2-build
+
+hisat2-git/hisat2-align-s: hisat2-git
+	cd hisat2-git && make
+
+hisat2-git: $(GIT)
+	$(GIT) clone -b mapq https://github.com/BenLangmead/hisat2.git $@
+
+.PHONY: clean
+clean:
+	rm -f hisat2 hisat2-build
+	rm -rf hisat2-git

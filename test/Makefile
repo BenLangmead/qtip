@@ -2,6 +2,9 @@ MASON_DIR=../software/mason
 MASON=$(MASON_DIR)/mason
 BT2_DIR=../software/bowtie2
 BT2=$(BT2_DIR)/bowtie2
+HT2_DIR=../software/hisat2
+HT2=$(HT2_DIR)/hisat2
+HT2_BUILD=$(HT2_DIR)/hisat2-build
 MASON_CONVERT=python ../scripts/mason_convert.py
 TOOL=qtip
 N_ALIGN_THREADS=6
@@ -23,6 +26,19 @@ final_full_e2e.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(B
 		--index lambda_virus \
 		--aligner bowtie2 \
 		--bt2-exe $(BT2) \
+		--vanilla-output $@ \
+		--write-orig-mapq \
+		--write-precise-mapq \
+		-- -p $(N_ALIGN_THREADS) --reorder
+
+final_full_e2e_ht2.sam: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.ht2 $(HT2)
+	python ../$(TOOL) \
+		--ref lambda_virus.fa \
+		--m1 .r_1.fastq \
+		--m2 .r_2.fastq \
+		--index lambda_virus \
+		--aligner hisat2 \
+		--ht2-exe $(HT2) \
 		--vanilla-output $@ \
 		--write-orig-mapq \
 		--write-precise-mapq \
@@ -169,13 +185,16 @@ test_gradient_boost: .r_1.fastq .r_2.fastq lambda_virus.fa lambda_virus.1.bt2 $(
 		-rn 2 \
 		-ll 300 \
 		-le 40 \
-		-n 8 \
+		-n 20 \
 		-N 250000 \
 		-o .rtmp.fastq \
 		lambda_virus.fa
 
 $(BT2):
 	$(MAKE) -C $(BT2_DIR)
+
+$(HT2):
+	$(MAKE) -C $(HT2_DIR)
 
 $(MASON):
 	$(MAKE) -C ../software/mason
@@ -185,6 +204,9 @@ lambda_virus.fa: $(BT2)
 
 lambda_virus.1.bt2:
 	cp `find $(BT2_DIR) -name lambda_virus.*.bt2` .
+
+lambda_virus.1.ht2: lambda_virus.fa
+	$(HT2_BUILD) lambda_virus.fa lambda_virus
 
 .PHONY: clean
 clean:

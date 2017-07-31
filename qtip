@@ -153,8 +153,9 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     if args['U'] is not None and args['m1'] is not None:
         raise RuntimeError('Input must consist of only unpaired or only paired-end reads')
 
-    # Start building alignment command; right now we support Bowtie 2, BWA-MEM and SNAP
+    # Start building alignment command; right now we support Bowtie 2, HISAT2, BWA-MEM and SNAP
     from bowtie2 import Bowtie2
+    from hisat2 import Hisat2
     from bwamem import BwaMem
     from snap import SnapAligner
     aligner_class = Bowtie2
@@ -164,6 +165,14 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         if args['bt2_exe'] is not None:
             align_cmd = args['bt2_exe'] + " "
         aligner_args.extend(['--mapq-extra'])
+    elif args['aligner'] == 'hisat2':
+        align_cmd = 'hisat2 '
+        if args['ht2_exe'] is not None:
+            align_cmd = args['ht2_exe'] + " "
+        # Note: tandem simulator is not smart enough to simulate spliced
+        # alignments, so we only support unspliced HISAT2
+        aligner_args.extend(['--mapq-extra', '--no-spliced-alignment', '--no-temp-splicesite'])
+        aligner_class = Hisat2
     elif args['aligner'] == 'bwa-mem':
         align_cmd = 'bwa mem '
         if args['bwa_exe'] is not None:
@@ -897,13 +906,20 @@ def add_args(parser):
     # Aligner
     parser.add_argument('--bt2-exe', metavar='path', type=str,
                         help='Path to Bowtie 2 aligner exe, "bowtie2"')
+    parser.add_argument('--ht2-exe', metavar='path', type=str,
+                        help='Path to HISAT2 aligner exe, "hisat2"')
     parser.add_argument('--bwa-exe', metavar='path', type=str,
                         help='Path to BWA-MEM aligner exe, "bwa"')
     parser.add_argument('--snap-exe', metavar='path', type=str,
                         help='Path to SNAP aligner exe, "snap-aligner"')
     parser.add_argument('--aligner', metavar='name', default='bowtie2',
                         type=str,
-                        help='Which aligner to use: bowtie2 | bwa-mem | snap')
+                        help='Which aligner to use: bowtie2 | hisat2 | '
+                             'bwa-mem | snap.  Note: tandem simulator cannot '
+                             'simulate spliced alignments, so for HISAT2, '
+                             'only unspliced alignment is supported.  In that '
+                             'case, options --no-spliced-alignment and '
+                             '--no-temp-splicesite are added automatically.')
 
     # SAM rewriting
     parser.add_argument('--write-orig-mapq', action='store_const',
