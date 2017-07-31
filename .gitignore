@@ -13,3 +13,4 @@ qtip-parse-debug
 qtip-rewrite-debug
 qtip-fasta-test
 qtip-predmerge-test
+*.dSYM
