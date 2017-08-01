@@ -1295,7 +1295,7 @@ static int sam_pass1(
 	
 	int al_cur1 = 1;
 	
-	int nline = 0, nhead = 0, nsec = 0, npair = 0, nunp = 0;
+	int nline = 0, nhead = 0, nsec = 0, nsupp = 0, npair = 0, nunp = 0;
 	int nunp_al = 0, nunp_unal = 0, npair_badend = 0, npair_conc = 0,
 	    npair_disc = 0, npair_unal = 0, ntyp_mismatch = 0;
 	
@@ -1313,11 +1313,15 @@ static int sam_pass1(
 		assert(qname == line);
 		char *flag_str = strtok(NULL, "\t"); assert(flag_str != NULL);
 		int flag = atoi(flag_str);
-		if((flag & 2048) != 0) {
+		if((flag & 256) != 0) {
 			nsec++;
 			continue;
 		}
-		
+		if((flag & 2048) != 0) {
+			nsupp++;
+			continue;
+		}
+
 		/* switch which buffer "line" points to */
 		line1 = !line1;
 		
@@ -1509,6 +1513,7 @@ static int sam_pass1(
 		cerr << "  " << nline << " lines" << endl;
 		cerr << "  " << nhead << " header lines" << endl;
 		cerr << "  " << nsec << " secondary alignments ignored" << endl;
+		cerr << "  " << nsupp << " supplementary alignments ignored" << endl;
 		cerr << "  " << ntyp_mismatch << " alignment type didn't match simulated type" << endl;
 		cerr << "  " << nunp << " unpaired" << endl;
 		if(nunp > 0) {
