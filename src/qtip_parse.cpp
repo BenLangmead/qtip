@@ -1336,6 +1336,13 @@ static int sam_pass1(
 		Alignment *mate1 = NULL, *mate2 = NULL;
 		if(al_cur.mate_flag() != '0' && al_prev.valid) {
 			if(al_cur.mate_flag() == '1') {
+				if(al_prev.mate_flag() != '2') {
+					fprintf(stderr, "Consecutive records were both paired-end "
+					                "but were not from opposite ends: "
+					                "last_name=%s, name=%s\n",
+					                al_prev.qname, al_cur.qname);
+					throw 1;
+				}
 				assert(al_prev.mate_flag() == '2');
 				mate1 = &al_cur;
 				mate2 = &al_prev;
