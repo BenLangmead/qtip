@@ -140,13 +140,13 @@ class MapqPredictions:
         """ Return indexes of in correct alignments in order
             from highest to lowest predicted pcor """
         assert self.df.correct.max() > -1
-        assert pandas.algos.is_monotonic_float64(self.df.mapq.values, True)
+        #assert pandas.algos.is_monotonic_float64(self.df.mapq.values, True)
         return self.df.correct[self.df.correct == 0].index[::-1].tolist()
 
     def summarize_incorrect(self, n=50):
         """ Return a DataFrame summarizing information about """
         assert self.df.correct.max() > -1
-        assert pandas.algos.is_monotonic_float64(self.df.mapq.values, True)
+        #assert pandas.algos.is_monotonic_float64(self.df.mapq.values, True)
         cols = ['category', 'mapq', 'mapq_orig', 'data', 'correct']
         return self.df.loc[self.incorrect_indexes()[:n], cols]
 
