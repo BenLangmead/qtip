@@ -176,7 +176,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     elif args['aligner'] == 'bwa-mem':
         align_cmd = 'bwa mem '
         if args['bwa_exe'] is not None:
-            align_cmd = args['bwa_exe'] + ' mem '
+            align_cmd = args['bwa_exe']
         aligner_class = BwaMem
     elif args['aligner'] == 'snap':
         align_cmd = 'snap-aligner '
