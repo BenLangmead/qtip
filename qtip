@@ -424,7 +424,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             aligner_paired_args,
             args['index'],
             unpaired=args['U'],
-            paired=None if args['m1'] is None else zip(args['m1'], args['m2']),
+            paired=None if args['m1'] is None else list(zip(args['m1'], args['m2'])),
             sam=input_sam_fn)
 
         logging.debug('  waiting for aligner to finish...')
