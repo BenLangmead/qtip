@@ -905,13 +905,13 @@ def add_args(parser):
 
     # Aligner
     parser.add_argument('--bt2-exe', metavar='path', type=str,
-                        help='Path to Bowtie 2 aligner exe, "bowtie2"')
+                        help='Bowtie 2 aligner cmd, "bowtie2"')
     parser.add_argument('--ht2-exe', metavar='path', type=str,
-                        help='Path to HISAT2 aligner exe, "hisat2"')
+                        help='HISAT2 aligner cmd, "hisat2"')
     parser.add_argument('--bwa-exe', metavar='path', type=str,
-                        help='Path to BWA-MEM aligner exe, "bwa"')
+                        help='BWA-MEM aligner cmd, "bwa mem"')
     parser.add_argument('--snap-exe', metavar='path', type=str,
-                        help='Path to SNAP aligner exe, "snap-aligner"')
+                        help='SNAP aligner cmd, "snap-aligner"')
     parser.add_argument('--aligner', metavar='name', default='bowtie2',
                         type=str,
                         help='Which aligner to use: bowtie2 | hisat2 | '
