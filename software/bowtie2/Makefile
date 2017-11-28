@@ -2,7 +2,7 @@
 # bowtie2
 #
 
-VER=2.3.0
+VER=2.3.3.1
 NM=bowtie2
 NMVER=$(NM)-$(VER)
 AR=$(NMVER)-source.zip
