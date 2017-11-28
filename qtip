@@ -475,7 +475,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                 (parse_input_exe, _get_passthrough_args(parse_input_exe), input_sam_fn, ' '.join(args['ref']),
                  pass1_prefix_inp, pass1_prefix_tan)
             logging.info('  running "%s"' % input_parse_cmd)
-            ret = os.system(input_parse_cmd)
+            ret = Popen(input_parse_cmd, shell=True, executable='bash').wait()
             if ret != 0:
                 raise RuntimeError("qtip-parse returned %d" % ret)
             logging.debug('  parsing finished; results in "%s*" and "%s*"' %
@@ -759,7 +759,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
                       (rewrite_exe, _get_passthrough_args(rewrite_exe), input_sam_fn,
                        ' '.join(glob.glob(pred_file_getter.last_prefix + '.*.npy')), final_sam)
                 logging.info('  running "%s"' % cmd)
-                ret = os.system(cmd)
+                ret = Popen(cmd, shell=True, executable='bash').wait()
                 if ret != 0:
                     raise RuntimeError("qtip-rewrite returned %d" % ret)
                 logging.debug('  rewriting finished; results in %s' % final_sam)
