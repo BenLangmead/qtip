@@ -176,7 +176,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     elif args['aligner'] == 'bwa-mem':
         align_cmd = 'bwa mem '
         if args['bwa_exe'] is not None:
-            align_cmd = args['bwa_exe'] + ' mem '
+            align_cmd = args['bwa_exe']
         aligner_class = BwaMem
     elif args['aligner'] == 'snap':
         align_cmd = 'snap-aligner '
@@ -424,7 +424,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             aligner_paired_args,
             args['index'],
             unpaired=args['U'],
-            paired=None if args['m1'] is None else zip(args['m1'], args['m2']),
+            paired=None if args['m1'] is None else list(zip(args['m1'], args['m2'])),
             sam=input_sam_fn)
 
         logging.debug('  waiting for aligner to finish...')
@@ -905,13 +905,13 @@ def add_args(parser):
 
     # Aligner
     parser.add_argument('--bt2-exe', metavar='path', type=str,
-                        help='Path to Bowtie 2 aligner exe, "bowtie2"')
+                        help='Bowtie 2 aligner cmd, "bowtie2"')
     parser.add_argument('--ht2-exe', metavar='path', type=str,
-                        help='Path to HISAT2 aligner exe, "hisat2"')
+                        help='HISAT2 aligner cmd, "hisat2"')
     parser.add_argument('--bwa-exe', metavar='path', type=str,
-                        help='Path to BWA-MEM aligner exe, "bwa"')
+                        help='BWA-MEM aligner cmd, "bwa mem"')
     parser.add_argument('--snap-exe', metavar='path', type=str,
-                        help='Path to SNAP aligner exe, "snap-aligner"')
+                        help='SNAP aligner cmd, "snap-aligner"')
     parser.add_argument('--aligner', metavar='name', default='bowtie2',
                         type=str,
                         help='Which aligner to use: bowtie2 | hisat2 | '
