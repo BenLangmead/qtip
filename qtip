@@ -236,7 +236,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
     def _get_input_sam_fn():
         """ input.sam goes in the toplevel output directory """
         if args['keep_intermediates']:
-            return join(odir, 'input.sam'), _nop
+            return join(odir, 'input.bam'), _nop
         else:
             dr = temp_man.get_dir('input_alignments')
 
@@ -321,7 +321,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             if vanilla:
                 return args['vanilla_output']
             else:
-                return join(_compose(_triali, subsamp, incmapq, None), 'final.sam')
+                return join(_compose(_triali, subsamp, incmapq, None), 'final.bam')
 
     class GetTandemSamFile(FileDispenser):
 
@@ -471,7 +471,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
         def _do_parse_input_sam():
             tim.start_timer('Parsing input alignments')
             sanity_check_binary(parse_input_exe)
-            input_parse_cmd = "%s ifs -- %s -- %s -- %s -- %s -- %s" % \
+            input_parse_cmd = "%s ifs -- %s -- <(samtools view %s) -- %s -- %s -- %s" % \
                 (parse_input_exe, _get_passthrough_args(parse_input_exe), input_sam_fn, ' '.join(args['ref']),
                  pass1_prefix_inp, pass1_prefix_tan)
             logging.info('  running "%s"' % input_parse_cmd)
@@ -755,7 +755,7 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             def _do_rewrite():
                 tim.start_timer('Rewrite SAM file')
                 sanity_check_binary(rewrite_exe)
-                cmd = "%s %s -- %s -- %s -- %s" % \
+                cmd = "%s %s -- <(samtools view %s) -- %s -- >(samtools view -Sb -o %s -)" % \
                       (rewrite_exe, _get_passthrough_args(rewrite_exe), input_sam_fn,
                        ' '.join(glob.glob(pred_file_getter.last_prefix + '.*.npy')), final_sam)
                 logging.info('  running "%s"' % cmd)

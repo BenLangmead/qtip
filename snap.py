@@ -53,7 +53,7 @@ except ImportError:
 
 
 class SnapAligner(Aligner):
-    
+
     """ Encapsulates a snap-aligner process.  The input can be a FASTQ
         file, or a Queue onto which the caller enqueues reads.
         Similarly, output can be a SAM file, or a Queue from which the
@@ -84,17 +84,17 @@ class SnapAligner(Aligner):
                  quiet=False,
                  input_format=None):
         """ Create new process.
-            
+
             Inputs:
-            
+
             'unpaired' is an iterable over unpaired input filenames.
             'paired' is an iterable over pairs of paired-end input
             filenames.  If both are None, then input reads will be
             taken over the inQ.  If either are non-None, then a call
             to inQ will raise an exception.
-            
+
             Outputs:
-            
+
             'sam' is a filename where output SAM records will be
             stored.  If 'sam' is none, SAM records will be added to
             the outQ.
@@ -143,7 +143,7 @@ class SnapAligner(Aligner):
             assert tok not in cmd_toks
 
         # Compose output arguments
-        args_output = ['-o', '-sam']
+        args_output = ['-o', '-bam']
         if sam is not None:
             args_output.append(sam)
         else:
