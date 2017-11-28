@@ -103,7 +103,7 @@ class Bowtie2(Aligner):
         # Put all the arguments together
         input_args.extend(aligner_args)
         cmd += ' '
-        cmd += ' '.join(input_args + output_args + index_args)
+        cmd += ' '.join(input_args + index_args + output_args)
         logging.info('Bowtie 2 command: ' + cmd)
         if quiet:
             popen_stderr = open(os.devnull, 'w')
