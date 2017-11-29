@@ -596,11 +596,11 @@ def go(args, aligner_args, aligner_unpaired_args, aligner_paired_args):
             sanity_check_binary(parse_input_exe)
             parse_cmd = "%s f -- %s -- %s -- %s -- %s" % \
                         (parse_input_exe, _get_passthrough_args(parse_input_exe),
-                         ' '.join(map("<(samtools view -h {})".format,
+                         ' '.join(map(<('samtools view -h {})'.format,
                                       filter(_exists_and_nonempty, tandem_sams))),
                          ' '.join(args['ref']), pass2_prefix)
             logging.info('  running "%s"' % parse_cmd)
-            ret = os.system(parse_cmd)
+            ret = Popen(parse_cmd, shell=True, executable='bash').wait()
             if ret != 0:
                 raise RuntimeError("qtip-parse returned %d" % ret)
             logging.debug('  parsing finished; results in "%s.*"' % pass2_prefix)
