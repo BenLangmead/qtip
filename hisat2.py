@@ -18,13 +18,13 @@ except ImportError:
 
 
 class Hisat2(Aligner):
-    
+
     """ Encapsulates a HISAT2 process.  The input can be a FASTQ
         file, or a Queue onto which the caller enqueues reads.
         Similarly, output can be a SAM file, or a Queue from which the
         caller dequeues SAM records.  All records are textual; parsing
         is up to the user. """
-    
+
     def __init__(self,
                  cmd,
                  aligner_args,
@@ -39,17 +39,17 @@ class Hisat2(Aligner):
                  quiet=False,
                  input_format=None):
         """ Create new process.
-            
+
             Inputs:
-            
+
             'unpaired' is an iterable over unpaired input filenames.
             'paired' is an iterable over pairs of paired-end input
             filenames.  If both are None, then input reads will be
             taken over the inQ.  If either are non-None, then a call
             to inQ will raise an exception.
-            
+
             Outputs:
-            
+
             'sam' is a filename where output SAM records will be
             stored.  If 'sam' is none, SAM records will be added to
             the outQ.
@@ -96,7 +96,7 @@ class Hisat2(Aligner):
         # Compose output arguments
         output_args = []
         if sam is not None:
-            output_args.extend(['-S', sam])
+            output_args.extend(['| samtools view -Sb - >', sam])
         else:
             raise RuntimeError("Must specify SAM output")
         index_args = ['-x', index]

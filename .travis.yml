@@ -45,7 +45,7 @@ before_install:
   - conda config --add channels r
   - conda config --add channels bioconda
 install:
-  - conda install --yes numpy scipy pandas scikit-learn
+  - conda install --yes numpy scipy pandas scikit-learn samtools
 script:
   - make -C src allall
   - make -C test
