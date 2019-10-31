@@ -15,7 +15,7 @@ import gc
 import os
 import sys
 import multiprocessing
-from sklearn import cross_validation
+from sklearn.model_selection import cross_val_score
 try:
     import itertools.izip as zip
 except ImportError:
@@ -216,7 +216,7 @@ class MapqFit:
             return pred_.oob_score_
 
         def _crossval_score(pred_):
-            scores_cv = cross_validation.cross_val_score(pred_, x_train, y_train)
+            scores_cv = cross_val_score(pred_, x_train, y_train)
             return float(np.mean(scores_cv))
 
         while True:
